@@ -36,7 +36,7 @@ select option{background:#12151e;color:#e2e8f0}input::placeholder{color:#475569}
 firebase.initializeApp({
   apiKey:"AIzaSyBxYfM4VPFg7DNrk1rmZHD_neJl2YVHaGk",
   authDomain:"order-system-dddca.firebaseapp.com",
-  databaseURL:"https://order-system-dddca-default-rtdb.asia-southeast1.firebasedatabase.app",
+  databaseURL:"https://order-system-dddca-default-rtdb.firebaseio.com",
   projectId:"order-system-dddca"
 });
 const db=firebase.database();
@@ -99,13 +99,23 @@ let state={items:null,logs:[],user:US[0],phase:"login",tab:"store",showZero:true
 // ═══ Firebase read/write ═══
 async function fbLoad(){
   try{
-    const[iSnap,lSnap,oSnap]=await Promise.all([dbItems.once("value"),dbLogs.once("value"),dbOrder.once("value")]);
+    // Add timeout - if Firebase doesn't respond in 8 seconds, use default data
+    const timeout=ms=>new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms));
+    const[iSnap,lSnap,oSnap]=await Promise.race([
+      Promise.all([dbItems.once("value"),dbLogs.once("value"),dbOrder.once("value")]),
+      timeout(8000)
+    ]);
     const i=iSnap.val();const l=lSnap.val();const o=oSnap.val();
     if(i&&Array.isArray(i)&&i.length>0)state.items=i;
-    else{state.items=mkInit();await dbItems.set(state.items);}
+    else{state.items=mkInit();dbItems.set(state.items);}
     state.logs=Array.isArray(l)?l:[];
     state.catOrd=(o&&typeof o==="object")?o:{};
-  }catch(e){console.error("fbLoad",e);state.items=mkInit();state.logs=[];}
+  }catch(e){
+    console.error("fbLoad error:",e);
+    state.items=mkInit();state.logs=[];
+    // Try to save initial data
+    try{dbItems.set(state.items);}catch(e2){}
+  }
 }
 function fbSaveItems(){dbItems.set(state.items).catch(e=>console.error("save items",e));}
 function fbSaveLogs(){dbLogs.set(state.logs).catch(e=>console.error("save logs",e));}
@@ -169,8 +179,10 @@ function renderLogin(){
 }
 
 function renderLoading(){
-  return h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}},
-    h("div",{style:{color:"#3b82f6",fontSize:"16px"}},"載入庫存資料中...")
+  return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"12px"}},
+    h("div",{style:{fontSize:"40px"}},"📦"),
+    h("div",{style:{color:"#3b82f6",fontSize:"16px"}},"連線 Firebase 載入資料中..."),
+    h("div",{style:{color:"#475569",fontSize:"12px"}},"如果超過 10 秒沒反應，請重新整理頁面")
   );
 }
 
