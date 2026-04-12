@@ -13,21 +13,27 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0b0d13;font-family:'Noto Sans TC',system-ui,sans-serif;color:#e2e8f0;min-height:100vh;-webkit-tap-highlight-color:transparent}
-::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#222839;border-radius:9px}
-select option{background:#12151e;color:#e2e8f0}input::placeholder{color:#475569}
+body{background:#f1f5f9;font-family:'Noto Sans TC',system-ui,sans-serif;color:#334155;min-height:100vh;-webkit-tap-highlight-color:transparent}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:9px}
+select option{background:#fff;color:#334155}input::placeholder{color:#94a3b8}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
-.ipt{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #222839;background:#191d28;color:#e2e8f0;font-size:14px;outline:none;font-family:inherit;box-sizing:border-box}
-.row{display:flex;align-items:center;gap:5px;padding:5px 10px 5px 30px;border-bottom:1px solid #222839}
+.ipt{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#334155;font-size:14px;outline:none;font-family:inherit;box-sizing:border-box}
+.ipt:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+.row{display:flex;align-items:center;gap:5px;padding:5px 10px 5px 30px;border-bottom:1px solid #f1f5f9}
 .qbtn{padding:3px 7px;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;border:none}
 .modal-bg{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center}
-.modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,.55)}
-.modal-box{position:relative;background:#12151e;border-radius:14px;padding:22px 26px;width:92%;max-width:420px;border:1px solid #222839;max-height:90vh;overflow-y:auto}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#22c55e;color:#fff;padding:10px 24px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,.4);z-index:9999;animation:toastIn .3s ease;white-space:nowrap}
+.modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,.25);backdrop-filter:blur(4px)}
+.modal-box{position:relative;background:#fff;border-radius:14px;padding:22px 26px;width:92%;max-width:420px;border:1px solid #e2e8f0;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.12)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#3b82f6;color:#fff;padding:10px 24px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(59,130,246,.3);z-index:9999;animation:toastIn .3s ease;white-space:nowrap}
 .tag-btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
 .num-btn{padding:8px 0;border-radius:7px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
-.export-box{background:#191d28;border:1px solid #222839;border-radius:10px;padding:14px;white-space:pre-wrap;font-size:12px;color:#94a3b8;max-height:60vh;overflow-y:auto;font-family:'Noto Sans TC',monospace;line-height:1.6}
+.export-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;white-space:pre-wrap;font-size:12px;color:#475569;max-height:60vh;overflow-y:auto;font-family:'Noto Sans TC',monospace;line-height:1.6}
+.pm-btn{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid;font-size:18px;font-weight:700;line-height:1;transition:all .15s;background:#fff}
+.pm-btn:active{transform:scale(.9)}
+.pm-btn.minus{border-color:#fca5a5;color:#ef4444}.pm-btn.minus:hover{background:#fef2f2}
+.pm-btn.plus{border-color:#93c5fd;color:#3b82f6}.pm-btn.plus:hover{background:#eff6ff}
+.day-divider{display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:12px;font-weight:700;color:#3b82f6;background:#eff6ff;border-bottom:1px solid #dbeafe}
 </style>
 </head>
 <body>
@@ -221,28 +227,28 @@ async function doSync(){showToast("同步中…");await fbLoad();showToast("已�
 function h(t,p,...c){const e=document.createElement(t);if(p)Object.entries(p).forEach(([k,v])=>{if(k==="style"&&typeof v==="object")Object.assign(e.style,v);else if(k.startsWith("on"))e[k.toLowerCase()]=v;else if(k==="className")e.className=v;else if(k==="disabled")e.disabled=v;else e.setAttribute(k,v);});c.flat(9).forEach(x=>{if(x==null||x===false)return;if(typeof x==="string"||typeof x==="number")e.appendChild(document.createTextNode(x));else if(x instanceof Node)e.appendChild(x);});return e;}
 
 function renderLogin(){
-  return h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}},
-    h("div",{style:{background:"#12151e",borderRadius:"20px",padding:"36px 32px",width:"320px",border:"1px solid #222839",textAlign:"center"}},
+  return h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#eff6ff,#f1f5f9)"}},
+    h("div",{style:{background:"#fff",borderRadius:"20px",padding:"36px 32px",width:"320px",border:"1px solid #e2e8f0",textAlign:"center",boxShadow:"0 10px 40px rgba(0,0,0,.06)"}},
       h("div",{style:{fontSize:"40px",marginBottom:"4px"}},"📦"),
-      h("h1",{style:{color:"#e2e8f0",fontSize:"20px",fontWeight:800,marginBottom:"2px"}},"庫存管理系統"),
-      h("p",{style:{color:"#475569",fontSize:"12px",marginBottom:"20px"}},"多人協作 · Firebase 同步"),
-      h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"11px",color:"#94a3b8"}},"使用者")),
+      h("h1",{style:{color:"#1e293b",fontSize:"20px",fontWeight:800,marginBottom:"2px"}},"庫存管理系統"),
+      h("p",{style:{color:"#94a3b8",fontSize:"12px",marginBottom:"20px"}},"多人協作 · Firebase 同步"),
+      h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"11px",color:"#64748b"}},"使用者")),
       (()=>{const s=h("select",{className:"ipt",style:{marginBottom:"14px"},onChange:e=>{S.user=e.target.value;}});US.forEach(u=>{const o=h("option",{value:u},u);if(u===S.user)o.selected=true;s.appendChild(o);});return s;})(),
       h("button",{style:{width:"100%",padding:"11px",borderRadius:"8px",border:"none",background:"#3b82f6",color:"#fff",fontSize:"15px",fontWeight:600,cursor:"pointer"},onClick:async()=>{S.phase="loading";render();await fbLoad();S.phase="ready";render();}},"進入系統")
   ));
 }
 
-function renderLoading(){return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"12px"}},h("div",{style:{fontSize:"40px"}},"📦"),h("div",{style:{color:"#3b82f6",fontSize:"16px"}},"連線 Firebase 中..."),h("div",{style:{color:"#475569",fontSize:"12px"}},"首次載入可能需要幾秒"));}
+function renderLoading(){return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"12px",background:"#f1f5f9"}},h("div",{style:{fontSize:"40px"}},"📦"),h("div",{style:{color:"#3b82f6",fontSize:"16px"}},"連線 Firebase 中..."),h("div",{style:{color:"#94a3b8",fontSize:"12px"}},"首次載入可能需要幾秒"));}
 
 function renderRow(it){
-  const q=it.q,bg=q===0?"#ef444428":q<=2?"#f59e0b22":"#3b82f610",cl=q===0?"#ef4444":q<=2?"#f59e0b":"#e2e8f0";
-  return h("div",{className:"row"},
-    h("div",{style:{flex:1,fontSize:"13px",fontWeight:500,color:"#e2e8f0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+  const q=it.q,bg=q===0?"#fef2f2":q<=2?"#fffbeb":"#f0f9ff",cl=q===0?"#ef4444":q<=2?"#f59e0b":"#334155";
+  return h("div",{className:"row",style:{background:"#fff"}},
+    h("div",{style:{flex:1,fontSize:"13px",fontWeight:500,color:"#334155",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+    h("button",{className:"pm-btn minus",style:{opacity:q===0?.3:1},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"−"),
     h("span",{style:{minWidth:"32px",padding:"1px 7px",borderRadius:"5px",background:bg,color:cl,fontWeight:700,fontSize:"13px",textAlign:"center",display:"inline-block"}},String(q)),
-    h("button",{className:"qbtn",style:{background:"#22c55e",color:"#fff"},onClick:()=>{S.modal={t:"in",it};render();}},"📥"),
-    h("button",{className:"qbtn",style:{background:"#f59e0b",color:"#fff",opacity:q===0?.3:1},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"📤"),
-    h("button",{className:"qbtn",style:{border:"1px solid #22d3ee33",background:"transparent",color:"#22d3ee"},onClick:()=>{S.modal={t:"audit",it};render();}},"📋"),
-    h("button",{className:"qbtn",style:{border:"1px solid #ef444433",background:"transparent",color:"#ef4444"},onClick:()=>doDel(it)},"✕")
+    h("button",{className:"pm-btn plus",onClick:()=>{S.modal={t:"in",it};render();}},"＋"),
+    h("button",{className:"qbtn",style:{border:"1px solid #e2e8f0",background:"#f8fafc",color:"#64748b",marginLeft:"4px"},onClick:()=>{S.modal={t:"audit",it};render();}},"盤"),
+    h("button",{className:"qbtn",style:{border:"1px solid #fecaca",background:"#fff",color:"#ef4444"},onClick:()=>doDel(it)},"✕")
   );
 }
 
@@ -253,37 +259,37 @@ function renderActionModal(){
   const tags=type==="in"?["廠商補貨","退貨入庫"]:type==="out"?["MOMO出貨","PC出貨","蝦皮出貨","酷澎出貨","店銷","調貨"]:[];
   let selQ=type==="audit"?it.q:1,selN="",customT="";
   const box=h("div",{className:"modal-box"});
-  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},h("h3",{style:{fontSize:"16px",fontWeight:700,color:"#e2e8f0"}},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"},onClick:()=>{S.modal=null;render();}},"✕")));
-  box.appendChild(h("div",{style:{fontSize:"12px",color:"#94a3b8",marginBottom:"8px"}},(type==="audit"?"系統庫存":"目前庫存")+"：",h("b",{style:{color:col}},String(it.q))));
-  if(type==="out"&&it.q===0)box.appendChild(h("div",{style:{fontSize:"13px",color:"#ef4444",fontWeight:700,marginBottom:"8px",padding:"6px 10px",background:"#ef444415",borderRadius:"6px"}},"⚠ 庫存為 0"));
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},h("h3",{style:{fontSize:"16px",fontWeight:700,color:"#1e293b"}},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"16px"},onClick:()=>{S.modal=null;render();}},"✕")));
+  box.appendChild(h("div",{style:{fontSize:"12px",color:"#64748b",marginBottom:"8px"}},(type==="audit"?"系統庫存":"目前庫存")+"：",h("b",{style:{color:col}},String(it.q))));
+  if(type==="out"&&it.q===0)box.appendChild(h("div",{style:{fontSize:"13px",color:"#ef4444",fontWeight:700,marginBottom:"8px",padding:"6px 10px",background:"#fef2f2",borderRadius:"6px"}},"⚠ 庫存為 0"));
 
   // Qty
-  const qDiv=h("div",{style:{marginBottom:"10px"}});qDiv.appendChild(h("label",{style:{display:"block",fontSize:"11px",color:"#94a3b8",marginBottom:"5px"}},"數量"));
+  const qDiv=h("div",{style:{marginBottom:"10px"}});qDiv.appendChild(h("label",{style:{display:"block",fontSize:"11px",color:"#64748b",marginBottom:"5px"}},"數量"));
   const prevEl=h("div",{style:{fontSize:"13px",color:"#94a3b8",marginBottom:"12px"}});
   const updatePrev=()=>{const p=type==="in"?it.q+Math.max(1,selQ):type==="out"?Math.max(0,it.q-Math.min(it.q,Math.max(0,selQ))):Math.max(0,selQ);prevEl.innerHTML="";prevEl.appendChild(document.createTextNode((type==="audit"?"校正後":"操作後")+"："));prevEl.appendChild(h("b",{style:{color:col,fontSize:"16px"}},String(p)));if(confirmBtn){const oa=type==="out"?Math.min(it.q,Math.max(0,selQ)):selQ;confirmBtn.textContent=type==="in"?"確認進貨 +"+Math.max(1,selQ):type==="out"?"確認出貨 -"+oa:"確認盤點";}};
   if(type!=="audit"){
     const grid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"5px",marginBottom:"6px"}});
-    [1,2,3,4,5,6,7,8,9].forEach(n=>{const dis=type==="out"&&n>it.q;grid.appendChild(h("button",{className:"num-btn",disabled:dis,style:{border:n===1?"2px solid "+col:"1px solid #333",background:n===1?col+"22":"transparent",color:dis?"#333":n===1?col:"#94a3b8",opacity:dis?.3:1},onClick:function(){selQ=n;grid.querySelectorAll("button").forEach((b,i)=>{if(i<9){const nn=i+1;b.style.border=nn===n?"2px solid "+col:"1px solid #333";b.style.background=nn===n?col+"22":"transparent";b.style.color=nn===n?col:"#94a3b8";}});updatePrev();}},String(n)));});
-    grid.appendChild(h("button",{style:{padding:"8px 0",borderRadius:"7px",border:"1px solid #333",background:"transparent",color:"#64748b",fontSize:"11px",fontWeight:600,cursor:"pointer"},onClick:function(){grid.style.display="none";const inp=h("input",{type:"number",min:1,max:type==="out"?it.q:undefined,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||1;if(type==="out"&&selQ>it.q)selQ=it.q;updatePrev();}});qDiv.appendChild(inp);}},"其他"));
+    [1,2,3,4,5,6,7,8,9].forEach(n=>{const dis=type==="out"&&n>it.q;grid.appendChild(h("button",{className:"num-btn",disabled:dis,style:{border:n===1?"2px solid "+col:"1px solid #e2e8f0",background:n===1?col+"15":"#fff",color:dis?"#cbd5e1":n===1?col:"#64748b",opacity:dis?.3:1},onClick:function(){selQ=n;grid.querySelectorAll("button").forEach((b,i)=>{if(i<9){const nn=i+1;b.style.border=nn===n?"2px solid "+col:"1px solid #e2e8f0";b.style.background=nn===n?col+"15":"#fff";b.style.color=nn===n?col:"#64748b";}});updatePrev();}},String(n)));});
+    grid.appendChild(h("button",{style:{padding:"8px 0",borderRadius:"7px",border:"1px solid #e2e8f0",background:"#fff",color:"#64748b",fontSize:"11px",fontWeight:600,cursor:"pointer"},onClick:function(){grid.style.display="none";const inp=h("input",{type:"number",min:1,max:type==="out"?it.q:undefined,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||1;if(type==="out"&&selQ>it.q)selQ=it.q;updatePrev();}});qDiv.appendChild(inp);}},"其他"));
     qDiv.appendChild(grid);
   }else{qDiv.appendChild(h("input",{type:"number",min:0,value:String(it.q),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||0;updatePrev();}}));}
   box.appendChild(qDiv);
 
   // Note
   const nDiv=h("div",{style:{marginBottom:"10px"}});
-  nDiv.appendChild(h("label",{style:{display:"block",fontSize:"11px",color:"#94a3b8",marginBottom:"5px"}},"備註",tags.length?h("span",{style:{color:"#ef4444"}}," * 必選"):null));
+  nDiv.appendChild(h("label",{style:{display:"block",fontSize:"11px",color:"#64748b",marginBottom:"5px"}},"備註",tags.length?h("span",{style:{color:"#ef4444"}}," * 必選"):null));
   const warnEl=h("div",{style:{fontSize:"12px",color:"#ef4444",marginTop:"6px",display:tags.length?"block":"none"}},"⚠ 請選擇備註類型");
   const customInp=h("input",{className:"ipt",placeholder:"調貨對象",style:{fontSize:"13px",marginTop:"8px",display:"none"},onInput:e=>{customT=e.target.value;}});
   if(tags.length){
     const tw=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"6px"}});
-    tags.forEach(t=>{tw.appendChild(h("button",{className:"tag-btn",style:{border:"1px solid #333",background:"transparent",color:"#94a3b8"},onClick:function(){if(selN===t){selN="";this.style.border="1px solid #333";this.style.background="transparent";this.style.color="#94a3b8";}else{selN=t;tw.querySelectorAll("button").forEach(b=>{b.style.border="1px solid #333";b.style.background="transparent";b.style.color="#94a3b8";});this.style.border="2px solid "+col;this.style.background=col+"20";this.style.color=col;}customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display=selN?"none":"block";confirmBtn.disabled=!selN;confirmBtn.style.background=selN?col:"#333";confirmBtn.style.cursor=selN?"pointer":"not-allowed";}},t));});
+    tags.forEach(t=>{tw.appendChild(h("button",{className:"tag-btn",style:{border:"1px solid #e2e8f0",background:"#fff",color:"#64748b"},onClick:function(){if(selN===t){selN="";this.style.border="1px solid #e2e8f0";this.style.background="#fff";this.style.color="#64748b";}else{selN=t;tw.querySelectorAll("button").forEach(b=>{b.style.border="1px solid #e2e8f0";b.style.background="#fff";b.style.color="#64748b";});this.style.border="2px solid "+col;this.style.background=col+"12";this.style.color=col;}customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display=selN?"none":"block";confirmBtn.disabled=!selN;confirmBtn.style.background=selN?col:"#cbd5e1";confirmBtn.style.cursor=selN?"pointer":"not-allowed";}},t));});
     nDiv.appendChild(tw);nDiv.appendChild(customInp);nDiv.appendChild(warnEl);
   }else{nDiv.appendChild(h("input",{className:"ipt",placeholder:"盤點備註",onInput:e=>{selN=e.target.value;}}));}
   box.appendChild(nDiv);
 
   updatePrev();box.appendChild(prevEl);
   const canInit=tags.length?false:true;
-  var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"11px",borderRadius:"8px",border:"none",background:canInit?col:"#333",color:"#fff",fontSize:"14px",fontWeight:600,cursor:canInit?"pointer":"not-allowed"},onClick:()=>{const fn=selN==="調貨"&&customT?"調貨："+customT:selN;doAction(type,it,selQ,fn);}},type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"確認盤點");
+  var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"11px",borderRadius:"8px",border:"none",background:canInit?col:"#cbd5e1",color:"#fff",fontSize:"14px",fontWeight:600,cursor:canInit?"pointer":"not-allowed"},onClick:()=>{const fn=selN==="調貨"&&customT?"調貨："+customT:selN;doAction(type,it,selQ,fn);}},type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"確認盤點");
   box.appendChild(confirmBtn);
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
@@ -291,18 +297,18 @@ function renderActionModal(){
 function renderAddModal(){
   if(!S.modal||S.modal.t!=="add")return null;
   let selB="",selC="";const box=h("div",{className:"modal-box"});
-  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"14px"}},h("h3",{style:{fontSize:"16px",fontWeight:700,color:"#e2e8f0"}},"➕ 新增商品"),h("button",{style:{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"},onClick:()=>{S.modal=null;render();}},"✕")));
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"14px"}},h("h3",{style:{fontSize:"16px",fontWeight:700,color:"#1e293b"}},"➕ 新增商品"),h("button",{style:{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"16px"},onClick:()=>{S.modal=null;render();}},"✕")));
   const zS=h("select",{className:"ipt"},h("option",{value:"店內"},"店內"),h("option",{value:"倉庫"},"倉庫"));if(S.tab==="warehouse")zS.value="倉庫";
-  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#94a3b8",marginBottom:"3px"}},"區域"),zS));
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#64748b",marginBottom:"3px"}},"區域"),zS));
   const brands=[...new Set(S.items.map(x=>x.b))].sort();const cS=h("select",{className:"ipt",onChange:e=>{selC=e.target.value;}});cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));
   const bS=h("select",{className:"ipt",onChange:e=>{selB=e.target.value;cS.innerHTML="";cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));if(selB)[...new Set(S.items.filter(x=>x.b===selB).map(x=>x.c))].sort().forEach(c=>cS.appendChild(h("option",{value:c},c)));cS.appendChild(h("option",{value:"__new"},"✏️ 自訂"));}});
   bS.appendChild(h("option",{value:""},"-- 選擇品牌 --"));brands.forEach(b=>bS.appendChild(h("option",{value:b},b)));
-  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#94a3b8",marginBottom:"3px"}},"品牌 *"),bS));
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#64748b",marginBottom:"3px"}},"品牌 *"),bS));
   const ccI=h("input",{className:"ipt",placeholder:"輸入新分類",style:{display:"none",marginTop:"6px"}});
   cS.addEventListener("change",e=>{selC=e.target.value;ccI.style.display=selC==="__new"?"block":"none";});
-  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#94a3b8",marginBottom:"3px"}},"分類 *"),cS,ccI));
-  const nI=h("input",{className:"ipt",placeholder:"型號名稱"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#94a3b8",marginBottom:"3px"}},"商品名稱 *"),nI));
-  const qI=h("input",{type:"number",min:0,value:"0",className:"ipt"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#94a3b8",marginBottom:"3px"}},"初始庫存"),qI));
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#64748b",marginBottom:"3px"}},"分類 *"),cS,ccI));
+  const nI=h("input",{className:"ipt",placeholder:"型號名稱"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#64748b",marginBottom:"3px"}},"商品名稱 *"),nI));
+  const qI=h("input",{type:"number",min:0,value:"0",className:"ipt"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"11px",color:"#64748b",marginBottom:"3px"}},"初始庫存"),qI));
   box.appendChild(h("button",{style:{width:"100%",padding:"11px",borderRadius:"8px",border:"none",background:"#22c55e",color:"#fff",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}if(!selB){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}doAdd({z:zS.value,b:selB,c:cat,n,q:parseInt(qI.value)||0});}},"新增商品"));
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
@@ -311,7 +317,17 @@ function renderExportModal(){
   if(!S.modal||S.modal.t!=="export")return null;
   const txt=generateExport(S.items);
   const box=h("div",{className:"modal-box",style:{maxWidth:"500px"}});
-  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},h("h3",{style:{fontSize:"16px",fontWeight:700,color:"#e2e8f0"}},"📋 匯出庫存報表"),h("button",{style:{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"},onClick:()=>{S.modal=null;render();}},"✕")));
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},h("h3",{style:{fontSize:"16px",fontWeight:700,color:"#1e293b"}},"📋 匯出庫存報表"),h("button",{style:{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"16px"},onClick:()=>{S.modal=null;render();}},"✕")));
+
+  // Today's shipments section
+  const todayDate=new Date().toISOString().substring(0,10);
+  const todayLogs=S.logs.filter(l=>{const lt=(l.t||"").replace(/\//g,"-");return lt.startsWith(todayDate)&&l.a==="📤出貨";});
+  const todayBox=h("div",{style:{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:"10px",padding:"12px",marginBottom:"12px"}});
+  todayBox.appendChild(h("div",{style:{fontSize:"13px",fontWeight:700,color:"#1d4ed8",marginBottom:"8px"}},"📦 今日出貨（"+dateStr()+"）"));
+  if(todayLogs.length===0){todayBox.appendChild(h("div",{style:{fontSize:"12px",color:"#64748b"}},"今天尚無出貨紀錄"));}
+  else{todayLogs.forEach(l=>{todayBox.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"4px 0",borderBottom:"1px solid #dbeafe",fontSize:"12px"}},h("span",{style:{color:"#1e293b",fontWeight:600,flex:1}},l.n),h("span",{style:{color:"#ef4444",fontWeight:700}},l.d),h("span",{style:{color:"#94a3b8",fontSize:"10px"}},l.u)));});}
+  box.appendChild(todayBox);
+
   box.appendChild(h("div",{style:{display:"flex",gap:"8px",marginBottom:"12px"}},
     h("button",{style:{flex:1,padding:"10px",borderRadius:"8px",border:"none",background:"#3b82f6",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{navigator.clipboard.writeText(txt).then(()=>showToast("已複製到剪貼簿！")).catch(()=>{const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);showToast("已複製！");});}},"📋 複製全部"),
     h("button",{style:{flex:1,padding:"10px",borderRadius:"8px",border:"none",background:"#22c55e",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(navigator.share){navigator.share({title:"庫存報表 "+dateStr(),text:txt}).catch(()=>{});}else{showToast("此裝置不支援分享");}}},"📤 分享")
@@ -330,42 +346,52 @@ function renderMain(){
   const grouped=Object.keys(m).sort((a,b)=>a.localeCompare(b,"zh-TW")).map(b=>{const ks=Object.keys(m[b]);const ord=S.catOrd[zone+"|"+b]||[];const sorted=[...ord.filter(k=>ks.includes(k)),...ks.filter(k=>!ord.includes(k))];return{b,cats:sorted.map(c=>({c,its:m[b][c]}))};});
   const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>!x.q).length,l:items.filter(x=>x.q>0&&x.q<=2).length};
   const root=h("div",{});
-  root.appendChild(h("header",{style:{padding:"8px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #222839",background:"#12151e",position:"sticky",top:0,zIndex:100}},
-    h("div",{style:{display:"flex",alignItems:"center",gap:"6px"}},h("span",{style:{fontSize:"18px"}},"📦"),h("span",{style:{fontSize:"14px",fontWeight:800}},"庫存管理"),h("span",{style:{fontSize:"10px",color:"#475569",background:"#191d28",padding:"2px 6px",borderRadius:"4px"}},S.user)),
+  root.appendChild(h("header",{style:{padding:"8px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #e2e8f0",background:"#fff",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}},
+    h("div",{style:{display:"flex",alignItems:"center",gap:"6px"}},h("span",{style:{fontSize:"18px"}},"📦"),h("span",{style:{fontSize:"14px",fontWeight:800,color:"#1e293b"}},"庫存管理"),h("span",{style:{fontSize:"10px",color:"#3b82f6",background:"#eff6ff",padding:"2px 6px",borderRadius:"4px",fontWeight:600}},S.user)),
     h("div",{style:{display:"flex",gap:"6px"}},
-      h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid #eab30844",background:"transparent",color:"#eab308",fontSize:"11px",cursor:"pointer"},onClick:()=>{S.modal={t:"export"};render();}},"📋 匯出"),
-      h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid #3b82f644",background:"transparent",color:"#3b82f6",fontSize:"11px",cursor:"pointer"},onClick:doSync},"🔄"),
-      h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid #47556944",background:"transparent",color:"#475569",fontSize:"11px",cursor:"pointer"},onClick:()=>{S.phase="login";S.items=null;render();}},"登出"))
+      h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid #fde68a",background:"#fffbeb",color:"#d97706",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},"📋 匯出"),
+      h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid #bfdbfe",background:"#eff6ff",color:"#3b82f6",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:doSync},"🔄"),
+      h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid #e2e8f0",background:"#f8fafc",color:"#64748b",fontSize:"11px",cursor:"pointer"},onClick:()=>{S.phase="login";S.items=null;render();}},"登出"))
   ));
   const statsDiv=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px",padding:"10px 14px"}});
-  [{l:"商品",v:st.c,c:"#3b82f6"},{l:"總庫存",v:st.q,c:"#22c55e"},{l:"零庫存",v:st.o,c:st.o?"#ef4444":"#475569"},{l:"低庫存",v:st.l,c:st.l?"#f59e0b":"#475569"}].forEach(s=>{statsDiv.appendChild(h("div",{style:{background:"#12151e",borderRadius:"8px",padding:"8px 10px",border:"1px solid #222839"}},h("div",{style:{fontSize:"9px",color:"#475569"}},s.l),h("div",{style:{fontSize:"18px",fontWeight:800,color:s.c}},s.v.toLocaleString())));});
+  [{l:"商品",v:st.c,c:"#3b82f6"},{l:"總庫存",v:st.q,c:"#22c55e"},{l:"零庫存",v:st.o,c:st.o?"#ef4444":"#94a3b8"},{l:"低庫存",v:st.l,c:st.l?"#f59e0b":"#94a3b8"}].forEach(s=>{statsDiv.appendChild(h("div",{style:{background:"#fff",borderRadius:"8px",padding:"8px 10px",border:"1px solid #e2e8f0"}},h("div",{style:{fontSize:"9px",color:"#94a3b8",fontWeight:600}},s.l),h("div",{style:{fontSize:"18px",fontWeight:800,color:s.c}},s.v.toLocaleString())));});
   root.appendChild(statsDiv);
-  const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 14px",borderBottom:"1px solid #222839"}});
-  [{k:"store",l:"🏪 店內"},{k:"warehouse",l:"🏭 倉庫"},{k:"log",l:"📜 紀錄"}].forEach(t=>{tabBar.appendChild(h("button",{style:{padding:"9px 12px",border:"none",background:"none",cursor:"pointer",color:S.tab===t.k?"#3b82f6":"#475569",fontSize:"12px",fontWeight:600,borderBottom:S.tab===t.k?"2px solid #3b82f6":"2px solid transparent",fontFamily:"inherit"},onClick:()=>{S.tab=t.k;render();}},t.l));});
-  tabBar.appendChild(h("div",{style:{flex:1}}));tabBar.appendChild(h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"none",background:"#22c55e",color:"#fff",fontSize:"11px",fontWeight:600,cursor:"pointer",margin:"5px 0"},onClick:()=>{S.modal={t:"add"};render();}},"＋新增"));
+  const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 14px",borderBottom:"1px solid #e2e8f0",background:"#fff"}});
+  [{k:"store",l:"🏪 店內"},{k:"warehouse",l:"🏭 倉庫"},{k:"log",l:"📜 紀錄"}].forEach(t=>{tabBar.appendChild(h("button",{style:{padding:"9px 12px",border:"none",background:"none",cursor:"pointer",color:S.tab===t.k?"#3b82f6":"#94a3b8",fontSize:"12px",fontWeight:600,borderBottom:S.tab===t.k?"2px solid #3b82f6":"2px solid transparent",fontFamily:"inherit"},onClick:()=>{S.tab=t.k;render();}},t.l));});
+  tabBar.appendChild(h("div",{style:{flex:1}}));tabBar.appendChild(h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"none",background:"#3b82f6",color:"#fff",fontSize:"11px",fontWeight:600,cursor:"pointer",margin:"5px 0"},onClick:()=>{S.modal={t:"add"};render();}},"＋新增"));
   root.appendChild(tabBar);
   const content=h("div",{style:{padding:"10px 14px",paddingBottom:"32px"}});
   if(S.tab==="store"||S.tab==="warehouse"){
     const sr=h("div",{style:{display:"flex",gap:"8px",marginBottom:"8px",alignItems:"center"}});
-    const sw=h("div",{style:{flex:1,position:"relative"}});sw.appendChild(h("span",{style:{position:"absolute",left:"8px",top:"8px",fontSize:"12px",color:"#475569"}},"🔍"));
+    const sw=h("div",{style:{flex:1,position:"relative"}});sw.appendChild(h("span",{style:{position:"absolute",left:"8px",top:"8px",fontSize:"12px",color:"#94a3b8"}},"🔍"));
     sw.appendChild(h("input",{className:"ipt",placeholder:"搜尋…",style:{paddingLeft:"28px",fontSize:"12px"},value:S.search||"",onInput:e=>{S.search=e.target.value;render();}}));sr.appendChild(sw);
-    const zl=h("label",{style:{display:"flex",alignItems:"center",gap:"3px",fontSize:"10px",color:"#94a3b8",cursor:"pointer",whiteSpace:"nowrap"}});const zc=h("input",{type:"checkbox",style:{accentColor:"#3b82f6"},onChange:e=>{S.showZero=e.target.checked;render();}});zc.checked=S.showZero;zl.appendChild(zc);zl.appendChild(document.createTextNode("零庫存"));sr.appendChild(zl);content.appendChild(sr);
+    const zl=h("label",{style:{display:"flex",alignItems:"center",gap:"3px",fontSize:"10px",color:"#64748b",cursor:"pointer",whiteSpace:"nowrap"}});const zc=h("input",{type:"checkbox",style:{accentColor:"#3b82f6"},onChange:e=>{S.showZero=e.target.checked;render();}});zc.checked=S.showZero;zl.appendChild(zc);zl.appendChild(document.createTextNode("零庫存"));sr.appendChild(zl);content.appendChild(sr);
     grouped.forEach(({b,cats})=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
       const bDiv=h("div",{style:{marginBottom:"8px"}});
-      bDiv.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"8px 12px",background:col+"10",borderRadius:bo?"10px 10px 0 0":"10px",border:"1px solid "+col+"25",cursor:"pointer",userSelect:"none"},onClick:()=>{S.bOpen[bk]=!S.bOpen[bk];render();}},h("span",{style:{fontSize:"9px",color:col,transform:bo?"rotate(0)":"rotate(-90deg)",transition:"transform .12s",fontWeight:900,display:"inline-block"}},"▼"),h("span",{style:{fontSize:"14px",fontWeight:800,color:col}},b),h("span",{style:{marginLeft:"auto",fontSize:"11px",color:col+"99"}},bC+"項/"+bT)));
-      if(bo){const inner=h("div",{style:{border:"1px solid "+col+"15",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden"}});
+      bDiv.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"8px 12px",background:"#fff",borderRadius:bo?"10px 10px 0 0":"10px",border:"1px solid #e2e8f0",cursor:"pointer",userSelect:"none"},onClick:()=>{S.bOpen[bk]=!S.bOpen[bk];render();}},h("span",{style:{fontSize:"9px",color:col,transform:bo?"rotate(0)":"rotate(-90deg)",transition:"transform .12s",fontWeight:900,display:"inline-block"}},"▼"),h("span",{style:{fontSize:"14px",fontWeight:800,color:col}},b),h("span",{style:{marginLeft:"auto",fontSize:"11px",color:"#94a3b8"}},bC+"項/"+bT)));
+      if(bo){const inner=h("div",{style:{border:"1px solid #e2e8f0",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden"}});
         cats.forEach(({c,its})=>{const ck=bk+"|"+c;const co=S.cOpen[ck];const cT=its.reduce((s,x)=>s+x.q,0);
-          inner.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"5px 10px 5px 18px",background:"#191d28",borderBottom:"1px solid #222839",cursor:"pointer",userSelect:"none"},onClick:()=>{S.cOpen[ck]=!S.cOpen[ck];render();}},h("span",{style:{fontSize:"8px",color:"#475569",transform:co?"rotate(0)":"rotate(-90deg)",transition:"transform .1s",display:"inline-block"}},"▼"),h("span",{style:{fontSize:"11px",fontWeight:600,color:"#a78bfa"}},c),h("span",{style:{marginLeft:"auto",fontSize:"10px",color:"#475569"}},its.length+"/"+cT)));
+          inner.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"5px 10px 5px 18px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",cursor:"pointer",userSelect:"none"},onClick:()=>{S.cOpen[ck]=!S.cOpen[ck];render();}},h("span",{style:{fontSize:"8px",color:"#94a3b8",transform:co?"rotate(0)":"rotate(-90deg)",transition:"transform .1s",display:"inline-block"}},"▼"),h("span",{style:{fontSize:"11px",fontWeight:600,color:"#6366f1"}},c),h("span",{style:{marginLeft:"auto",fontSize:"10px",color:"#94a3b8"}},its.length+"/"+cT)));
           if(co)its.forEach(it=>inner.appendChild(renderRow(it)));
         });bDiv.appendChild(inner);}
       content.appendChild(bDiv);
     });
-    if(!grouped.length)content.appendChild(h("div",{style:{textAlign:"center",padding:"30px",color:"#475569",fontSize:"13px"}},"無符合商品"));
+    if(!grouped.length)content.appendChild(h("div",{style:{textAlign:"center",padding:"30px",color:"#94a3b8",fontSize:"13px"}},"無符合商品"));
   }else{
-    const lb=h("div",{style:{border:"1px solid #222839",borderRadius:"10px",overflow:"hidden"}});
-    S.logs.slice(0,150).forEach((l,i)=>{lb.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"7px 10px",fontSize:"11px",background:i%2?"transparent":"#12151e",borderBottom:"1px solid #222839"}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},h("b",{style:{color:"#e2e8f0"}},l.n),l.d?h("span",{style:{color:"#475569",marginLeft:"4px",fontSize:"10px"}},l.d):null),h("span",{style:{fontSize:"10px",color:(l.nq||0)>(l.pq||0)?"#22c55e":(l.nq||0)<(l.pq||0)?"#ef4444":"#475569",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"9px",color:"#475569"}},l.u+" "+l.t)));});
-    if(!S.logs.length)lb.appendChild(h("div",{style:{padding:"24px",textAlign:"center",color:"#475569"}},"尚無紀錄"));
-    content.appendChild(lb);
+    // Group logs by day
+    const logsByDay={};
+    S.logs.slice(0,150).forEach(l=>{const day=(l.t||"").substring(0,10);if(!logsByDay[day])logsByDay[day]=[];logsByDay[day].push(l);});
+    const days=Object.keys(logsByDay).sort((a,b)=>b.localeCompare(a));
+    if(!days.length)content.appendChild(h("div",{style:{padding:"24px",textAlign:"center",color:"#94a3b8",background:"#fff",borderRadius:"10px",border:"1px solid #e2e8f0"}},"尚無紀錄"));
+    days.forEach(day=>{
+      const dayLogs=logsByDay[day];
+      const dayDiv=h("div",{style:{marginBottom:"10px"}});
+      dayDiv.appendChild(h("div",{className:"day-divider",style:{borderRadius:"10px 10px 0 0",border:"1px solid #dbeafe",borderBottom:"none"}},"📅 "+day,h("span",{style:{flex:1,borderTop:"1px solid #dbeafe"}}),h("span",{style:{fontSize:"11px",color:"#64748b",fontWeight:500}},dayLogs.length+" 筆")));
+      const lb=h("div",{style:{border:"1px solid #e2e8f0",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden"}});
+      dayLogs.forEach((l,i)=>{lb.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"7px 10px",fontSize:"11px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9"}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},h("b",{style:{color:"#1e293b"}},l.n),l.d?h("span",{style:{color:"#94a3b8",marginLeft:"4px",fontSize:"10px"}},l.d):null),h("span",{style:{fontSize:"10px",color:(l.nq||0)>(l.pq||0)?"#22c55e":(l.nq||0)<(l.pq||0)?"#ef4444":"#94a3b8",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"9px",color:"#94a3b8"}},l.u+" "+(l.t||"").substring(11))));});
+      dayDiv.appendChild(lb);
+      content.appendChild(dayDiv);
+    });
   }
   root.appendChild(content);
   const am=renderActionModal();if(am)root.appendChild(am);
