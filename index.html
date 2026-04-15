@@ -240,10 +240,10 @@ function renderExportModal(){
   const today=new Date();const td=today.getFullYear()+"/"+String(today.getMonth()+1).padStart(2,"0")+"/"+String(today.getDate()).padStart(2,"0");
   // Today's logs FIRST (at top)
   let all="";
-  const inLogs=S.logs.filter(l=>dateOnly(l.t)===td&&(l.a||"").includes("進貨"));
+  const inLogs=S.logs.filter(l=>dateOnly(l.t)===td&&((l.a||"").includes("進貨")||(l.a||"").includes("➕")));
   const outLogs=S.logs.filter(l=>dateOnly(l.t)===td&&(l.a||"").includes("出貨"));
   const auLogs=S.logs.filter(l=>dateOnly(l.t)===td&&(l.a||"").includes("盤點"));
-  if(inLogs.length){all+=d+" 今日進貨\n==================\n";inLogs.forEach(l=>{all+=l.n+" "+(l.d||"")+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
+  if(inLogs.length){all+=d+" 今日進貨\n==================\n";inLogs.forEach(l=>{const tag=(l.a||"").includes("➕")?"新增":"";all+=l.n+" "+(tag||(l.d||""))+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
   if(outLogs.length){all+=d+" 今日出貨\n==================\n";outLogs.forEach(l=>{all+=l.n+" "+(l.d||"")+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
   if(auLogs.length){all+=d+" 今日盤點\n==================\n";auLogs.forEach(l=>{all+=l.n+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
   // Stock report AFTER
