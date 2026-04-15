@@ -122,7 +122,13 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
   const ver=(o&&o.__ver)||"";
   // Items: keep Firebase data if it has enough items (>= expected), allow growth from adding new items
   if(i&&Array.isArray(i)&&i.length>=EXPECTED_COUNT){S.items=i;}
-  else if(ver===RESET_VER&&i&&Array.isArray(i)&&i.length>0){S.items=i;} // already reset once, keep whatever is there
+  else if(ver===RESET_VER&&i&&Array.isArray(i)&&i.length>0){
+    // Merge missing warehouse items into existing data
+    const init=mkInit();const existIds=new Set(i.map(x=>x.id));
+    const missing=init.filter(x=>!existIds.has(x.id));
+    if(missing.length>0){S.items=[...i,...missing];dbI.set(S.items);console.log("Added "+missing.length+" missing items");}
+    else{S.items=i;}
+  }
   else{S.items=mkInit();dbI.set(S.items);}
   // Logs: clear old test logs once (version check)
   if(ver===RESET_VER){S.logs=Array.isArray(l)?l:[];}
