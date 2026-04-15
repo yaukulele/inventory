@@ -120,8 +120,9 @@ const EXPECTED_COUNT=mkInit().length;
 const RESET_VER="v20260413d";
 async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.once("value"),dbO.once("value")]),tm(8000)]);const i=a.val(),l=b.val(),o=c.val();
   const ver=(o&&o.__ver)||"";
-  // Items: keep Firebase data if count matches, otherwise reset
-  if(i&&Array.isArray(i)&&i.length===EXPECTED_COUNT){S.items=i;}
+  // Items: keep Firebase data if it has enough items (>= expected), allow growth from adding new items
+  if(i&&Array.isArray(i)&&i.length>=EXPECTED_COUNT){S.items=i;}
+  else if(ver===RESET_VER&&i&&Array.isArray(i)&&i.length>0){S.items=i;} // already reset once, keep whatever is there
   else{S.items=mkInit();dbI.set(S.items);}
   // Logs: clear old test logs once (version check)
   if(ver===RESET_VER){S.logs=Array.isArray(l)?l:[];}
@@ -130,7 +131,9 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
 function fbSI(){dbI.set(S.items).catch(e=>console.error(e));}
 function fbSL(){dbL.set(S.logs).catch(e=>console.error(e));}
 
-function doAction(type,it,qty,note){const cur=S.items.find(x=>x.id===it.id);if(!cur)return;const rq=cur.q,amt=Math.max(type==="audit"?0:1,qty);if(type==="out"&&rq<=0)return;const oa=type==="out"?Math.min(rq,amt):amt;let nq;if(type==="in")nq=rq+amt;else if(type==="out")nq=Math.max(0,rq-oa);else nq=Math.max(0,amt);S.items=S.items.map(x=>x.id===it.id?{...x,q:nq}:x);const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+nq);S.logs=[{id:uid(),u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,d:det,pq:rq,nq},...S.logs].slice(0,500);fbSI();fbSL();S.modal=null;showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+nq);render();}
+function doAction(type,it,qty,note){const cur=S.items.find(x=>x.id===it.id);if(!cur)return;const rq=cur.q,amt=Math.max(type==="audit"?0:1,qty);if(type==="out"&&rq<=0)return;const oa=type==="out"?Math.min(rq,amt):amt;let nq;if(type==="in")nq=rq+amt;else if(type==="out")nq=Math.max(0,rq-oa);else nq=Math.max(0,amt);
+  if(type==="audit"&&nq===rq){S.modal=null;showToast("數量相同，無需盤點");render();return;}
+  S.items=S.items.map(x=>x.id===it.id?{...x,q:nq}:x);const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+nq);S.logs=[{id:uid(),u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,d:det,pq:rq,nq},...S.logs].slice(0,500);fbSI();fbSL();S.modal=null;showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+nq);render();}
 function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};S.items=[...S.items,ni];S.logs=[{id:uid(),u:S.user,a:"➕",n:ni.n,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()},...S.logs].slice(0,500);fbSI();fbSL();S.modal=null;showToast("已新增 "+ni.n);render();}
 function doDel(it){if(!confirm("刪除「"+it.n+"」？"))return;S.items=S.items.filter(x=>x.id!==it.id);S.logs=[{id:uid(),u:S.user,a:"🗑",n:it.n,d:"",pq:it.q,nq:0,t:ts()},...S.logs].slice(0,500);fbSI();fbSL();render();}
 function showToast(m){S.toast=m;render();setTimeout(()=>{S.toast="";render();},2000);}
