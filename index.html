@@ -240,27 +240,44 @@ function renderAddModal(){
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
 
-function renderExportModal(){
-  if(!S.modal||S.modal.t!=="export")return null;
-  const d=dateStr();
-  const today=new Date();const td=today.getFullYear()+"/"+String(today.getMonth()+1).padStart(2,"0")+"/"+String(today.getDate()).padStart(2,"0");
-  // Today's logs FIRST (at top)
+function genExportText(zone){
+  const d=dateStr();const today=new Date();const td=today.getFullYear()+"/"+String(today.getMonth()+1).padStart(2,"0")+"/"+String(today.getDate()).padStart(2,"0");
   let all="";
+  // Today's logs
   const inLogs=S.logs.filter(l=>dateOnly(l.t)===td&&((l.a||"").includes("進貨")||(l.a||"").includes("➕")));
   const outLogs=S.logs.filter(l=>dateOnly(l.t)===td&&(l.a||"").includes("出貨"));
   const auLogs=S.logs.filter(l=>dateOnly(l.t)===td&&(l.a||"").includes("盤點"));
   if(inLogs.length){all+=d+" 今日進貨\n==================\n";inLogs.forEach(l=>{const tag=(l.a||"").includes("➕")?"新增":"";all+=l.n+" "+(tag||(l.d||""))+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
   if(outLogs.length){all+=d+" 今日出貨\n==================\n";outLogs.forEach(l=>{all+=l.n+" "+(l.d||"")+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
   if(auLogs.length){all+=d+" 今日盤點\n==================\n";auLogs.forEach(l=>{all+=l.n+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
-  // Stock report AFTER
-  const tpls=[{t:"aNN 庫存更新",b:"aNueNue"},{t:"Veelah/Singer 庫存更新",b:["Veelah","Singer"]},{t:"D'a XS庫存更新",b:"D'Addario"},{t:"Elixir庫存更新",b:"Elixir"},{t:"NUX 庫存更新",b:"NUX"},{t:"音箱庫存更新",b:"其他音箱"},{t:"Yamaha 庫存更新",b:"Yamaha"}];
-  tpls.forEach(tpl=>{const bs=Array.isArray(tpl.b)?tpl.b:[tpl.b];const fi=S.items.filter(x=>bs.includes(x.b)&&x.z!=="倉庫");if(!fi.length)return;all+=d+" "+tpl.t+"\n==================\n";const g={};fi.forEach(x=>{if(!g[x.c])g[x.c]=[];g[x.c].push(x);});Object.keys(g).forEach(c=>{all+=c+"\n";g[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});all+="\n";});
-  const txt=all.trim();
+  // Stock report
+  const zoneItems=S.items.filter(x=>(x.z||"店內")===zone);
+  if(zone==="倉庫"){
+    const g={};zoneItems.forEach(x=>{const k=x.b+"|"+x.c;if(!g[k])g[k]=[];g[k].push(x);});
+    all+=d+" 倉庫庫存\n==================\n";
+    const brands=[...new Set(zoneItems.map(x=>x.b))].sort();
+    brands.forEach(b=>{const bi=zoneItems.filter(x=>x.b===b);const cg={};bi.forEach(x=>{if(!cg[x.c])cg[x.c]=[];cg[x.c].push(x);});
+      all+=b+"\n";Object.keys(cg).forEach(c=>{all+=c+"\n";cg[c].forEach(x=>all+=x.n+" x"+x.q+"\n");});all+="——————————\n";});
+  }else{
+    const tpls=[{t:"aNN 庫存更新",b:"aNueNue"},{t:"Veelah/Singer 庫存更新",b:["Veelah","Singer"]},{t:"D'a XS庫存更新",b:"D'Addario"},{t:"Elixir庫存更新",b:"Elixir"},{t:"NUX 庫存更新",b:"NUX"},{t:"音箱庫存更新",b:"其他音箱"},{t:"Yamaha 庫存更新",b:"Yamaha"}];
+    tpls.forEach(tpl=>{const bs=Array.isArray(tpl.b)?tpl.b:[tpl.b];const fi=zoneItems.filter(x=>bs.includes(x.b));if(!fi.length)return;all+=d+" "+tpl.t+"\n==================\n";const g={};fi.forEach(x=>{if(!g[x.c])g[x.c]=[];g[x.c].push(x);});Object.keys(g).forEach(c=>{all+=c+"\n";g[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});all+="\n";});
+  }
+  return all.trim();
+}
+
+function renderExportModal(){
+  if(!S.modal||S.modal.t!=="export")return null;
+  const expZone=S.modal.zone||"店內";
+  const d=dateStr();const txt=genExportText(expZone);
   const box=h("div",{className:"modal-box",style:{maxWidth:"500px"}});
   box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},"📋 匯出庫存報表"),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:()=>{S.modal=null;render();}},"✕")));
+  // Zone tabs
+  const tabRow=h("div",{style:{display:"flex",gap:"6px",marginBottom:"12px"}});
+  ["店內","倉庫"].forEach(z=>{const active=expZone===z;tabRow.appendChild(h("button",{style:{flex:1,padding:"8px",borderRadius:"8px",border:active?"2px solid var(--blue)":"1px solid var(--border)",background:active?"#eff6ff":"#fff",color:active?"var(--blue)":"var(--sub)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"export",zone:z};render();}},z==="店內"?"🏪 店內":"🏭 倉庫"));});
+  box.appendChild(tabRow);
   box.appendChild(h("div",{style:{display:"flex",gap:"8px",marginBottom:"14px"}},
     h("button",{style:{flex:1,padding:"11px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{navigator.clipboard.writeText(txt).then(()=>showToast("已複製！")).catch(()=>{const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);showToast("已複製！");});}},"📋 複製全部"),
-    h("button",{style:{flex:1,padding:"11px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(navigator.share)navigator.share({title:"庫存報表 "+d,text:txt}).catch(()=>{});else showToast("不支援分享");}},"📤 分享")));
+    h("button",{style:{flex:1,padding:"11px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(navigator.share)navigator.share({title:(expZone==="倉庫"?"倉庫":"店內")+"庫存報表 "+d,text:txt}).catch(()=>{});else showToast("不支援分享");}},"📤 分享")));
   box.appendChild(h("div",{className:"export-box"},txt));
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
