@@ -173,7 +173,7 @@ function renderActionModal(){
   const type=m.t,it=m.it;
   const col=type==="in"?"var(--green)":type==="out"?"var(--orange)":"var(--blue)";
   const lbl={in:"📥 進貨",out:"📤 出貨",audit:"📋 盤點"}[type];
-  const tags=type==="in"?["廠商補貨","退貨入庫","庫存調整"]:type==="out"?["MOMO出貨","PC出貨","蝦皮出貨","酷澎出貨","店銷","調貨","庫存調整"]:[];
+  const tags=type==="in"?["廠商補貨","退貨入庫"]:type==="out"?["MOMO出貨","PC出貨","蝦皮出貨","酷澎出貨","店銷","調貨"]:[];
   let selQ=type==="audit"?it.q:1,selN="",customT="";
   const box=h("div",{className:"modal-box"});
   box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px"},onClick:()=>{S.modal=null;render();}},"✕")));
