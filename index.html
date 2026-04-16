@@ -109,7 +109,8 @@ const WH=[
 function mkInit(){const o=[];D.forEach((r,i)=>o.push({id:"s"+i,b:r[0],c:r[1],n:r[2],q:r[3],z:"店內"}));WH.forEach((r,i)=>o.push({id:"w"+i,b:r[0],c:r[1],n:r[2],q:r[3],z:"倉庫"}));return o;}
 const BC={"aNueNue":"#ea580c","D'Addario":"#0d9488",NUX:"#2563eb",Singer:"#db2777",Veelah:"#16a34a",Yamaha:"#7c3aed",Roland:"#dc2626",Elixir:"#ca8a04","其他音箱":"#0891b2"};
 const gc=b=>BC[b]||"#64748b";
-const US=["Allie","阿淵","雨停","小愷","向秦"];
+const US=["快速預覽","Allie","阿淵","雨停","小愷","向秦"];
+const isPreview=()=>S.user==="快速預覽";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const ts=()=>{const d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");};
 const dateStr=()=>{const d=new Date();return(d.getMonth()+1)+"/"+d.getDate();};
@@ -212,14 +213,17 @@ function renderLoading(){return h("div",{style:{minHeight:"100vh",display:"flex"
 function renderRow(it){
   const q=it.q,qColor=q===0?"var(--red)":q<=2?"var(--orange)":"var(--text)";
   const qBg=q===0?"#fef2f2":q<=2?"#fff7ed":"#f0f9ff";
-  return h("div",{className:"row"},
+  const pv=isPreview();
+  const row=h("div",{className:"row"},
     h("div",{style:{flex:1,fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
-    h("span",{style:{minWidth:"36px",padding:"2px 8px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block"}},String(q)),
-    h("button",{className:"circle-btn",style:{background:"#dcfce7",color:"var(--green)"},onClick:()=>{S.modal={t:"in",it};render();}},"＋"),
-    h("button",{className:"circle-btn",style:{background:q===0?"#f1f5f9":"#fef3c7",color:q===0?"#cbd5e1":"var(--orange)",cursor:q===0?"default":"pointer"},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"－"),
-    h("button",{className:"circle-btn",style:{background:"#f0f9ff",color:"var(--blue)",fontSize:"12px"},onClick:()=>{S.modal={t:"audit",it};render();}},"📋"),
-    h("button",{className:"circle-btn",style:{background:"#fef2f2",color:"var(--red)",fontSize:"12px"},onClick:()=>doDel(it)},"✕")
-  );
+    h("span",{style:{minWidth:"36px",padding:"2px 8px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block"}},String(q)));
+  if(!pv){
+    row.appendChild(h("button",{className:"circle-btn",style:{background:"#dcfce7",color:"var(--green)"},onClick:()=>{S.modal={t:"in",it};render();}},"＋"));
+    row.appendChild(h("button",{className:"circle-btn",style:{background:q===0?"#f1f5f9":"#fef3c7",color:q===0?"#cbd5e1":"var(--orange)",cursor:q===0?"default":"pointer"},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"－"));
+    row.appendChild(h("button",{className:"circle-btn",style:{background:"#f0f9ff",color:"var(--blue)",fontSize:"12px"},onClick:()=>{S.modal={t:"audit",it};render();}},"📋"));
+    row.appendChild(h("button",{className:"circle-btn",style:{background:"#fef2f2",color:"var(--red)",fontSize:"12px"},onClick:()=>doDel(it)},"✕"));
+  }
+  return row;
 }
 
 function renderActionModal(){
@@ -370,7 +374,7 @@ function renderMain(){
   const root=h("div",{style:{minHeight:"100vh"}});
   // Header
   root.appendChild(h("header",{style:{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)",background:"#fff",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}},
-    h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600}},S.user)),
+    h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:isPreview()?"#94a3b8":"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600}},isPreview()?"👁 預覽模式":S.user)),
     h("div",{style:{display:"flex",gap:"6px"}},
       h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},"📋 匯出"),
       h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:doSync},"🔄"),
@@ -386,7 +390,7 @@ function renderMain(){
   // Tabs
   const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 16px",borderBottom:"1px solid var(--border)",background:"#fff"}});
   [{k:"store",l:"🏪 店內"},{k:"warehouse",l:"🏭 倉庫"},{k:"log",l:"📜 紀錄"},{k:"stats",l:"📊 統計"}].forEach(t=>{tabBar.appendChild(h("button",{className:"tab-btn"+(S.tab===t.k?" active":""),onClick:()=>{S.tab=t.k;render();}},t.l));});
-  tabBar.appendChild(h("div",{style:{flex:1}}));tabBar.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"none",background:"var(--green)",color:"#fff",fontSize:"12px",fontWeight:600,cursor:"pointer",margin:"6px 0"},onClick:()=>{S.modal={t:"add"};render();}},"＋ 新增"));
+  tabBar.appendChild(h("div",{style:{flex:1}}));if(!isPreview())tabBar.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"none",background:"var(--green)",color:"#fff",fontSize:"12px",fontWeight:600,cursor:"pointer",margin:"6px 0"},onClick:()=>{S.modal={t:"add"};render();}},"＋ 新增"));
   root.appendChild(tabBar);
   const content=h("div",{style:{padding:"12px 16px",paddingBottom:"32px"}});
   if(S.tab==="store"||S.tab==="warehouse"){
