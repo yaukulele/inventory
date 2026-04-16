@@ -51,7 +51,7 @@ firebase.initializeApp({apiKey:"AIzaSyBxYfM4VPFg7DNrk1rmZHD_neJl2YVHaGk",authDom
 const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order");
 
 const D=[
-["aNueNue","木吉他","M1",1],["aNueNue","木吉他","M1E",2],["aNueNue","木吉他","M2",1],["aNueNue","木吉他","M2E",1],["aNueNue","木吉他","M10",1],["aNueNue","木吉他","M20",1],["aNueNue","木吉他","M15",2],["aNueNue","木吉他","M25",2],["aNueNue","木吉他","MY10",5],["aNueNue","木吉他","M32",1],["aNueNue","木吉他","M52",0],["aNueNue","木吉他","M77",1],["aNueNue","木吉他","M60",1],["aNueNue","木吉他","M88",0],["aNueNue","木吉他","M100",0],["aNueNue","木吉他","Clint",0],["aNueNue","木吉他","BOB",0],["aNueNue","木吉他","MTK PS",1],["aNueNue","木吉他","L10",3],["aNueNue","木吉他","L20",1],["aNueNue","木吉他","L100",0],["aNueNue","木吉他","LF28",1],["aNueNue","木吉他","LF23",1],["aNueNue","木吉他","MBS18E",1],["aNueNue","木吉他","N520SP",1],["aNueNue","木吉他","N520AC",1],["aNueNue","木吉他","N520 SB",1],
+["aNueNue","木吉他","M1",1],["aNueNue","木吉他","M1E",2],["aNueNue","木吉他","M2",1],["aNueNue","木吉他","M2E",1],["aNueNue","木吉他","M10",1],["aNueNue","木吉他","M20",1],["aNueNue","木吉他","M15",2],["aNueNue","木吉他","M25",2],["aNueNue","木吉他","MY10",5],["aNueNue","木吉他","M32",1],["aNueNue","木吉他","M52",0],["aNueNue","木吉他","M77",1],["aNueNue","木吉他","M60",1],["aNueNue","木吉他","M88",0],["aNueNue","木吉他","M100",0],["aNueNue","木吉他","Clint",0],["aNueNue","木吉他","BOB",0],["aNueNue","木吉他","MTK PS",1],["aNueNue","木吉他","L10",3],["aNueNue","木吉他","L20",1],["aNueNue","木吉他","L100",0],["aNueNue","木吉他","LF28",1],["aNueNue","木吉他","LF23",1],["aNueNue","木吉他","MBS18E",1],["aNueNue","木吉他","N520SP",1],["aNueNue","木吉他","N520AC",1],
 ["aNueNue","MC10","MC10 AM",1],["aNueNue","MC10","MC10 LC",1],["aNueNue","MC10","MC10 GG",1],["aNueNue","MC10","MC10 BA",2],["aNueNue","MC10","MC10 BB",2],["aNueNue","MC10","MC10 BF",2],["aNueNue","MC10","MC10 IG",1],
 ["aNueNue","烏克US10","US10 BB",10],["aNueNue","烏克US10","US10 LC",16],["aNueNue","烏克US10","US10 AM",8],["aNueNue","烏克US10","US10 BA",8],
 ["aNueNue","烏克UC10","UC10 BF",2],["aNueNue","烏克UC10","UC10 IG",3],["aNueNue","烏克UC10","UC10 BA",2],["aNueNue","烏克UC10","UC10 QS",2],["aNueNue","烏克UC10","UC10 AM",4],["aNueNue","烏克UC10","UC10 LC",5],["aNueNue","烏克UC10","UC10 BB",3],
@@ -72,7 +72,6 @@ const D=[
 ["Elixir","EG弦","Nano 09-42",20],["Elixir","EG弦","Nano 09-42 三包",16],["Elixir","EG弦","Nano 09-42 散",0],["Elixir","EG弦","Nano 09-46",6],["Elixir","EG弦","Nano 10-46",32],["Elixir","EG弦","Nano 10-46 三包",26],["Elixir","EG弦","Nano 10-46 散",0],["Elixir","EG弦","Nano 10-52",0],
 ["Elixir","EG弦","Poly 09-42",8],["Elixir","EG弦","Poly 09-46",9],["Elixir","EG弦","Poly 10-46",0],
 ["Elixir","BASS弦","Nano 45-100",0],["Elixir","BASS弦","Nano 45-105",1],
-["Elixir","AG弦","PB ATTUNE 11-52",36],["Elixir","AG弦","PB ATTUNE 12-53",36],
 ["NUX","音箱","MG-101",3],["NUX","音箱","MG-30",3],["NUX","音箱","MG-400",5],["NUX","音箱","MG300 MKII",4],["NUX","音箱","Mighty Space",0],["NUX","音箱","Mighty 8 BT MKII",0],["NUX","音箱","Mighty 20 MKII",0],["NUX","音箱","Mighty Bass 50BT",0],["NUX","音箱","Mighty Lite BT MKII",1],["NUX","音箱","Mighty Air",1],["NUX","音箱","PA-50",1],["NUX","音箱","AC-25",0],
 ["NUX","隨身音箱","MP-3 Mighty Plug PRO",2],["NUX","隨身音箱","MP-2 Mighty Plug PRO",6],
 ["NUX","調音器","WST-905 Li",3],["NUX","調音器","WST-915 Li",5],["NUX","調音器","WST-675 W",52],["NUX","調音器","WST-675 B",10],["NUX","調音器","WST-675 G",13],
@@ -119,16 +118,23 @@ let S={items:null,logs:[],user:US[0],phase:"login",tab:"store",showZero:true,mod
 
 const EXPECTED_COUNT=mkInit().length;
 const RESET_VER="v20260413d";
+// Items that must exist - added manually, will be auto-injected if missing
+const INJECT_ITEMS=[
+  {b:"aNueNue",c:"木吉他",n:"N520 SB",q:1,z:"店內"},
+  {b:"Elixir",c:"AG弦",n:"PB ATTUNE 11-52",q:36,z:"店內"},
+  {b:"Elixir",c:"AG弦",n:"PB ATTUNE 12-53",q:36,z:"店內"},
+];
 async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.once("value"),dbO.once("value")]),tm(8000)]);const i=a.val(),l=b.val(),o=c.val();
   const ver=(o&&o.__ver)||"";
-  // Items: keep Firebase data if it has enough items (>= expected), allow growth from adding new items
-  if(i&&Array.isArray(i)&&i.length>=EXPECTED_COUNT){S.items=i;}
-  else if(ver===RESET_VER&&i&&Array.isArray(i)&&i.length>0){
-    // Merge missing warehouse items into existing data
-    const init=mkInit();const existIds=new Set(i.map(x=>x.id));
-    const missing=init.filter(x=>!existIds.has(x.id));
-    if(missing.length>0){S.items=[...i,...missing];dbI.set(S.items);console.log("Added "+missing.length+" missing items");}
-    else{S.items=i;}
+  if(i&&Array.isArray(i)&&i.length>0){
+    S.items=i;
+    // Auto-inject missing items by name
+    const existNames=new Set(i.map(x=>x.b+"|"+x.n));
+    const toAdd=INJECT_ITEMS.filter(x=>!existNames.has(x.b+"|"+x.n)).map(x=>({...x,id:uid()}));
+    // Also merge any missing init items (e.g. warehouse)
+    const init=mkInit();const toAddInit=init.filter(x=>!existNames.has(x.b+"|"+x.n)).map(x=>({...x,id:uid()}));
+    const allNew=[...toAdd,...toAddInit];
+    if(allNew.length>0){S.items=[...S.items,...allNew];dbI.set(S.items);console.log("Auto-injected "+allNew.length+" missing items");}
   }
   else{S.items=mkInit();dbI.set(S.items);}
   // Logs: clear old test logs once (version check)
