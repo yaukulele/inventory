@@ -115,7 +115,7 @@ const ts=()=>{const d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+
 const dateStr=()=>{const d=new Date();return(d.getMonth()+1)+"/"+d.getDate();};
 const dateOnly=t=>(t||"").split(" ")[0]||"";
 
-let S={items:null,logs:[],user:US[0],phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",stockFilter:null,brandOrd:[]};
+let S={items:null,logs:[],user:US[0],phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",stockFilter:null,brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:""};
 
 const EXPECTED_COUNT=mkInit().length;
 const RESET_VER="v20260413d";
@@ -301,11 +301,15 @@ function genExportText(zone){
   // Stock report
   const zoneItems=S.items.filter(x=>(x.z||"店內")===zone);
   if(zone==="倉庫"){
-    const g={};zoneItems.forEach(x=>{const k=x.b+"|"+x.c;if(!g[k])g[k]=[];g[k].push(x);});
-    all+=d+" 倉庫庫存\n==================\n";
     const brands=[...new Set(zoneItems.map(x=>x.b))].sort();
-    brands.forEach(b=>{const bi=zoneItems.filter(x=>x.b===b);const cg={};bi.forEach(x=>{if(!cg[x.c])cg[x.c]=[];cg[x.c].push(x);});
-      all+=b+"\n";Object.keys(cg).forEach(c=>{all+=c+"\n";cg[c].forEach(x=>all+=x.n+" x"+x.q+"\n");});all+="——————————\n";});
+    brands.forEach(b=>{
+      const bi=zoneItems.filter(x=>x.b===b);
+      if(!bi.length)return;
+      all+=d+" "+b+" 倉庫庫存更新\n==================\n";
+      const cg={};bi.forEach(x=>{if(!cg[x.c])cg[x.c]=[];cg[x.c].push(x);});
+      Object.keys(cg).forEach(c=>{all+=c+"\n";cg[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});
+      all+="\n";
+    });
   }else{
     const tpls=[{t:"aNN 庫存更新",b:"aNueNue"},{t:"Veelah/Singer 庫存更新",b:["Veelah","Singer"]},{t:"D'a XS庫存更新",b:"D'Addario"},{t:"Elixir庫存更新",b:"Elixir"},{t:"NUX 庫存更新",b:"NUX"},{t:"音箱庫存更新",b:"其他音箱"},{t:"Yamaha 庫存更新",b:"Yamaha"}];
     tpls.forEach(tpl=>{const bs=Array.isArray(tpl.b)?tpl.b:[tpl.b];const fi=zoneItems.filter(x=>bs.includes(x.b));if(!fi.length)return;all+=d+" "+tpl.t+"\n==================\n";const g={};fi.forEach(x=>{if(!g[x.c])g[x.c]=[];g[x.c].push(x);});Object.keys(g).forEach(c=>{all+=c+"\n";g[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});all+="\n";});
@@ -427,17 +431,60 @@ function renderMain(){
     });
     if(!grouped.length)content.appendChild(h("div",{style:{textAlign:"center",padding:"40px",color:"var(--sub)",fontSize:"14px"}},"無符合商品"));
   }else if(S.tab==="log"){
-    // Today's shipments
-    const now2=new Date();const today=now2.getFullYear()+"/"+String(now2.getMonth()+1).padStart(2,"0")+"/"+String(now2.getDate()).padStart(2,"0");
-    const todayLogs=S.logs.filter(l=>dateOnly(l.t)===today&&(l.a||"").includes("出貨"));
-    if(todayLogs.length){
-      const todayCard=h("div",{className:"card",style:{marginBottom:"14px",border:"2px solid #dbeafe"}});
-      todayCard.appendChild(h("div",{style:{padding:"12px 14px",background:"var(--blue-light)",borderBottom:"1px solid #dbeafe",display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--blue)"}},"📦 今日出貨"),h("span",{style:{fontSize:"12px",color:"var(--blue)",fontWeight:600}},todayLogs.length+" 筆")));
-      todayLogs.forEach(l=>{todayCard.appendChild(h("div",{className:"row"},h("div",{style:{flex:1}},h("b",{style:{fontSize:"13px"}},l.n),h("span",{style:{color:"var(--sub)",marginLeft:"6px",fontSize:"11px"}},l.d)),h("span",{style:{fontSize:"12px",color:"var(--red)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)",marginLeft:"4px"}},l.u)));});
-      content.appendChild(todayCard);
+    // Search & date filter bar
+    const filterBar=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"8px",marginBottom:"10px",alignItems:"center"}});
+    // Text search
+    const logSw=h("div",{style:{flex:"1 1 180px",position:"relative"}});
+    const logSearchInp=h("input",{className:"ipt",placeholder:"搜尋商品名稱、備註...",style:{paddingLeft:"32px",fontSize:"13px"},id:"logSearch"});
+    logSearchInp.value=S.logSearch||"";
+    logSw.appendChild(h("span",{style:{position:"absolute",left:"10px",top:"10px",fontSize:"14px"}},"🔍"));
+    logSearchInp.addEventListener("input",function(){S.logSearch=this.value;render();const el=document.getElementById("logSearch");if(el){el.focus();el.selectionStart=el.selectionEnd=this.selectionStart;}});
+    logSw.appendChild(logSearchInp);filterBar.appendChild(logSw);
+    // Date from
+    const dfWrap=h("div",{style:{display:"flex",alignItems:"center",gap:"4px"}});
+    dfWrap.appendChild(h("label",{style:{fontSize:"11px",color:"var(--sub)",whiteSpace:"nowrap"}},"從"));
+    const dfInp=h("input",{type:"date",className:"ipt",style:{width:"130px",fontSize:"12px",padding:"8px"},id:"logDateFrom"});
+    dfInp.value=S.logDateFrom||"";
+    dfInp.addEventListener("change",function(){S.logDateFrom=this.value;render();});
+    dfWrap.appendChild(dfInp);filterBar.appendChild(dfWrap);
+    // Date to
+    const dtWrap=h("div",{style:{display:"flex",alignItems:"center",gap:"4px"}});
+    dtWrap.appendChild(h("label",{style:{fontSize:"11px",color:"var(--sub)",whiteSpace:"nowrap"}},"到"));
+    const dtInp=h("input",{type:"date",className:"ipt",style:{width:"130px",fontSize:"12px",padding:"8px"},id:"logDateTo"});
+    dtInp.value=S.logDateTo||"";
+    dtInp.addEventListener("change",function(){S.logDateTo=this.value;render();});
+    dtWrap.appendChild(dtInp);filterBar.appendChild(dtWrap);
+    // Clear filters
+    if(S.logSearch||S.logDateFrom||S.logDateTo){
+      filterBar.appendChild(h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer",whiteSpace:"nowrap"},onClick:()=>{S.logSearch="";S.logDateFrom="";S.logDateTo="";render();}},"清除篩選"));
     }
+    content.appendChild(filterBar);
+
+    // Filter logs
+    let filteredLogs=S.logs;
+    if(S.logSearch){const ls=S.logSearch.toLowerCase();filteredLogs=filteredLogs.filter(l=>(l.n||"").toLowerCase().includes(ls)||(l.d||"").toLowerCase().includes(ls)||(l.u||"").toLowerCase().includes(ls));}
+    if(S.logDateFrom){const df=S.logDateFrom.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)>=df);}
+    if(S.logDateTo){const dt=S.logDateTo.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)<=dt);}
+
+    // Today's shipments (only show when no filters)
+    if(!S.logSearch&&!S.logDateFrom&&!S.logDateTo){
+      const now2=new Date();const today=now2.getFullYear()+"/"+String(now2.getMonth()+1).padStart(2,"0")+"/"+String(now2.getDate()).padStart(2,"0");
+      const todayLogs=S.logs.filter(l=>dateOnly(l.t)===today&&(l.a||"").includes("出貨"));
+      if(todayLogs.length){
+        const todayCard=h("div",{className:"card",style:{marginBottom:"14px",border:"2px solid #dbeafe"}});
+        todayCard.appendChild(h("div",{style:{padding:"12px 14px",background:"var(--blue-light)",borderBottom:"1px solid #dbeafe",display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--blue)"}},"📦 今日出貨"),h("span",{style:{fontSize:"12px",color:"var(--blue)",fontWeight:600}},todayLogs.length+" 筆")));
+        todayLogs.forEach(l=>{todayCard.appendChild(h("div",{className:"row"},h("div",{style:{flex:1}},h("b",{style:{fontSize:"13px"}},l.n),h("span",{style:{color:"var(--sub)",marginLeft:"6px",fontSize:"11px"}},l.d)),h("span",{style:{fontSize:"12px",color:"var(--red)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)",marginLeft:"4px"}},l.u)));});
+        content.appendChild(todayCard);
+      }
+    }
+
+    // Result count
+    if(S.logSearch||S.logDateFrom||S.logDateTo){
+      content.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"8px",fontWeight:500}},"找到 "+filteredLogs.length+" 筆紀錄"));
+    }
+
     // Logs grouped by date
-    const byDate={};S.logs.slice(0,200).forEach(l=>{const d=dateOnly(l.t);if(!byDate[d])byDate[d]=[];byDate[d].push(l);});
+    const byDate={};filteredLogs.slice(0,500).forEach(l=>{const d=dateOnly(l.t);if(!byDate[d])byDate[d]=[];byDate[d].push(l);});
     const logCard=h("div",{className:"card"});
     Object.keys(byDate).forEach(date=>{
       const dayLogs=byDate[date];
@@ -447,7 +494,7 @@ function renderMain(){
       logCard.appendChild(h("div",{className:"day-header"},h("span",{},date),h("span",{style:{fontWeight:500,fontSize:"11px"}},"進"+inC+" 出"+outC+(auC?" 盤"+auC:"")+" 共"+dayLogs.length+"筆")));
       dayLogs.forEach((l,i)=>{logCard.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"8px 14px",fontSize:"12px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9"}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},h("b",{},l.n),l.d?h("span",{style:{color:"var(--sub)",marginLeft:"4px",fontSize:"11px"}},l.d):null),h("span",{style:{fontSize:"11px",color:(l.nq||0)>(l.pq||0)?"var(--green)":(l.nq||0)<(l.pq||0)?"var(--red)":"var(--sub)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)"}},l.u)));});
     });
-    if(!S.logs.length)logCard.appendChild(h("div",{style:{padding:"30px",textAlign:"center",color:"var(--sub)"}},"尚無紀錄"));
+    if(!filteredLogs.length)logCard.appendChild(h("div",{style:{padding:"30px",textAlign:"center",color:"var(--sub)"}},S.logSearch||S.logDateFrom||S.logDateTo?"沒有符合的紀錄":"尚無紀錄"));
     content.appendChild(logCard);
   }else if(S.tab==="stats"){
     // Monthly stats
