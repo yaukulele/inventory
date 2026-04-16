@@ -51,7 +51,7 @@ firebase.initializeApp({apiKey:"AIzaSyBxYfM4VPFg7DNrk1rmZHD_neJl2YVHaGk",authDom
 const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order");
 
 const D=[
-["aNueNue","木吉他","M1",1],["aNueNue","木吉他","M1E",2],["aNueNue","木吉他","M2",1],["aNueNue","木吉他","M2E",1],["aNueNue","木吉他","M10",1],["aNueNue","木吉他","M20",1],["aNueNue","木吉他","M15",2],["aNueNue","木吉他","M25",2],["aNueNue","木吉他","MY10",5],["aNueNue","木吉他","M32",1],["aNueNue","木吉他","M52",0],["aNueNue","木吉他","M77",1],["aNueNue","木吉他","M60",1],["aNueNue","木吉他","M88",0],["aNueNue","木吉他","M100",0],["aNueNue","木吉他","Clint",0],["aNueNue","木吉他","BOB",0],["aNueNue","木吉他","MTK PS",1],["aNueNue","木吉他","L10",3],["aNueNue","木吉他","L20",1],["aNueNue","木吉他","L100",0],["aNueNue","木吉他","LF28",1],["aNueNue","木吉他","LF23",1],["aNueNue","木吉他","MBS18E",1],["aNueNue","木吉他","N520SP",1],["aNueNue","木吉他","N520AC",1],
+["aNueNue","木吉他","M1",1],["aNueNue","木吉他","M1E",2],["aNueNue","木吉他","M2",1],["aNueNue","木吉他","M2E",1],["aNueNue","木吉他","M10",1],["aNueNue","木吉他","M20",1],["aNueNue","木吉他","M15",2],["aNueNue","木吉他","M25",2],["aNueNue","木吉他","MY10",5],["aNueNue","木吉他","M32",1],["aNueNue","木吉他","M52",0],["aNueNue","木吉他","M77",1],["aNueNue","木吉他","M60",1],["aNueNue","木吉他","M88",0],["aNueNue","木吉他","M100",0],["aNueNue","木吉他","Clint",0],["aNueNue","木吉他","BOB",0],["aNueNue","木吉他","MTK PS",1],["aNueNue","木吉他","L10",3],["aNueNue","木吉他","L20",1],["aNueNue","木吉他","L100",0],["aNueNue","木吉他","LF28",1],["aNueNue","木吉他","LF23",1],["aNueNue","木吉他","MBS18E",1],["aNueNue","木吉他","N520SP",1],["aNueNue","木吉他","N520AC",1],["aNueNue","木吉他","N520 SB",1],
 ["aNueNue","MC10","MC10 AM",1],["aNueNue","MC10","MC10 LC",1],["aNueNue","MC10","MC10 GG",1],["aNueNue","MC10","MC10 BA",2],["aNueNue","MC10","MC10 BB",2],["aNueNue","MC10","MC10 BF",2],["aNueNue","MC10","MC10 IG",1],
 ["aNueNue","烏克US10","US10 BB",10],["aNueNue","烏克US10","US10 LC",16],["aNueNue","烏克US10","US10 AM",8],["aNueNue","烏克US10","US10 BA",8],
 ["aNueNue","烏克UC10","UC10 BF",2],["aNueNue","烏克UC10","UC10 IG",3],["aNueNue","烏克UC10","UC10 BA",2],["aNueNue","烏克UC10","UC10 QS",2],["aNueNue","烏克UC10","UC10 AM",4],["aNueNue","烏克UC10","UC10 LC",5],["aNueNue","烏克UC10","UC10 BB",3],
@@ -72,6 +72,7 @@ const D=[
 ["Elixir","EG弦","Nano 09-42",20],["Elixir","EG弦","Nano 09-42 三包",16],["Elixir","EG弦","Nano 09-42 散",0],["Elixir","EG弦","Nano 09-46",6],["Elixir","EG弦","Nano 10-46",32],["Elixir","EG弦","Nano 10-46 三包",26],["Elixir","EG弦","Nano 10-46 散",0],["Elixir","EG弦","Nano 10-52",0],
 ["Elixir","EG弦","Poly 09-42",8],["Elixir","EG弦","Poly 09-46",9],["Elixir","EG弦","Poly 10-46",0],
 ["Elixir","BASS弦","Nano 45-100",0],["Elixir","BASS弦","Nano 45-105",1],
+["Elixir","AG弦","PB ATTUNE 11-52",36],["Elixir","AG弦","PB ATTUNE 12-53",36],
 ["NUX","音箱","MG-101",3],["NUX","音箱","MG-30",3],["NUX","音箱","MG-400",5],["NUX","音箱","MG300 MKII",4],["NUX","音箱","Mighty Space",0],["NUX","音箱","Mighty 8 BT MKII",0],["NUX","音箱","Mighty 20 MKII",0],["NUX","音箱","Mighty Bass 50BT",0],["NUX","音箱","Mighty Lite BT MKII",1],["NUX","音箱","Mighty Air",1],["NUX","音箱","PA-50",1],["NUX","音箱","AC-25",0],
 ["NUX","隨身音箱","MP-3 Mighty Plug PRO",2],["NUX","隨身音箱","MP-2 Mighty Plug PRO",6],
 ["NUX","調音器","WST-905 Li",3],["NUX","調音器","WST-915 Li",5],["NUX","調音器","WST-675 W",52],["NUX","調音器","WST-675 B",10],["NUX","調音器","WST-675 G",13],
@@ -137,6 +138,18 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
 function fbSI(){dbI.set(S.items).catch(e=>console.error(e));}
 function fbSL(){dbL.set(S.logs).catch(e=>console.error(e));}
 
+// Real-time sync: listen for changes from other users
+let fbListening=false;
+function startRealtimeSync(){
+  if(fbListening)return;fbListening=true;
+  dbI.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote)||!S.items)return;
+    // Merge: keep all remote items, add any local-only items (just added by this user)
+    const remoteIds=new Set(remote.map(x=>x.id));const localOnly=S.items.filter(x=>!remoteIds.has(x.id));
+    if(localOnly.length>0){S.items=[...remote,...localOnly];dbI.set(S.items);}
+    else if(remote.length!==S.items.length||JSON.stringify(remote.map(x=>x.q))!==JSON.stringify(S.items.map(x=>x.q))){S.items=remote;render();}
+  });
+}
+
 function doAction(type,it,qty,note){const cur=S.items.find(x=>x.id===it.id);if(!cur)return;const rq=cur.q,amt=Math.max(type==="audit"?0:1,qty);if(type==="out"&&rq<=0)return;const oa=type==="out"?Math.min(rq,amt):amt;let nq;if(type==="in")nq=rq+amt;else if(type==="out")nq=Math.max(0,rq-oa);else nq=Math.max(0,amt);
   if(type==="audit"&&nq===rq){S.modal=null;showToast("數量相同，無需盤點");render();return;}
   S.items=S.items.map(x=>x.id===it.id?{...x,q:nq}:x);const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+nq);S.logs=[{id:uid(),u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,d:det,pq:rq,nq},...S.logs].slice(0,500);fbSI();fbSL();S.modal=null;showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+nq);render();}
@@ -155,7 +168,7 @@ function renderLogin(){
       h("p",{style:{color:"var(--sub)",fontSize:"13px",marginBottom:"24px"}},"多人協作 · Firebase 即時同步"),
       h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"選擇使用者")),
       (()=>{const s=h("select",{className:"ipt",style:{marginBottom:"16px"},onChange:e=>{S.user=e.target.value;}});US.forEach(u=>{const o=h("option",{value:u},u);if(u===S.user)o.selected=true;s.appendChild(o);});return s;})(),
-      h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async()=>{S.phase="loading";render();await fbLoad();S.phase="ready";render();}},"進入系統")
+      h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async()=>{S.phase="loading";render();await fbLoad();startRealtimeSync();S.phase="ready";render();}},"進入系統")
   ));
 }
 
