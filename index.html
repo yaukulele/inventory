@@ -294,10 +294,13 @@ function genExportText(zone,selDate){
   const targetDate=selDate?selDate.replace(/-/g,"/"):td;
   const dlabel=targetDate.replace(/^\d{4}\//,"");
   let all="";
-  // Logs for selected date
-  const inLogs=S.logs.filter(l=>dateOnly(l.t)===targetDate&&((l.a||"").includes("進貨")||(l.a||"").includes("➕")));
-  const outLogs=S.logs.filter(l=>dateOnly(l.t)===targetDate&&(l.a||"").includes("出貨"));
-  const auLogs=S.logs.filter(l=>dateOnly(l.t)===targetDate&&(l.a||"").includes("盤點"));
+  // Get item names in this zone to filter logs
+  const zoneNames=new Set(S.items.filter(x=>(x.z||"店內")===zone).map(x=>x.n));
+  const inZone=l=>zoneNames.has(l.n);
+  // Logs for selected date, filtered by zone
+  const inLogs=S.logs.filter(l=>dateOnly(l.t)===targetDate&&inZone(l)&&((l.a||"").includes("進貨")||(l.a||"").includes("➕")));
+  const outLogs=S.logs.filter(l=>dateOnly(l.t)===targetDate&&inZone(l)&&(l.a||"").includes("出貨"));
+  const auLogs=S.logs.filter(l=>dateOnly(l.t)===targetDate&&inZone(l)&&(l.a||"").includes("盤點"));
   if(inLogs.length){all+=dlabel+" 進貨\n==================\n";inLogs.forEach(l=>{const tag=(l.a||"").includes("➕")?"新增":"";all+=l.n+" "+(tag||(l.d||""))+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
   if(outLogs.length){all+=dlabel+" 出貨\n==================\n";outLogs.forEach(l=>{all+=l.n+" "+(l.d||"")+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
   if(auLogs.length){all+=dlabel+" 盤點\n==================\n";auLogs.forEach(l=>{all+=l.n+" "+l.pq+"→"+l.nq+" ("+l.u+")\n";});all+="\n";}
