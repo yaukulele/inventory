@@ -237,6 +237,7 @@ async function doAction(type,it,qty,note){
   render();
 }
 async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
+  if(f.img)ni.img=f.img;if(f.dsc)ni.dsc=f.dsc;
   const tx=await fbAddItemTx(ni).catch(e=>{console.error(e);return{committed:false};});
   if(!tx.committed){showToast("新增失敗");return;}
   if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
@@ -244,6 +245,21 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   S.logs=[logEntry,...S.logs].slice(0,500);
   fbAppendLogTx(logEntry).catch(e=>console.error(e));
   S.modal=null;showToast("已新增 "+ni.n);render();
+}
+async function doUpdateMeta(id,patch){
+  const tx=await fbTxItem(id,cur=>{
+    const next={...cur};
+    if("img" in patch){if(patch.img)next.img=patch.img;else delete next.img;}
+    if("dsc" in patch){if(patch.dsc)next.dsc=patch.dsc;else delete next.dsc;}
+    if("b" in patch&&patch.b)next.b=patch.b;
+    if("c" in patch&&patch.c)next.c=patch.c;
+    if("n" in patch&&patch.n)next.n=patch.n;
+    if("z" in patch&&patch.z)next.z=patch.z;
+    return next;
+  }).catch(e=>{console.error(e);return{committed:false};});
+  if(!tx.committed){showToast("更新失敗");return false;}
+  if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
+  return true;
 }
 async function doDel(it){if(!confirm("刪除「"+it.n+"」？"))return;
   const tx=await fbDelItemTx(it.id).catch(e=>{console.error(e);return{committed:false};});
@@ -350,8 +366,16 @@ function renderAddModal(){
   cS.addEventListener("change",e=>{ccI.style.display=e.target.value==="__new"?"block":"none";});
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"分類 *"),cS,ccI));
   const nI=h("input",{className:"ipt",placeholder:"型號名稱"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"商品名稱 *"),nI));
-  const qI=h("input",{type:"number",min:0,value:"0",className:"ipt"});box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"初始庫存"),qI));
-  box.appendChild(h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:()=>{const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}if(!selB){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}doAdd({z:zS.value,b:selB,c:cat,n,q:parseInt(qI.value)||0});}},"新增商品"));
+  const qI=h("input",{type:"number",min:0,value:"0",className:"ipt"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"初始庫存"),qI));
+  // Image URL + preview
+  const imgI=h("input",{className:"ipt",placeholder:"https://… 或留空",type:"url"});
+  const imgPreview=h("div",{style:{marginTop:"6px",display:"none",width:"80px",height:"80px",borderRadius:"10px",background:"#f8fafc",border:"1px solid var(--border)",overflow:"hidden"}});
+  imgI.addEventListener("input",()=>{const v=imgI.value.trim();if(v){imgPreview.innerHTML="";const img=h("img",{src:v,style:{width:"100%",height:"100%",objectFit:"cover"}});img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"圖片載入失敗"));};imgPreview.appendChild(img);imgPreview.style.display="block";}else imgPreview.style.display="none";});
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"圖片 URL（選填）"),imgI,imgPreview));
+  // Description
+  const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"60px",resize:"vertical",fontFamily:"inherit"}});
+  box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
+  box.appendChild(h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:()=>{const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}if(!selB){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}doAdd({z:zS.value,b:selB,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品"));
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
 
@@ -526,7 +550,9 @@ function renderMain(){
     logSw.appendChild(h("span",{style:{position:"absolute",left:"10px",top:"10px",fontSize:"14px"}},"🔍"));
     if(hasFilter){logSw.appendChild(h("button",{style:{position:"absolute",right:"6px",top:"6px",width:"28px",height:"28px",borderRadius:"50%",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"14px",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.logSearch="";S.logDateFrom="";S.logDateTo="";render();}},"✕"));}
     let logSearchTimer=null;
-    logSearchInp.addEventListener("input",function(){const v=this.value,pos=this.selectionStart;clearTimeout(logSearchTimer);logSearchTimer=setTimeout(()=>{S.logSearch=v;render();const el=document.getElementById("logSearch");if(el){el.focus();el.selectionStart=el.selectionEnd=pos;}},250);});
+    logSearchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;const v=this.value,pos=this.selectionStart;clearTimeout(logSearchTimer);logSearchTimer=setTimeout(()=>{S.logSearch=v;render();const el=document.getElementById("logSearch");if(el){el.focus();el.selectionStart=el.selectionEnd=pos;}},250);});
+    logSearchInp.addEventListener("compositionstart",function(){this.dataset.composing="true";});
+    logSearchInp.addEventListener("compositionend",function(){this.dataset.composing="false";S.logSearch=this.value;setTimeout(()=>{render();const el=document.getElementById("logSearch");if(el)el.focus();},50);});
     logSw.appendChild(logSearchInp);content.appendChild(logSw);
     // Date pickers (row 2)
     const dateRow=h("div",{style:{display:"flex",gap:"8px",marginBottom:"10px",alignItems:"center"}});
