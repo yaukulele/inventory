@@ -146,15 +146,26 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
 function fbSI(){dbI.set(S.items).catch(e=>console.error(e));}
 function fbSL(){dbL.set(S.logs).catch(e=>console.error(e));}
 
+// Atomic per-item transaction — prevents concurrent writes from clobbering each other
+function fbTxItem(id,updater){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{if(!Array.isArray(cur))return cur;const idx=cur.findIndex(x=>x&&x.id===id);if(idx<0)return cur;const r=updater(cur[idx]);if(r===undefined)return undefined;cur[idx]=r;return cur;},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+function fbAddItemTx(it){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];if(arr.some(x=>x&&x.id===it.id))return cur;return[...arr,it];},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+function fbDelItemTx(id){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{if(!Array.isArray(cur))return cur;return cur.filter(x=>x&&x.id!==id);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];return[entry,...arr].slice(0,500);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+
 // Real-time sync: listen for changes from other users
 let fbListening=false;
 function startRealtimeSync(){
   if(fbListening)return;fbListening=true;
   dbI.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote)||!S.items)return;
-    // Merge: keep all remote items, add any local-only items (just added by this user)
-    const remoteIds=new Set(remote.map(x=>x.id));const localOnly=S.items.filter(x=>!remoteIds.has(x.id));
-    if(localOnly.length>0){S.items=[...remote,...localOnly];dbI.set(S.items);}
-    else if(remote.length!==S.items.length||JSON.stringify(remote.map(x=>x.q))!==JSON.stringify(S.items.map(x=>x.q))){S.items=remote;render();}
+    // Replace local with remote (no write-back — transactions handle our own writes)
+    const prev=JSON.stringify(S.items.map(x=>x&&[x.id,x.q]));
+    const next=JSON.stringify(remote.map(x=>x&&[x.id,x.q]));
+    if(prev!==next){S.items=remote.filter(x=>x);render();}
+  });
+  dbL.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote))return;
+    const prev=S.logs.length?S.logs[0].id:null;
+    const next=remote.length?remote[0].id:null;
+    if(prev!==next||remote.length!==S.logs.length){S.logs=remote.filter(x=>x);render();}
   });
 }
 
@@ -186,11 +197,49 @@ function addTouchDrag(el,onStart,onOver,onDrop){
   });
 }
 
-function doAction(type,it,qty,note){const cur=S.items.find(x=>x.id===it.id);if(!cur)return;const rq=cur.q,amt=Math.max(type==="audit"?0:1,qty);if(type==="out"&&rq<=0)return;const oa=type==="out"?Math.min(rq,amt):amt;let nq;if(type==="in")nq=rq+amt;else if(type==="out")nq=Math.max(0,rq-oa);else nq=Math.max(0,amt);
-  if(type==="audit"&&nq===rq){S.modal=null;showToast("數量相同，無需盤點");render();return;}
-  S.items=S.items.map(x=>x.id===it.id?{...x,q:nq}:x);const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+nq);S.logs=[{id:uid(),u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,d:det,pq:rq,nq},...S.logs].slice(0,500);fbSI();fbSL();S.modal=null;showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+nq);render();}
-function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};S.items=[...S.items,ni];S.logs=[{id:uid(),u:S.user,a:"➕",n:ni.n,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()},...S.logs].slice(0,500);fbSI();fbSL();S.modal=null;showToast("已新增 "+ni.n);render();}
-function doDel(it){if(!confirm("刪除「"+it.n+"」？"))return;S.items=S.items.filter(x=>x.id!==it.id);S.logs=[{id:uid(),u:S.user,a:"🗑",n:it.n,d:"",pq:it.q,nq:0,t:ts()},...S.logs].slice(0,500);fbSI();fbSL();render();}
+async function doAction(type,it,qty,note){
+  const amt=Math.max(type==="audit"?0:1,qty);
+  let rq=0,nq=0,aborted=null;
+  const tx=await fbTxItem(it.id,cur=>{
+    rq=cur.q||0;
+    if(type==="out"&&rq<=0){aborted="⚠ 庫存為 0，無法出貨";return undefined;}
+    const oa=type==="out"?Math.min(rq,amt):amt;
+    if(type==="in")nq=rq+amt;
+    else if(type==="out")nq=Math.max(0,rq-oa);
+    else nq=Math.max(0,amt);
+    if(type==="audit"&&nq===rq){aborted="數量相同，無需盤點";return undefined;}
+    return{...cur,q:nq};
+  }).catch(e=>{console.error(e);return{committed:false,arr:null};});
+  if(aborted){S.modal=null;showToast(aborted);render();return;}
+  if(!tx.committed){S.modal=null;showToast("同步失敗，請重試");render();return;}
+  if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
+  const oa=type==="out"?Math.min(rq,amt):amt;
+  const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+nq);
+  const logEntry={id:uid(),u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,d:det,pq:rq,nq};
+  S.logs=[logEntry,...S.logs].slice(0,500);
+  fbAppendLogTx(logEntry).catch(e=>console.error(e));
+  S.modal=null;
+  showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+nq);
+  render();
+}
+async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
+  const tx=await fbAddItemTx(ni).catch(e=>{console.error(e);return{committed:false};});
+  if(!tx.committed){showToast("新增失敗");return;}
+  if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
+  const logEntry={id:uid(),u:S.user,a:"➕",n:ni.n,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()};
+  S.logs=[logEntry,...S.logs].slice(0,500);
+  fbAppendLogTx(logEntry).catch(e=>console.error(e));
+  S.modal=null;showToast("已新增 "+ni.n);render();
+}
+async function doDel(it){if(!confirm("刪除「"+it.n+"」？"))return;
+  const tx=await fbDelItemTx(it.id).catch(e=>{console.error(e);return{committed:false};});
+  if(!tx.committed){showToast("刪除失敗");return;}
+  if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
+  const logEntry={id:uid(),u:S.user,a:"🗑",n:it.n,d:"",pq:it.q,nq:0,t:ts()};
+  S.logs=[logEntry,...S.logs].slice(0,500);
+  fbAppendLogTx(logEntry).catch(e=>console.error(e));
+  render();
+}
 function showToast(m){S.toast=m;render();setTimeout(()=>{S.toast="";render();},2000);}
 async function doSync(){showToast("同步中…");await fbLoad();showToast("已同步");render();setTimeout(()=>{S.toast="";render();},1500);}
 
