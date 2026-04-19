@@ -4,10 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>庫存管理系統</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%232563eb' rx='18'/><text y='70' x='50' font-size='60' text-anchor='middle'>📦</text></svg>">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' fill='%232563eb' rx='32'/><text y='130' x='90' font-size='120' text-anchor='middle'>📦</text></svg>">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="庫存管理">
-<meta name="theme-color" content="#f8fafc">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#2563eb">
+<link rel="manifest" href='data:application/manifest+json;charset=utf-8,%7B%22name%22%3A%22%E5%BA%AB%E5%AD%98%E7%AE%A1%E7%90%86%E7%B3%BB%E7%B5%B1%22%2C%22short_name%22%3A%22%E5%BA%AB%E5%AD%98%22%2C%22start_url%22%3A%22.%22%2C%22scope%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22orientation%22%3A%22portrait%22%2C%22background_color%22%3A%22%23f8fafc%22%2C%22theme_color%22%3A%22%232563eb%22%2C%22description%22%3A%22%E5%A4%A7%E9%BC%BB%E5%AD%90%E6%A8%82%E5%99%A8%E5%BA%AB%E5%AD%98%E7%AE%A1%E7%90%86%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iIzI1NjNlYiIgcng9IjE4Ii8%2BPHRleHQgeT0iNzAiIHg9IjUwIiBmb250LXNpemU9IjYwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7wn5OmPC90ZXh0Pjwvc3ZnPg%3D%3D%22%2C%22sizes%22%3A%22any%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%2C%22purpose%22%3A%22any%20maskable%22%7D%5D%7D'>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
@@ -54,6 +61,11 @@ select option{background:#fff;color:#1e293b}input::placeholder{color:#94a3b8}
 @media(max-width:360px){
   .circle-btn{width:32px;height:32px}
   .row{gap:3px;padding:8px 8px}
+}
+.hdr-btn-export .icon{display:none}
+@media(max-width:400px){
+  .hdr-btn-export .lbl{display:none}
+  .hdr-btn-export .icon{display:inline}
 }
 header{padding-top:max(10px,env(safe-area-inset-top)) !important}
 </style>
@@ -121,7 +133,9 @@ const WH=[
 
 function mkInit(){const o=[];D.forEach((r,i)=>o.push({id:"s"+i,b:r[0],c:r[1],n:r[2],q:r[3],z:"店內"}));WH.forEach((r,i)=>o.push({id:"w"+i,b:r[0],c:r[1],n:r[2],q:r[3],z:"倉庫"}));return o;}
 const BC={"aNueNue":"#ea580c","D'Addario":"#0d9488",NUX:"#2563eb",Singer:"#db2777",Veelah:"#16a34a",Yamaha:"#7c3aed",Roland:"#dc2626",Elixir:"#ca8a04","其他音箱":"#0891b2"};
-const gc=b=>BC[b]||"#64748b";
+const _brandColorCache={};
+function hslToHex(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12;const a=s*Math.min(l,1-l);const f=n=>{const v=l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return Math.round(v*255).toString(16).padStart(2,"0");};return "#"+f(0)+f(8)+f(4);}
+function gc(b){if(BC[b])return BC[b];if(_brandColorCache[b])return _brandColorCache[b];if(!b)return "#64748b";let h=0;for(let i=0;i<b.length;i++){h=((h<<5)-h+b.charCodeAt(i))|0;}const color=hslToHex(Math.abs(h)%360,55,42);_brandColorCache[b]=color;return color;}
 const US=["快速預覽","Allie","阿淵","雨停","小愷","向秦"];
 const isPreview=()=>S.user==="快速預覽";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
@@ -129,7 +143,8 @@ const ts=()=>{const d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+
 const dateStr=()=>{const d=new Date();return(d.getMonth()+1)+"/"+d.getDate();};
 const dateOnly=t=>(t||"").split(" ")[0]||"";
 
-let S={items:null,logs:[],user:US[0],phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",stockFilter:null,brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:""};
+const _savedUser=(()=>{try{const u=localStorage.getItem("inv_user");return u&&US.includes(u)?u:US[0];}catch(e){return US[0];}})();
+let S={items:null,logs:[],user:_savedUser,phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",stockFilter:null,brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100};
 
 const EXPECTED_COUNT=mkInit().length;
 const RESET_VER="v20260413d";
@@ -139,79 +154,70 @@ const INJECT_ITEMS=[
   {b:"Elixir",c:"AG弦",n:"PB ATTUNE 11-52",q:36,z:"店內"},
   {b:"Elixir",c:"AG弦",n:"PB ATTUNE 12-53",q:36,z:"店內"},
 ];
+function hydrateFromCache(){try{const raw=localStorage.getItem("inv_cache");if(!raw)return false;const c=JSON.parse(raw);if(c&&Array.isArray(c.items)&&c.items.length>0){S.items=c.items.filter(x=>x&&x.id&&x.n);if(!S.items.length)return false;S.logs=(Array.isArray(c.logs)?c.logs:[]).filter(x=>x);S.catOrd=(c.catOrd&&typeof c.catOrd==="object")?c.catOrd:{};S.lastSyncAt=c.t||null;return true;}}catch(e){}return false;}
+function saveCache(){try{const payload={items:S.items||[],logs:(S.logs||[]).slice(0,200),catOrd:S.catOrd||{},t:S.lastSyncAt||Date.now()};localStorage.setItem("inv_cache",JSON.stringify(payload));}catch(e){}}
 async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.once("value"),dbO.once("value")]),tm(8000)]);const i=a.val(),l=b.val(),o=c.val();
   const ver=(o&&o.__ver)||"";
   if(i&&Array.isArray(i)&&i.length>0){
     S.items=i;
-    // Auto-inject missing items by name
+    // Auto-inject missing items by (brand|name) via transaction — avoids racing with other users' writes
     const existNames=new Set(i.map(x=>x.b+"|"+x.n));
     const toAdd=INJECT_ITEMS.filter(x=>!existNames.has(x.b+"|"+x.n)).map(x=>({...x,id:uid()}));
-    // Also merge any missing init items (e.g. warehouse)
     const init=mkInit();const toAddInit=init.filter(x=>!existNames.has(x.b+"|"+x.n)).map(x=>({...x,id:uid()}));
     const allNew=[...toAdd,...toAddInit];
-    if(allNew.length>0){S.items=[...S.items,...allNew];dbI.set(S.items);console.log("Auto-injected "+allNew.length+" missing items");}
+    if(allNew.length>0){
+      await new Promise((resolve)=>{dbI.transaction(cur=>{
+        const arr=Array.isArray(cur)?cur:[];
+        const exist=new Set(arr.map(x=>x&&(x.b+"|"+x.n)));
+        const stillMissing=allNew.filter(x=>!exist.has(x.b+"|"+x.n));
+        if(!stillMissing.length)return cur;
+        return[...arr,...stillMissing];
+      },(err,committed,snap)=>{if(!err&&snap&&Array.isArray(snap.val()))S.items=snap.val().filter(x=>x);resolve();},false);});
+      console.log("Auto-injected via tx: "+allNew.length+" item(s) checked");
+    }
   }
-  else{S.items=mkInit();dbI.set(S.items);}
+  else{await new Promise(resolve=>{dbI.transaction(cur=>{if(Array.isArray(cur)&&cur.length>0)return cur;return mkInit();},(err,committed,snap)=>{if(!err&&snap&&Array.isArray(snap.val()))S.items=snap.val().filter(x=>x);else S.items=mkInit();resolve();},false);});}
   // Logs: clear old test logs once (version check)
   if(ver===RESET_VER){S.logs=Array.isArray(l)?l:[];}
   else{S.logs=[];dbL.set([]);const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);console.log("Logs cleared:",RESET_VER);}
-  S.catOrd=(o&&typeof o==="object")?o:{};}catch(e){console.error(e);S.items=mkInit();S.logs=[];try{dbI.set(S.items);dbL.set([]);}catch(e2){}}}
-function fbSI(){dbI.set(S.items).catch(e=>console.error(e));}
-function fbSL(){dbL.set(S.logs).catch(e=>console.error(e));}
+  S.catOrd=(o&&typeof o==="object")?o:{};S.lastSyncAt=Date.now();saveCache();}catch(e){console.error("fbLoad failed:",e);if(!S.items){S.items=mkInit();S.logs=[];}/* do NOT write to Firebase on timeout — remote may have good data */}}
 
 // Atomic per-item transaction — prevents concurrent writes from clobbering each other
-function fbTxItem(id,updater){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{if(!Array.isArray(cur))return cur;const idx=cur.findIndex(x=>x&&x.id===id);if(idx<0)return cur;const r=updater(cur[idx]);if(r===undefined)return undefined;cur[idx]=r;return cur;},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+function fbTxItem(id,updater){return new Promise((resolve,reject)=>{let missing=false;dbI.transaction(cur=>{missing=false;if(!Array.isArray(cur))return cur;const idx=cur.findIndex(x=>x&&x.id===id);if(idx<0){missing=true;return cur;}const r=updater(cur[idx]);if(r===undefined)return undefined;cur[idx]=r;return cur;},(err,committed,snap)=>{if(err)return reject(err);resolve({committed:committed&&!missing,missing,arr:snap&&snap.val()});},false);});}
 function fbAddItemTx(it){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];if(arr.some(x=>x&&x.id===it.id))return cur;return[...arr,it];},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
 function fbDelItemTx(id){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{if(!Array.isArray(cur))return cur;return cur.filter(x=>x&&x.id!==id);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
 function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];return[entry,...arr].slice(0,500);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+// catOrd: atomically set one key so concurrent drags from different users don't clobber each other
+function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(!err&&snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
 
 // Real-time sync: listen for changes from other users
 let fbListening=false;
 function startRealtimeSync(){
   if(fbListening)return;fbListening=true;
+  // Connection status — writes only reach Firebase when online
+  db.ref(".info/connected").on("value",snap=>{const online=!!snap.val();if(S.online===online)return;S.online=online;if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")render();});
   // Don't re-render if a modal is open or user is typing — prevents focus loss / mid-action UI jump
   const canRender=()=>!S.modal&&document.activeElement?.tagName!=="INPUT";
   dbI.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote)||!S.items)return;
-    const prev=JSON.stringify(S.items.map(x=>x&&[x.id,x.q]));
-    const next=JSON.stringify(remote.map(x=>x&&[x.id,x.q]));
-    if(prev!==next){S.items=remote.filter(x=>x);if(canRender())render();}
+    const sig=arr=>JSON.stringify(arr.map(x=>x&&[x.id,x.q,x.n,x.b,x.c,x.z,x.img||"",x.dsc||""]));
+    const prev=sig(S.items),next=sig(remote);
+    if(prev!==next){S.items=remote.filter(x=>x);S.lastSyncAt=Date.now();saveCache();if(canRender())render();}
   });
   dbL.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote))return;
     const prev=S.logs.length?S.logs[0].id:null;
     const next=remote.length?remote[0].id:null;
-    if(prev!==next||remote.length!==S.logs.length){S.logs=remote.filter(x=>x);if(canRender())render();}
+    if(prev!==next||remote.length!==S.logs.length){S.logs=remote.filter(x=>x);saveCache();if(canRender())render();}
+  });
+  // catOrd sync: when another user reorders, reflect it
+  dbO.on("value",snap=>{const remote=snap.val();if(!remote||typeof remote!=="object")return;
+    const prev=JSON.stringify(S.catOrd),next=JSON.stringify(remote);
+    if(prev!==next){S.catOrd=remote;if(canRender())render();}
   });
 }
 
-// Touch drag helper for mobile
-function addTouchDrag(el,onStart,onOver,onDrop){
-  let startY=0,clone=null,moved=false;
-  el.addEventListener("touchstart",e=>{
-    if(e.target.closest(".circle-btn"))return;
-    startY=e.touches[0].clientY;moved=false;
-    setTimeout(()=>{if(!moved){
-      clone=el.cloneNode(true);clone.style.cssText="position:fixed;left:0;right:0;z-index:999;opacity:0.8;pointer-events:none;box-shadow:0 8px 30px rgba(0,0,0,.2);";
-      clone.style.top=el.getBoundingClientRect().top+"px";
-      document.body.appendChild(clone);el.style.opacity="0.3";
-      onStart();
-    }},300);
-  },{passive:true});
-  el.addEventListener("touchmove",e=>{
-    if(Math.abs(e.touches[0].clientY-startY)>5)moved=true;
-    if(!clone)return;e.preventDefault();
-    clone.style.top=(e.touches[0].clientY-30)+"px";
-    const target=document.elementFromPoint(e.touches[0].clientX,e.touches[0].clientY);
-    if(target)onOver(target);
-  },{passive:false});
-  el.addEventListener("touchend",e=>{
-    if(clone){clone.remove();clone=null;el.style.opacity="1";
-      const target=document.elementFromPoint(e.changedTouches[0].clientX,e.changedTouches[0].clientY);
-      if(target)onDrop(target);
-    }
-  });
-}
 
 async function doAction(type,it,qty,note){
+  const back=S.modal&&S.modal.back||null;
   const amt=Math.max(type==="audit"?0:1,qty);
   let rq=0,nq=0,aborted=null;
   const tx=await fbTxItem(it.id,cur=>{
@@ -224,54 +230,78 @@ async function doAction(type,it,qty,note){
     if(type==="audit"&&nq===rq){aborted="數量相同，無需盤點";return undefined;}
     return{...cur,q:nq};
   }).catch(e=>{console.error(e);return{committed:false,arr:null};});
-  if(aborted){S.modal=null;showToast(aborted);render();return;}
-  if(!tx.committed){S.modal=null;showToast("同步失敗，請重試");render();return;}
+  if(tx.missing){S.modal=back&&back.t==="detail"&&back.id===it.id?(back.back||null):back;showToast("⚠ 此品項已被刪除");if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);render();return {ok:false,retry:false};}
+  if(aborted){S.modal=back;showToast(aborted);render();return {ok:false,retry:false};}
+  if(!tx.committed){showToast("同步失敗，請重試");return {ok:false,retry:true};}
   if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
   const oa=type==="out"?Math.min(rq,amt):amt;
   const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+nq);
   const logEntry={id:uid(),u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,d:det,pq:rq,nq};
   S.logs=[logEntry,...S.logs].slice(0,500);
   fbAppendLogTx(logEntry).catch(e=>console.error(e));
-  S.modal=null;
-  showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+nq);
+  S.modal=back;
+  const diff=nq-rq;const diffStr=type==="audit"?(diff===0?"":" ("+(diff>0?"+":"")+diff+")"):"";
+  try{navigator.vibrate&&navigator.vibrate(30);}catch(e){}
+  showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+nq+diffStr);
   render();
+  return {ok:true};
+}
+function normalizeImgUrl(url){
+  if(!url)return "";
+  url=url.trim();
+  // Google Drive: file/d/{id}/view, open?id={id}, /uc?export=view&id={id} → lh3 direct
+  const gdMatch=url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:[^&]*&)*id=)([A-Za-z0-9_-]{20,})/);
+  if(gdMatch)return "https://lh3.googleusercontent.com/d/"+gdMatch[1]+"=w800";
+  // imgur share page → i.imgur direct
+  const imgurMatch=url.match(/^https?:\/\/(?:www\.)?imgur\.com\/([A-Za-z0-9]{5,7})(?:[?#].*)?$/);
+  if(imgurMatch)return "https://i.imgur.com/"+imgurMatch[1]+".jpg";
+  return url;
 }
 async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
-  if(f.img)ni.img=f.img;if(f.dsc)ni.dsc=f.dsc;
+  if(f.img)ni.img=normalizeImgUrl(f.img);if(f.dsc)ni.dsc=f.dsc;
   const tx=await fbAddItemTx(ni).catch(e=>{console.error(e);return{committed:false};});
   if(!tx.committed){showToast("新增失敗");return;}
+  try{localStorage.setItem("inv_lastB",f.b);localStorage.setItem("inv_lastC",f.c);}catch(e){}
   if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
   const logEntry={id:uid(),u:S.user,a:"➕",n:ni.n,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()};
   S.logs=[logEntry,...S.logs].slice(0,500);
   fbAppendLogTx(logEntry).catch(e=>console.error(e));
+  try{navigator.vibrate&&navigator.vibrate(30);}catch(e){}
   S.modal=null;showToast("已新增 "+ni.n);render();
 }
 async function doUpdateMeta(id,patch){
+  let noChange=false;
   const tx=await fbTxItem(id,cur=>{
     const next={...cur};
-    if("img" in patch){if(patch.img)next.img=patch.img;else delete next.img;}
+    if("img" in patch){const nm=normalizeImgUrl(patch.img);if(nm)next.img=nm;else delete next.img;}
     if("dsc" in patch){if(patch.dsc)next.dsc=patch.dsc;else delete next.dsc;}
     if("b" in patch&&patch.b)next.b=patch.b;
     if("c" in patch&&patch.c)next.c=patch.c;
     if("n" in patch&&patch.n)next.n=patch.n;
     if("z" in patch&&patch.z)next.z=patch.z;
+    if((cur.img||"")===(next.img||"")&&(cur.dsc||"")===(next.dsc||"")&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
     return next;
   }).catch(e=>{console.error(e);return{committed:false};});
+  if(noChange)return true;
+  if(tx.missing){showToast("⚠ 此品項已被刪除");return false;}
   if(!tx.committed){showToast("更新失敗");return false;}
   if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
   return true;
 }
-async function doDel(it){if(!confirm("刪除「"+it.n+"」？"))return;
+async function doDelNoConfirm(it){
   const tx=await fbDelItemTx(it.id).catch(e=>{console.error(e);return{committed:false};});
   if(!tx.committed){showToast("刪除失敗");return;}
   if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
   const logEntry={id:uid(),u:S.user,a:"🗑",n:it.n,d:"",pq:it.q,nq:0,t:ts()};
   S.logs=[logEntry,...S.logs].slice(0,500);
   fbAppendLogTx(logEntry).catch(e=>console.error(e));
-  render();
+  try{navigator.vibrate&&navigator.vibrate([50,30,50]);}catch(e){}
+  showToast("🗑 已刪除 "+it.n);render();
 }
-function showToast(m){S.toast=m;render();setTimeout(()=>{S.toast="";render();},2000);}
-async function doSync(){showToast("同步中…");await fbLoad();showToast("已同步");render();setTimeout(()=>{S.toast="";render();},1500);}
+function doDel(it){S.modal={t:"del-confirm",id:it.id};render();}
+let toastSeq=0;
+function showToast(m){const mySeq=++toastSeq;S.toast=m;render();setTimeout(()=>{if(mySeq===toastSeq){S.toast="";render();}},2000);}
+async function doSync(){showToast("同步中…");const before=S.lastSyncAt;await fbLoad();if(S.lastSyncAt===before)showToast("⚠ 同步失敗，檢查連線");else showToast("已同步");render();}
 
 function h(t,p,...c){const e=document.createElement(t);if(p)Object.entries(p).forEach(([k,v])=>{if(k==="style"&&typeof v==="object")Object.assign(e.style,v);else if(k.startsWith("on"))e[k.toLowerCase()]=v;else if(k==="className")e.className=v;else if(k==="disabled")e.disabled=v;else e.setAttribute(k,v);});c.flat(9).forEach(x=>{if(x==null||x===false)return;if(typeof x==="string"||typeof x==="number")e.appendChild(document.createTextNode(x));else if(x instanceof Node)e.appendChild(x);});return e;}
 
@@ -283,37 +313,59 @@ function renderLogin(){
       h("p",{style:{color:"var(--sub)",fontSize:"13px",marginBottom:"24px"}},"多人協作 · Firebase 即時同步"),
       h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"選擇使用者")),
       (()=>{const s=h("select",{className:"ipt",style:{marginBottom:"16px"},onChange:e=>{S.user=e.target.value;}});US.forEach(u=>{const o=h("option",{value:u},u);if(u===S.user)o.selected=true;s.appendChild(o);});return s;})(),
-      h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async()=>{S.phase="loading";render();await fbLoad();startRealtimeSync();S.phase="ready";render();}},"進入系統")
+      h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async()=>{try{localStorage.setItem("inv_user",S.user);}catch(e){}const cached=hydrateFromCache();S.phase=cached?"ready":"loading";render();await fbLoad();startRealtimeSync();S.phase="ready";render();}},"進入系統")
   ));
 }
 
 function renderLoading(){return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"16px"}},h("div",{style:{fontSize:"48px"}},"📦"),h("div",{style:{color:"var(--blue)",fontSize:"16px",fontWeight:600}},"連線 Firebase 中..."),h("div",{style:{color:"var(--sub)",fontSize:"13px"}},"首次載入可能需要幾秒"));}
 
+function highlightText(text,search){
+  if(!search||!text)return [document.createTextNode(text||"")];
+  const terms=search.toLowerCase().split(/\s+/).filter(Boolean).sort((a,b)=>b.length-a.length);
+  if(!terms.length)return [document.createTextNode(text)];
+  const lc=text.toLowerCase();
+  // Find all non-overlapping matches from any term
+  const marks=[];let i=0;
+  while(i<text.length){let best=null;for(const t of terms){const j=lc.indexOf(t,i);if(j>=0&&(best===null||j<best.j||(j===best.j&&t.length>best.len))){best={j,len:t.length};}}if(!best)break;marks.push(best);i=best.j+best.len;}
+  if(!marks.length)return [document.createTextNode(text)];
+  const nodes=[];let p=0;marks.forEach(m=>{if(m.j>p)nodes.push(document.createTextNode(text.slice(p,m.j)));nodes.push(h("mark",{style:{background:"#fef08a",color:"var(--text)",padding:"0 2px",borderRadius:"3px"}},text.slice(m.j,m.j+m.len)));p=m.j+m.len;});if(p<text.length)nodes.push(document.createTextNode(text.slice(p)));
+  return nodes;
+}
 function renderRow(it){
   const q=it.q,qColor=q===0?"var(--red)":q<=2?"var(--orange)":"var(--text)";
   const qBg=q===0?"#fef2f2":q<=2?"#fff7ed":"#f0f9ff";
   const pv=isPreview();
-  const row=h("div",{className:"row"},
-    h("div",{style:{flex:1,fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
-    h("span",{style:{minWidth:"36px",padding:"2px 8px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block"}},String(q)));
+  const row=h("div",{className:"row"});
+  // Thumbnail or placeholder
+  const thumb=h("div",{style:{width:"32px",height:"32px",borderRadius:"8px",overflow:"hidden",flexShrink:0,background:"#f1f5f9",border:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",color:"#cbd5e1",cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
+  if(it.img){const img=h("img",{src:it.img,style:{width:"100%",height:"100%",objectFit:"cover",display:"block"},loading:"lazy"});img.onerror=()=>{thumb.innerHTML="";thumb.appendChild(h("span",{style:{fontSize:"14px"}},"⚠"));};thumb.appendChild(img);}
+  else thumb.appendChild(h("span",{},"📷"));
+  row.appendChild(thumb);
+  // Name (clickable) + missing indicators
+  const nameWrap=h("div",{style:{flex:1,minWidth:0,overflow:"hidden",cursor:"pointer",display:"flex",alignItems:"center",gap:"4px"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
+  nameWrap.appendChild(h("span",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}},...highlightText(it.n,S.search)));
+  if(!it.img||!it.dsc)nameWrap.appendChild(h("span",{style:{fontSize:"9px",color:"#f59e0b",flexShrink:0,title:"缺資料"},title:(!it.img?"無圖 ":"")+(!it.dsc?"無敘述":"")},"●"));
+  row.appendChild(nameWrap);
+  row.appendChild(h("span",{style:{minWidth:"36px",padding:"2px 8px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
   if(!pv){
-    row.appendChild(h("button",{className:"circle-btn",style:{background:"#dcfce7",color:"var(--green)"},onClick:()=>{S.modal={t:"in",it};render();}},"＋"));
-    row.appendChild(h("button",{className:"circle-btn",style:{background:q===0?"#f1f5f9":"#fef3c7",color:q===0?"#cbd5e1":"var(--orange)",cursor:q===0?"default":"pointer"},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"－"));
-    row.appendChild(h("button",{className:"circle-btn",style:{background:"#f0f9ff",color:"var(--blue)",fontSize:"12px"},onClick:()=>{S.modal={t:"audit",it};render();}},"📋"));
-    row.appendChild(h("button",{className:"circle-btn",style:{background:"#fef2f2",color:"var(--red)",fontSize:"12px"},onClick:()=>doDel(it)},"✕"));
+    row.appendChild(h("button",{className:"circle-btn","aria-label":"進貨 "+it.n,title:"進貨",style:{background:"#dcfce7",color:"var(--green)"},onClick:()=>{S.modal={t:"in",it};render();}},"＋"));
+    row.appendChild(h("button",{className:"circle-btn","aria-label":"出貨 "+it.n,title:"出貨",style:{background:q===0?"#f1f5f9":"#fef3c7",color:q===0?"#cbd5e1":"var(--orange)",cursor:q===0?"default":"pointer"},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"－"));
+    row.appendChild(h("button",{className:"circle-btn","aria-label":"盤點 "+it.n,title:"盤點",style:{background:"#f0f9ff",color:"var(--blue)",fontSize:"12px"},onClick:()=>{S.modal={t:"audit",it};render();}},"📋"));
+    row.appendChild(h("button",{className:"circle-btn","aria-label":"刪除 "+it.n,title:"刪除",style:{background:"#fef2f2",color:"var(--red)",fontSize:"12px"},onClick:()=>doDel(it)},"✕"));
   }
   return row;
 }
 
 function renderActionModal(){
   const m=S.modal;if(!m||!["in","out","audit"].includes(m.t))return null;
-  const type=m.t,it=m.it;
+  const type=m.t,it=m.it;const actBack=m.back||null;
+  const closeAction=()=>{S.modal=actBack;render();};
   const col=type==="in"?"var(--green)":type==="out"?"var(--orange)":"var(--blue)";
   const lbl={in:"📥 進貨",out:"📤 出貨",audit:"📋 盤點"}[type];
   const tags=type==="in"?["廠商補貨","退貨入庫"]:type==="out"?["MOMO出貨","PC出貨","蝦皮出貨","酷澎出貨","店銷","調貨"]:[];
   let selQ=type==="audit"?it.q:1,selN="",customT="";
   const box=h("div",{className:"modal-box"});
-  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px"},onClick:()=>{S.modal=null;render();}},"✕")));
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px"},onClick:closeAction},"✕")));
   box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--sub)",marginBottom:"12px",padding:"8px 12px",background:"#f8fafc",borderRadius:"8px"}},(type==="audit"?"系統庫存":"目前庫存")+"：",h("b",{style:{color:col,fontSize:"16px"}},String(it.q))));
   if(type==="out"&&it.q===0)box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--red)",fontWeight:700,marginBottom:"8px",padding:"8px 12px",background:"#fef2f2",borderRadius:"8px"}},"⚠ 庫存為 0，無法出貨"));
   // Qty
@@ -323,14 +375,14 @@ function renderActionModal(){
   if(type!=="audit"){
     const grid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",marginBottom:"8px"}});
     [1,2,3,4,5,6,7,8,9].forEach(n=>{const dis=type==="out"&&n>it.q;grid.appendChild(h("button",{className:"num-btn"+(n===1?" active":""),disabled:dis,onClick:function(){selQ=n;grid.querySelectorAll("button").forEach((b,i)=>{if(i<9)b.className="num-btn"+((i+1)===n?" active":"");});updatePrev();}},String(n)));});
-    grid.appendChild(h("button",{className:"num-btn",onClick:function(){grid.style.display="none";qDiv.appendChild(h("input",{type:"number",min:1,max:type==="out"?it.q:undefined,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||1;if(type==="out"&&selQ>it.q)selQ=it.q;updatePrev();}}))}},"其他"));
+    grid.appendChild(h("button",{className:"num-btn",onClick:function(){grid.style.display="none";const newInp=h("input",{type:"number",inputmode:"numeric",min:1,max:type==="out"?it.q:undefined,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||1;if(type==="out"&&selQ>it.q)selQ=it.q;updatePrev();}});qDiv.appendChild(newInp);setTimeout(()=>{newInp.focus();newInp.select();},50);}},"其他"));
     qDiv.appendChild(grid);
   }else{
-    // Audit: show number grid centered around current qty
+    // Audit: center 14 number buttons around current qty (0..max), plus 其他
     const grid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",marginBottom:"8px"}});
-    const nums=[];for(let i=0;i<=Math.max(9,it.q+5);i++)nums.push(i);
-    nums.slice(0,15).forEach(n=>{grid.appendChild(h("button",{className:"num-btn"+(n===it.q?" active":""),onClick:function(){selQ=n;grid.querySelectorAll("button").forEach((b,i)=>{if(i<nums.slice(0,15).length)b.className="num-btn"+(nums[i]===n?" active":"");});updatePrev();}},String(n)));});
-    grid.appendChild(h("button",{className:"num-btn",onClick:function(){grid.style.display="none";qDiv.appendChild(h("input",{type:"number",min:0,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||0;updatePrev();}}))}},"其他"));
+    const span=14;let start=Math.max(0,it.q-Math.floor(span/2));const nums=[];for(let i=0;i<span;i++)nums.push(start+i);
+    nums.forEach(n=>{grid.appendChild(h("button",{className:"num-btn"+(n===it.q?" active":""),onClick:function(){selQ=n;grid.querySelectorAll("button").forEach((b,i)=>{if(i<nums.length)b.className="num-btn"+(nums[i]===n?" active":"");});updatePrev();}},String(n)));});
+    grid.appendChild(h("button",{className:"num-btn",onClick:function(){grid.style.display="none";const newInp=h("input",{type:"number",inputmode:"numeric",min:0,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||0;updatePrev();}});qDiv.appendChild(newInp);setTimeout(()=>{newInp.focus();newInp.select();},50);}},"其他"));
     qDiv.appendChild(grid);
   }
   box.appendChild(qDiv);
@@ -347,36 +399,170 @@ function renderActionModal(){
   box.appendChild(nDiv);
   updatePrev();box.appendChild(prevEl);
   const canInit=!tags.length;
-  var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:()=>{const fn=selN==="調貨"&&customT?"調貨："+customT:selN;doAction(type,it,selQ,fn);}},type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"確認盤點 "+it.q+"→"+it.q);
+  const initLabel=type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"確認盤點 "+it.q+"→"+it.q;
+  var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:async function(){if(this.disabled)return;const fn=selN==="調貨"&&customT?"調貨："+customT:selN;const prevLabel=this.textContent;this.disabled=true;this.style.opacity="0.6";this.textContent="處理中…";const r=await doAction(type,it,selQ,fn);if(r&&r.retry){this.disabled=false;this.style.opacity="1";this.textContent=prevLabel;}}},initLabel);
   box.appendChild(confirmBtn);
-  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
+  box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!confirmBtn.disabled){e.preventDefault();confirmBtn.click();}});
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeAction}),box);
 }
 
 function renderAddModal(){
   if(!S.modal||S.modal.t!=="add")return null;
-  let selB="",selC="";const box=h("div",{className:"modal-box"});
+  const brandsSet=new Set(S.items.map(x=>x.b));
+  const rawLastB=(()=>{try{return localStorage.getItem("inv_lastB")||"";}catch(e){return "";}})();
+  const lastB=brandsSet.has(rawLastB)?rawLastB:"";
+  const rawLastC=(()=>{try{return localStorage.getItem("inv_lastC")||"";}catch(e){return "";}})();
+  const lastC=lastB&&S.items.some(x=>x.b===lastB&&x.c===rawLastC)?rawLastC:"";
+  let selB=lastB,selC="";const box=h("div",{className:"modal-box"});
   box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},"➕ 新增商品"),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:()=>{S.modal=null;render();}},"✕")));
   const zS=h("select",{className:"ipt"},h("option",{value:"店內"},"店內"),h("option",{value:"倉庫"},"倉庫"));if(S.tab==="warehouse")zS.value="倉庫";
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"區域"),zS));
-  const brands=[...new Set(S.items.map(x=>x.b))].sort();const cS=h("select",{className:"ipt",onChange:e=>{selC=e.target.value;}});cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));
-  const bS=h("select",{className:"ipt",onChange:e=>{selB=e.target.value;cS.innerHTML="";cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));if(selB)[...new Set(S.items.filter(x=>x.b===selB).map(x=>x.c))].sort().forEach(c=>cS.appendChild(h("option",{value:c},c)));cS.appendChild(h("option",{value:"__new"},"✏️ 自訂"));}});
-  bS.appendChild(h("option",{value:""},"-- 選擇品牌 --"));brands.forEach(b=>bS.appendChild(h("option",{value:b},b)));
+  const brands=[...brandsSet].sort();
+  const cS=h("select",{className:"ipt",onChange:e=>{selC=e.target.value;}});cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));
+  const rebuildCats=()=>{cS.innerHTML="";cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));if(selB){[...new Set(S.items.filter(x=>x.b===selB).map(x=>x.c))].sort().forEach(c=>{const o=h("option",{value:c},c);if(c===lastC)o.selected=true;cS.appendChild(o);});if(lastC&&S.items.some(x=>x.b===selB&&x.c===lastC))selC=lastC;}cS.appendChild(h("option",{value:"__new"},"✏️ 自訂"));};
+  const bS=h("select",{className:"ipt",onChange:e=>{selB=e.target.value;selC="";ccI.style.display="none";ccI.value="";rebuildCats();}});
+  bS.appendChild(h("option",{value:""},"-- 選擇品牌 --"));brands.forEach(b=>{const o=h("option",{value:b},b);if(b===lastB)o.selected=true;bS.appendChild(o);});
+  if(lastB)rebuildCats();
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"品牌 *"),bS));
   const ccI=h("input",{className:"ipt",placeholder:"新分類名稱",style:{display:"none",marginTop:"6px"}});
   cS.addEventListener("change",e=>{ccI.style.display=e.target.value==="__new"?"block":"none";});
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"分類 *"),cS,ccI));
-  const nI=h("input",{className:"ipt",placeholder:"型號名稱"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"商品名稱 *"),nI));
-  const qI=h("input",{type:"number",min:0,value:"0",className:"ipt"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"初始庫存"),qI));
+  const nI=h("input",{className:"ipt",placeholder:"型號名稱"});
+  const dupWarn=h("div",{style:{fontSize:"12px",color:"var(--red)",marginTop:"4px",display:"none",padding:"6px 10px",background:"#fef2f2",borderRadius:"6px"}},"⚠ 同品牌已有相同名稱，請確認是否重複");
+  const checkDup=()=>{const n=nI.value.trim();if(!n||!selB){dupWarn.style.display="none";return;}const exists=S.items.some(x=>x.b===selB&&x.n.toLowerCase()===n.toLowerCase());dupWarn.style.display=exists?"block":"none";};
+  nI.addEventListener("input",checkDup);
+  bS.addEventListener("change",()=>setTimeout(checkDup,0));
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"商品名稱 *"),nI,dupWarn));
+  const qI=h("input",{type:"number",inputmode:"numeric",min:0,value:"0",className:"ipt"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"初始庫存"),qI));
   // Image URL + preview
   const imgI=h("input",{className:"ipt",placeholder:"https://… 或留空",type:"url"});
   const imgPreview=h("div",{style:{marginTop:"6px",display:"none",width:"80px",height:"80px",borderRadius:"10px",background:"#f8fafc",border:"1px solid var(--border)",overflow:"hidden"}});
-  imgI.addEventListener("input",()=>{const v=imgI.value.trim();if(v){imgPreview.innerHTML="";const img=h("img",{src:v,style:{width:"100%",height:"100%",objectFit:"cover"}});img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"圖片載入失敗"));};imgPreview.appendChild(img);imgPreview.style.display="block";}else imgPreview.style.display="none";});
+  imgI.addEventListener("input",()=>{const v=normalizeImgUrl(imgI.value);if(v){imgPreview.innerHTML="";const img=h("img",{src:v,style:{width:"100%",height:"100%",objectFit:"cover"}});img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"圖片載入失敗"));};imgPreview.appendChild(img);imgPreview.style.display="block";}else imgPreview.style.display="none";});
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"圖片 URL（選填）"),imgI,imgPreview));
   // Description
   const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"60px",resize:"vertical",fontFamily:"inherit"}});
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
-  box.appendChild(h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:()=>{const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}if(!selB){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}doAdd({z:zS.value,b:selB,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品"));
+  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}if(!selB){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===selB&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+selB+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;this.style.opacity="0.6";this.textContent="新增中…";await doAdd({z:zS.value,b:selB,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
+  box.appendChild(submitBtn);
+  box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
+}
+
+function renderDetailModal(){
+  if(!S.modal||S.modal.t!=="detail")return null;
+  const it=S.items.find(x=>x.id===S.modal.id);if(!it)return null;
+  const pv=isPreview();
+  const back=S.modal.back;
+  const closeDetail=()=>{S.modal=back||null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"460px"}});
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},
+    back?h("button",{style:{background:"none",border:"none",color:"var(--blue)",cursor:"pointer",fontSize:"13px",padding:"4px 8px",flexShrink:0,fontWeight:600},onClick:closeDetail},"‹ 返回"):null,
+    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px",flexShrink:0},onClick:closeDetail},"✕")));
+  const col=gc(it.b);
+  box.appendChild(h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"12px",alignItems:"center"}},
+    h("span",{style:{padding:"3px 10px",borderRadius:"12px",background:col+"18",color:col,fontSize:"12px",fontWeight:700}},it.b),
+    h("span",{style:{padding:"3px 10px",borderRadius:"12px",background:"#f1f5f9",color:"var(--sub)",fontSize:"12px",fontWeight:600}},it.c),
+    h("span",{style:{padding:"3px 10px",borderRadius:"12px",background:it.z==="倉庫"?"#fef3c7":"#dbeafe",color:it.z==="倉庫"?"#b45309":"var(--blue)",fontSize:"12px",fontWeight:600}},it.z||"店內"),
+    h("span",{style:{marginLeft:"auto",padding:"4px 12px",borderRadius:"10px",background:it.q===0?"#fef2f2":it.q<=2?"#fff7ed":"#f0f9ff",color:it.q===0?"var(--red)":it.q<=2?"var(--orange)":"var(--blue)",fontSize:"18px",fontWeight:800}},"× "+it.q)
+  ));
+  const isEdit=S.modal.edit;
+  if(!isEdit){
+    if(it.img){const imgBox=h("div",{style:{width:"100%",aspectRatio:"1",maxHeight:"280px",borderRadius:"12px",overflow:"hidden",background:"#f8fafc",marginBottom:"12px",border:"1px solid var(--border)",cursor:"zoom-in",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.modal={t:"lightbox",src:it.img,fromModal:S.modal};render();}});const img=h("img",{src:it.img,style:{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}});img.onerror=()=>{imgBox.innerHTML="";imgBox.appendChild(h("div",{style:{padding:"40px 20px",textAlign:"center",color:"var(--red)",fontSize:"13px"}},"⚠ 圖片載入失敗"));};imgBox.appendChild(img);box.appendChild(imgBox);}
+    else box.appendChild(h("div",{style:{padding:"24px",textAlign:"center",background:"#f8fafc",borderRadius:"12px",marginBottom:"12px",border:"1px dashed var(--border)",color:"var(--sub)",fontSize:"13px"}},"🖼 尚無圖片"));
+    if(it.dsc)box.appendChild(h("div",{style:{padding:"12px 14px",background:"#f8fafc",borderRadius:"10px",marginBottom:"12px",fontSize:"13px",color:"var(--text)",whiteSpace:"pre-wrap",lineHeight:1.6}},...highlightText(it.dsc,S.search)));
+    else box.appendChild(h("div",{style:{padding:"14px",textAlign:"center",background:"#f8fafc",borderRadius:"10px",marginBottom:"12px",color:"var(--sub)",fontSize:"12px",border:"1px dashed var(--border)"}},"📝 尚無敘述"));
+    // Recent history (last 5)
+    const recent=S.logs.filter(l=>l.n===it.n).slice(0,5);
+    if(recent.length){
+      const histBox=h("div",{style:{marginBottom:"12px",border:"1px solid var(--border)",borderRadius:"10px",overflow:"hidden"}});
+      const totalCount=S.logs.filter(l=>l.n===it.n).length;
+      histBox.appendChild(h("div",{style:{padding:"8px 12px",fontSize:"12px",fontWeight:700,color:"var(--sub)",background:"#f8fafc",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}},h("span",{},"📜 最近異動"),h("span",{style:{fontWeight:500}},totalCount>5?"近 5 筆 / 共 "+totalCount:"共 "+totalCount+" 筆")));
+      const tdToday=dateStr();const fmtLogT=t=>{if(!t)return "";const d=dateOnly(t);const dLabel=d.replace(/^\d{4}\//,"");return dLabel===tdToday?t.slice(11,16):dLabel;};
+      recent.forEach(l=>{const up=(l.nq||0)>(l.pq||0),dn=(l.nq||0)<(l.pq||0);histBox.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"6px 12px",fontSize:"11px",borderBottom:"1px solid #f1f5f9"}},h("span",{},(l.a||"").slice(0,2)),h("span",{style:{flex:1,color:"var(--sub)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},l.d||""),h("span",{style:{color:up?"var(--green)":dn?"var(--red)":"var(--sub)",fontWeight:600,flexShrink:0}},l.pq+"→"+l.nq),h("span",{style:{color:"var(--sub)",flexShrink:0,fontSize:"10px"}},fmtLogT(l.t)+" "+l.u)));});
+      box.appendChild(histBox);
+    }
+    if(!pv){
+      const detailBack={t:"detail",id:it.id,back};
+      const actRow=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px",marginBottom:"10px"}});
+      actRow.appendChild(h("button",{style:{padding:"11px 0",borderRadius:"10px",border:"none",background:"#dcfce7",color:"var(--green)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"in",it,back:detailBack};render();}},"📥 進貨"));
+      actRow.appendChild(h("button",{disabled:it.q===0,style:{padding:"11px 0",borderRadius:"10px",border:"none",background:it.q===0?"#f1f5f9":"#fef3c7",color:it.q===0?"#cbd5e1":"var(--orange)",fontSize:"13px",fontWeight:700,cursor:it.q===0?"default":"pointer"},onClick:()=>{if(it.q>0){S.modal={t:"out",it,back:detailBack};render();}}},"📤 出貨"));
+      actRow.appendChild(h("button",{style:{padding:"11px 0",borderRadius:"10px",border:"none",background:"#f0f9ff",color:"var(--blue)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"audit",it,back:detailBack};render();}},"📋 盤點"));
+      actRow.appendChild(h("button",{style:{padding:"11px 0",borderRadius:"10px",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"del-confirm",id:it.id,back:detailBack};render();}},"🗑 刪除"));
+      box.appendChild(actRow);
+      box.appendChild(h("button",{style:{width:"100%",padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--text)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,edit:true,back};render();}},"✏️ 編輯資料"));
+    }
+  }else{
+    const nI=h("input",{className:"ipt",value:it.n});
+    box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"商品名稱"),nI));
+    // Brand + Category + Zone
+    const allBrands=[...new Set(S.items.map(x=>x.b))].sort();
+    const bSel=h("select",{className:"ipt"});allBrands.forEach(b=>{const o=h("option",{value:b},b);if(b===it.b)o.selected=true;bSel.appendChild(o);});
+    const cSel=h("select",{className:"ipt"});
+    const ccInp=h("input",{className:"ipt",placeholder:"新分類名稱",style:{display:"none",marginTop:"6px"}});
+    const rebuildCat=()=>{cSel.innerHTML="";const cats=[...new Set(S.items.filter(x=>x.b===bSel.value).map(x=>x.c))].sort();cats.forEach(c=>{const o=h("option",{value:c},c);if(c===it.c&&bSel.value===it.b)o.selected=true;cSel.appendChild(o);});cSel.appendChild(h("option",{value:"__new"},"✏️ 自訂"));};
+    rebuildCat();
+    bSel.addEventListener("change",()=>{rebuildCat();ccInp.style.display="none";ccInp.value="";});
+    cSel.addEventListener("change",e=>{ccInp.style.display=e.target.value==="__new"?"block":"none";});
+    box.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"10px"}},
+      h("div",{},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"品牌"),bSel),
+      h("div",{},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"分類"),cSel,ccInp)
+    ));
+    // Zone is locked by default to prevent accidental "moves" — user must tap unlock to change
+    const origZ=it.z||"店內";
+    const zS=h("select",{className:"ipt",disabled:true,style:{opacity:.6,flex:1}},h("option",{value:"店內"},"🏪 店內"),h("option",{value:"倉庫"},"🏭 倉庫"));
+    zS.value=origZ;
+    const zUnlock=h("button",{type:"button",style:{padding:"0 12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"12px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"},onClick:function(){if(zS.disabled){zS.disabled=false;zS.style.opacity="1";this.textContent="🔓 可改";this.style.color="var(--orange)";}else{zS.disabled=true;zS.style.opacity=".6";zS.value=origZ;this.textContent="🔒 鎖定";this.style.color="var(--sub)";}}},"🔒 鎖定");
+    box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"區域"),h("div",{style:{display:"flex",gap:"6px",alignItems:"stretch"}},zS,zUnlock)));
+    const imgI=h("input",{className:"ipt",placeholder:"https://…",type:"url",value:it.img||"",style:{flex:1}});
+    const clearImgBtn=h("button",{type:"button",style:{width:"38px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"14px",cursor:"pointer",flexShrink:0},onClick:()=>{imgI.value="";refreshPreview();}},"✕");
+    const imgRow=h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}},imgI,clearImgBtn);
+    const imgPreview=h("div",{style:{marginTop:"6px",width:"80px",height:"80px",borderRadius:"10px",background:"#f8fafc",border:"1px solid var(--border)",overflow:"hidden",display:it.img?"block":"none"}});
+    const refreshPreview=()=>{const v=normalizeImgUrl(imgI.value);imgPreview.innerHTML="";if(!v){imgPreview.style.display="none";return;}imgPreview.style.display="block";const img=h("img",{src:v,style:{width:"100%",height:"100%",objectFit:"cover"}});img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"載入失敗"));};imgPreview.appendChild(img);};
+    refreshPreview();
+    imgI.addEventListener("input",refreshPreview);
+    box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"圖片 URL"),imgRow,imgPreview));
+    const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"80px",resize:"vertical",fontFamily:"inherit"}});
+    dscI.value=it.dsc||"";
+    box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述"),dscI));
+    const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
+    btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,back};render();}},"取消"));
+    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}const newB=bSel.value||it.b;let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim()});if(ok){showToast("已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
+    btnRow.appendChild(saveBtn);
+    box.appendChild(btnRow);
+    box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!saveBtn.disabled){e.preventDefault();saveBtn.click();}});
+  }
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:isEdit?null:closeDetail}),box);
+}
+
+function renderLightboxModal(){
+  if(!S.modal||S.modal.t!=="lightbox")return null;
+  const src=S.modal.src;const fromModal=S.modal.fromModal;
+  const back=()=>{S.modal=fromModal||null;render();};
+  const wrap=h("div",{style:{position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,.9)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"},onClick:back});
+  const img=h("img",{src,style:{maxWidth:"95vw",maxHeight:"95vh",objectFit:"contain",display:"block"}});
+  wrap.appendChild(img);
+  wrap.appendChild(h("button",{style:{position:"absolute",top:"20px",right:"20px",width:"40px",height:"40px",borderRadius:"50%",border:"none",background:"rgba(255,255,255,.2)",color:"#fff",fontSize:"20px",cursor:"pointer",backdropFilter:"blur(4px)"},onClick:e=>{e.stopPropagation();back();}},"✕"));
+  const openA=h("a",{href:src,target:"_blank",rel:"noopener",style:{position:"absolute",bottom:"24px",left:"50%",transform:"translateX(-50%)",padding:"8px 16px",borderRadius:"20px",background:"rgba(255,255,255,.15)",color:"#fff",fontSize:"12px",fontWeight:600,textDecoration:"none",backdropFilter:"blur(4px)"}},"🔍 開新分頁看原圖");
+  openA.addEventListener("click",e=>e.stopPropagation());
+  wrap.appendChild(openA);
+  return wrap;
+}
+
+function renderDelConfirmModal(){
+  if(!S.modal||S.modal.t!=="del-confirm")return null;
+  const it=S.items.find(x=>x.id===S.modal.id);if(!it)return null;
+  const box=h("div",{className:"modal-box",style:{maxWidth:"360px"}});
+  box.appendChild(h("div",{style:{fontSize:"36px",textAlign:"center",marginBottom:"8px"}},"🗑"));
+  box.appendChild(h("div",{style:{fontSize:"16px",fontWeight:700,textAlign:"center",marginBottom:"6px"}},"刪除這個品項？"));
+  box.appendChild(h("div",{style:{fontSize:"14px",textAlign:"center",marginBottom:"14px",padding:"10px",background:"#f8fafc",borderRadius:"8px"}},h("b",{},it.n),h("span",{style:{color:"var(--sub)",marginLeft:"6px",fontSize:"12px"}},"("+it.b+" / "+it.c+")")));
+  if(it.q>0)box.appendChild(h("div",{style:{fontSize:"12px",textAlign:"center",color:"var(--red)",marginBottom:"14px",padding:"8px",background:"#fef2f2",borderRadius:"8px"}},"⚠ 目前尚有 "+it.q+" 件庫存"));
+  const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}});
+  const delBack=S.modal.back;
+  btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal=delBack||null;render();}},"取消"));
+  btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--red)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;this.disabled=true;this.style.opacity="0.6";this.textContent="刪除中…";const grandBack=(delBack&&delBack.t==="detail"&&delBack.id===it.id)?(delBack.back||null):delBack;S.modal=grandBack;await doDelNoConfirm(it);}},"確認刪除"));
+  box.appendChild(btnRow);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=delBack||null;render();}}),box);
 }
 
 function genExportText(zone,selDate){
@@ -409,7 +595,11 @@ function genExportText(zone,selDate){
     });
   }else{
     const tpls=[{t:"aNN 庫存更新",b:"aNueNue"},{t:"Veelah/Singer 庫存更新",b:["Veelah","Singer"]},{t:"D'a XS庫存更新",b:"D'Addario"},{t:"Elixir庫存更新",b:"Elixir"},{t:"NUX 庫存更新",b:"NUX"},{t:"音箱庫存更新",b:"其他音箱"},{t:"Yamaha 庫存更新",b:"Yamaha"}];
+    const coveredBrands=new Set();tpls.forEach(tpl=>{const bs=Array.isArray(tpl.b)?tpl.b:[tpl.b];bs.forEach(b=>coveredBrands.add(b));});
     tpls.forEach(tpl=>{const bs=Array.isArray(tpl.b)?tpl.b:[tpl.b];const fi=zoneItems.filter(x=>bs.includes(x.b));if(!fi.length)return;all+=dlabel+" "+tpl.t+"\n==================\n";const g={};fi.forEach(x=>{if(!g[x.c])g[x.c]=[];g[x.c].push(x);});Object.keys(g).forEach(c=>{all+=c+"\n";g[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});all+="\n";});
+    // Fallback: any brand not covered by tpls
+    const otherBrands=[...new Set(zoneItems.map(x=>x.b).filter(b=>!coveredBrands.has(b)))].sort();
+    otherBrands.forEach(b=>{const fi=zoneItems.filter(x=>x.b===b);if(!fi.length)return;all+=dlabel+" "+b+" 庫存更新\n==================\n";const g={};fi.forEach(x=>{if(!g[x.c])g[x.c]=[];g[x.c].push(x);});Object.keys(g).forEach(c=>{all+=c+"\n";g[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});all+="\n";});
   }
   return all.trim();
 }
@@ -438,9 +628,37 @@ function renderExportModal(){
   ["店內","倉庫"].forEach(z=>{const active=expZone===z;tabRow.appendChild(h("button",{style:{flex:1,padding:"8px",borderRadius:"8px",border:active?"2px solid var(--blue)":"1px solid var(--border)",background:active?"#eff6ff":"#fff",color:active?"var(--blue)":"var(--sub)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"export",zone:z,date:expDate};render();}},z==="店內"?"🏪 店內":"🏭 倉庫"));});
   box.appendChild(tabRow);
   // Buttons
-  box.appendChild(h("div",{style:{display:"flex",gap:"8px",marginBottom:"14px"}},
-    h("button",{style:{flex:1,padding:"11px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{navigator.clipboard.writeText(txt).then(()=>showToast("已複製！")).catch(()=>{const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);showToast("已複製！");});}},"📋 複製全部"),
-    h("button",{style:{flex:1,padding:"11px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(navigator.share)navigator.share({title:(expZone==="倉庫"?"倉庫":"店內")+"庫存報表 "+d,text:txt}).catch(()=>{});else showToast("不支援分享");}},"📤 分享")));
+  const downloadBlob=(content,filename,mime)=>{const blob=new Blob([content],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(url),1000);};
+  const csvDownload=()=>{
+    const zoneItems=S.items.filter(x=>(x.z||"店內")===expZone);
+    const rows=[["品牌","分類","商品名","數量","區域","圖片","敘述"]];
+    zoneItems.forEach(it=>rows.push([it.b,it.c,it.n,it.q,it.z||"店內",it.img||"",(it.dsc||"").replace(/\n/g," ")]));
+    const esc=v=>{const s=String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+    const csv="\ufeff"+rows.map(r=>r.map(esc).join(",")).join("\r\n");
+    downloadBlob(csv,expZone+"庫存_"+d.replace(/\//g,"-")+".csv","text/csv;charset=utf-8");
+    showToast("📊 CSV 已下載");
+  };
+  const mdDownload=()=>{
+    const zoneItems=S.items.filter(x=>(x.z||"店內")===expZone);
+    const byBrand={};zoneItems.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
+    let md="# "+(expZone==="倉庫"?"🏭 倉庫":"🏪 店內")+"庫存報表\n\n> 匯出時間："+d+"\n> 總品項："+zoneItems.length+"　總庫存："+zoneItems.reduce((s,x)=>s+x.q,0)+"\n\n";
+    Object.keys(byBrand).sort().forEach(b=>{
+      md+="## "+b+"\n\n";
+      const cg={};byBrand[b].forEach(x=>{if(!cg[x.c])cg[x.c]=[];cg[x.c].push(x);});
+      Object.keys(cg).sort().forEach(c=>{
+        md+="### "+c+"\n\n| 商品名 | 數量 |\n| --- | ---: |\n";
+        cg[c].forEach(x=>{md+="| "+x.n.replace(/\|/g,"\\|")+" | "+x.q+" |\n";});
+        md+="\n";
+      });
+    });
+    downloadBlob(md,expZone+"庫存_"+d.replace(/\//g,"-")+".md","text/markdown;charset=utf-8");
+    showToast("📝 Markdown 已下載");
+  };
+  box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"14px"}},
+    h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{navigator.clipboard.writeText(txt).then(()=>showToast("已複製！")).catch(()=>{const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);showToast("已複製！");});}},"📋 複製"),
+    h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(navigator.share)navigator.share({title:(expZone==="倉庫"?"倉庫":"店內")+"庫存報表 "+d,text:txt}).catch(()=>{});else showToast("不支援分享");}},"📤 分享"),
+    h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#7c3aed",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:csvDownload},"📊 CSV"),
+    h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#0891b2",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:mdDownload},"📝 MD")));
   box.appendChild(h("div",{className:"export-box"},txt));
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
@@ -449,7 +667,7 @@ function renderMain(){
   const items=S.items||[];const zone=S.tab==="warehouse"?"倉庫":"店內";
   let fil=items.filter(x=>(x.z||"店內")===zone);
   if(!S.showZero)fil=fil.filter(x=>x.q>0);
-  if(S.search){const s=S.search.toLowerCase();fil=fil.filter(x=>x.n.toLowerCase().includes(s)||x.b.toLowerCase().includes(s)||x.c.toLowerCase().includes(s));}
+  if(S.search){const terms=S.search.toLowerCase().split(/\s+/).filter(Boolean);fil=fil.filter(x=>{const hay=(x.n+" "+x.b+" "+x.c+" "+(x.dsc||"")).toLowerCase();return terms.every(t=>hay.includes(t));});}
   const m={};fil.forEach(it=>{const b=it.b||"其他";if(!m[b])m[b]={};const c=it.c||"?";if(!m[b][c])m[b][c]=[];m[b][c].push(it);});
   const allBrands=Object.keys(m);const brandOrd=S.catOrd[zone+"|__brands"]||[];
   const sortedBrands=[...brandOrd.filter(b=>allBrands.includes(b)),...allBrands.filter(b=>!brandOrd.includes(b))];
@@ -457,26 +675,26 @@ function renderMain(){
     let its=m[b][c];const itemOrd=S.catOrd[zone+"|"+b+"|"+c];
     if(itemOrd&&Array.isArray(itemOrd)){const idSet=new Set(its.map(x=>x.id));its=[...itemOrd.filter(id=>idSet.has(id)).map(id=>its.find(x=>x.id===id)),...its.filter(x=>!itemOrd.includes(x.id))];}
     return{c,its};})};});
-  const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>!x.q).length,l:items.filter(x=>x.q>0&&x.q<=2).length};
+  const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>!x.q).length,l:items.filter(x=>x.q>0&&x.q<=2).length,m:items.filter(x=>!x.img||!x.dsc).length};
   const root=h("div",{style:{minHeight:"100vh"}});
   // Header
   root.appendChild(h("header",{style:{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)",background:"#fff",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}},
-    h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:isPreview()?"#94a3b8":"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600}},isPreview()?"👁 預覽模式":S.user)),
+    h("div",{style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"},title:"回到頂部",onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:isPreview()?"#94a3b8":"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600}},isPreview()?"👁 預覽模式":S.user),!S.online?h("span",{style:{fontSize:"10px",color:"#fff",background:"var(--red)",padding:"2px 8px",borderRadius:"10px",fontWeight:600,animation:"toastIn .3s ease"},title:"連線中斷，修改會排隊等回線"},"⚠ 離線"):null),
     h("div",{style:{display:"flex",gap:"6px"}},
-      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},"📋 匯出"),
-      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:doSync},"🔄"),
+      h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
+      (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
       h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{S.phase="login";S.items=null;render();}},"登出"))
   ));
   // Stats
-  const statsDiv=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",padding:"12px 16px"}});
-  [{l:"商品",v:st.c,c:"var(--blue)"},{l:"總庫存",v:st.q,c:"var(--green)"},{l:"零庫存",v:st.o,c:st.o?"var(--red)":"var(--sub)",click:"zero"},{l:"低庫存",v:st.l,c:st.l?"var(--orange)":"var(--sub)",click:"low"}].forEach(s=>{
+  const statsDiv=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",padding:"12px 16px"}});
+  [{l:"商品",v:st.c,c:"var(--blue)"},{l:"總庫存",v:st.q,c:"var(--green)"},{l:"零庫存",v:st.o,c:st.o?"var(--red)":"var(--sub)",click:"zero"},{l:"低庫存",v:st.l,c:st.l?"var(--orange)":"var(--sub)",click:"low"},{l:"缺資料",v:st.m,c:st.m?"#d97706":"var(--sub)",click:"missing"}].forEach(s=>{
     statsDiv.appendChild(h("div",{className:"stat-card",style:{cursor:s.click?"pointer":"default"},onClick:s.click?()=>{S.modal={t:s.click};render();}:null},
       h("div",{style:{fontSize:"10px",color:"var(--sub)",fontWeight:600}},s.l),
       h("div",{className:"val",style:{fontSize:"20px",fontWeight:800,color:s.c}},s.v.toLocaleString())));});
   root.appendChild(statsDiv);
   // Tabs
   const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 16px",borderBottom:"1px solid var(--border)",background:"#fff"}});
-  [{k:"store",l:"🏪 店內"},{k:"warehouse",l:"🏭 倉庫"},{k:"log",l:"📜 紀錄"},{k:"stats",l:"📊 統計"}].forEach(t=>{tabBar.appendChild(h("button",{className:"tab-btn"+(S.tab===t.k?" active":""),onClick:()=>{S.tab=t.k;render();}},t.l));});
+  [{k:"store",l:"🏪 店內"},{k:"warehouse",l:"🏭 倉庫"},{k:"log",l:"📜 紀錄"},{k:"stats",l:"📊 統計"}].forEach(t=>{tabBar.appendChild(h("button",{className:"tab-btn"+(S.tab===t.k?" active":""),onClick:()=>{if(S.tab!==t.k){S.tab=t.k;S._skipScrollRestore=true;render();}}},t.l));});
   tabBar.appendChild(h("div",{style:{flex:1}}));if(!isPreview())tabBar.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"none",background:"var(--green)",color:"#fff",fontSize:"12px",fontWeight:600,cursor:"pointer",margin:"6px 0"},onClick:()=>{S.modal={t:"add"};render();}},"＋ 新增"));
   root.appendChild(tabBar);
   const content=h("div",{style:{padding:"12px 16px",paddingBottom:"32px"}});
@@ -484,7 +702,7 @@ function renderMain(){
     // Search
     const sr=h("div",{style:{display:"flex",gap:"8px",marginBottom:"10px",alignItems:"center"}});
     const sw=h("div",{style:{flex:1,position:"relative"}});sw.appendChild(h("span",{style:{position:"absolute",left:"10px",top:"10px",fontSize:"14px"}},"🔍"));
-    const searchInp=h("input",{className:"ipt",placeholder:"搜尋品名、品牌、分類…",style:{paddingLeft:"32px",paddingRight:"32px"},id:"searchBox"});
+    const searchInp=h("input",{className:"ipt",placeholder:"搜尋品名、品牌、分類、敘述…",style:{paddingLeft:"32px",paddingRight:"32px"},id:"searchBox"});
     searchInp.value=S.search||"";
     const clearBtn=h("button",{style:{position:"absolute",right:"8px",top:"8px",background:"none",border:"none",fontSize:"16px",color:"var(--sub)",cursor:"pointer",display:S.search?"block":"none",padding:"2px"},onClick:()=>{S.search="";render();const el=document.getElementById("searchBox");if(el){el.value="";el.focus();}}},"✕");
     let searchTimer=null;
@@ -493,10 +711,11 @@ function renderMain(){
     searchInp.addEventListener("compositionend",function(){this.dataset.composing="false";S.search=this.value;clearBtn.style.display=this.value?"block":"none";setTimeout(()=>{render();const el2=document.getElementById("searchBox");if(el2)el2.focus();},50);});
     sw.appendChild(searchInp);sw.appendChild(clearBtn);sr.appendChild(sw);
     const zl=h("label",{className:"zl-box"});const zc=h("input",{type:"checkbox",onChange:e=>{S.showZero=e.target.checked;render();}});zc.checked=S.showZero;zl.appendChild(zc);zl.appendChild(document.createTextNode("零庫存"));sr.appendChild(zl);content.appendChild(sr);
+    if(S.search){content.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"8px",padding:"4px 8px",fontWeight:500}},"🔍 找到 "+fil.length+" 項符合「"+S.search+"」"));}
     // Brand drag sort
     let dragBrand=null;
     // Items
-    grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
+    grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.search?true:S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
       const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:true});
       bCard.addEventListener("dragstart",e=>{dragBrand=bi;e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
       bCard.addEventListener("dragend",()=>{dragBrand=null;bCard.style.opacity="1";});
@@ -504,14 +723,14 @@ function renderMain(){
       bCard.addEventListener("dragleave",()=>{bCard.style.borderTop="";});
       bCard.addEventListener("drop",e=>{e.preventDefault();bCard.style.borderTop="";if(dragBrand===null||dragBrand===bi)return;
         const bNames=grouped.map(g=>g.b);const mv=bNames.splice(dragBrand,1)[0];bNames.splice(bi,0,mv);
-        S.catOrd[zone+"|__brands"]=bNames;dbO.set(S.catOrd);render();});
+        S.catOrd[zone+"|__brands"]=bNames;fbSetOrdKey(zone+"|__brands",bNames);render();});
       bCard.appendChild(h("div",{className:"brand-hdr",onClick:()=>{S.bOpen[bk]=!S.bOpen[bk];render();}},
         h("span",{style:{fontSize:"10px",color:col,transform:bo?"rotate(0)":"rotate(-90deg)",transition:"transform .15s",fontWeight:900,display:"inline-block"}},"▼"),
         h("span",{style:{width:"4px",height:"20px",borderRadius:"2px",background:col,flexShrink:0}}),
         h("span",{style:{fontSize:"15px",fontWeight:800,color:col}},b),
         h("span",{style:{marginLeft:"auto",fontSize:"12px",color:"var(--sub)",fontWeight:500}},bC+"項 / "+bT)));
       if(bo){let dragCat=null,dragItem=null,dragItemCat=null;
-        cats.forEach(({c,its},ci)=>{const ck=bk+"|"+c;const co=S.cOpen[ck];const cT=its.reduce((s,x)=>s+x.q,0);
+        cats.forEach(({c,its},ci)=>{const ck=bk+"|"+c;const co=S.search?true:S.cOpen[ck];const cT=its.reduce((s,x)=>s+x.q,0);
         const catEl=h("div",{className:"cat-hdr",draggable:true});
         catEl.addEventListener("dragstart",e=>{e.stopPropagation();dragCat=ci;dragItem=null;e.dataTransfer.effectAllowed="move";catEl.style.opacity="0.5";});
         catEl.addEventListener("dragend",()=>{dragCat=null;catEl.style.opacity="1";});
@@ -519,7 +738,7 @@ function renderMain(){
         catEl.addEventListener("dragleave",()=>{catEl.style.borderTop="";});
         catEl.addEventListener("drop",e=>{e.preventDefault();e.stopPropagation();catEl.style.borderTop="";if(dragCat===null||dragCat===ci)return;
           const cNames=cats.map(x=>x.c);const mv=cNames.splice(dragCat,1)[0];cNames.splice(ci,0,mv);
-          S.catOrd[zone+"|"+b]=cNames;dbO.set(S.catOrd);render();});
+          S.catOrd[zone+"|"+b]=cNames;fbSetOrdKey(zone+"|"+b,cNames);render();});
         catEl.appendChild(h("span",{style:{fontSize:"8px",color:"var(--sub)",transform:co?"rotate(0)":"rotate(-90deg)",transition:"transform .1s",display:"inline-block"}},"▼"));
         catEl.appendChild(h("span",{style:{fontSize:"12px",fontWeight:600,color:col}},c));
         catEl.appendChild(h("span",{style:{marginLeft:"auto",fontSize:"11px",color:"var(--sub)"}},its.length+"/"+cT));
@@ -534,7 +753,7 @@ function renderMain(){
           row.addEventListener("dragleave",()=>{row.style.borderTop="";});
           row.addEventListener("drop",e=>{e.preventDefault();e.stopPropagation();row.style.borderTop="";if(dragItem===null||dragItemCat!==c||dragItem===ii)return;
             const ids=its.map(x=>x.id);const mv=ids.splice(dragItem,1)[0];ids.splice(ii,0,mv);
-            S.catOrd[zone+"|"+b+"|"+c]=ids;dbO.set(S.catOrd);render();});
+            S.catOrd[zone+"|"+b+"|"+c]=ids;fbSetOrdKey(zone+"|"+b+"|"+c,ids);render();});
           bCard.appendChild(row);
         });
       });}
@@ -543,12 +762,12 @@ function renderMain(){
     if(!grouped.length)content.appendChild(h("div",{style:{textAlign:"center",padding:"40px",color:"var(--sub)",fontSize:"14px"}},"無符合商品"));
   }else if(S.tab==="log"){
     // Search bar (row 1)
-    const hasFilter=S.logSearch||S.logDateFrom||S.logDateTo;
+    const hasFilter=S.logSearch||S.logDateFrom||S.logDateTo||S.logBrand||S.logAction;
     const logSw=h("div",{style:{position:"relative",marginBottom:"8px"}});
     const logSearchInp=h("input",{className:"ipt",placeholder:"搜尋商品名稱、備註...",style:{paddingLeft:"32px",paddingRight:hasFilter?"36px":"12px",fontSize:"13px"},id:"logSearch"});
     logSearchInp.value=S.logSearch||"";
     logSw.appendChild(h("span",{style:{position:"absolute",left:"10px",top:"10px",fontSize:"14px"}},"🔍"));
-    if(hasFilter){logSw.appendChild(h("button",{style:{position:"absolute",right:"6px",top:"6px",width:"28px",height:"28px",borderRadius:"50%",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"14px",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.logSearch="";S.logDateFrom="";S.logDateTo="";render();}},"✕"));}
+    if(hasFilter){logSw.appendChild(h("button",{style:{position:"absolute",right:"6px",top:"6px",width:"28px",height:"28px",borderRadius:"50%",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"14px",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";render();}},"✕"));}
     let logSearchTimer=null;
     logSearchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;const v=this.value,pos=this.selectionStart;clearTimeout(logSearchTimer);logSearchTimer=setTimeout(()=>{S.logSearch=v;render();const el=document.getElementById("logSearch");if(el){el.focus();el.selectionStart=el.selectionEnd=pos;}},250);});
     logSearchInp.addEventListener("compositionstart",function(){this.dataset.composing="true";});
@@ -567,32 +786,61 @@ function renderMain(){
     dtInp.addEventListener("change",function(){S.logDateTo=this.value;render();});
     dateRow.appendChild(dtInp);
     content.appendChild(dateRow);
+    // Date quick buttons
+    const qDate=h("div",{style:{display:"flex",gap:"6px",marginBottom:"8px",flexWrap:"wrap"}});
+    const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    const setRange=(from,to)=>{S.logDateFrom=from;S.logDateTo=to;render();};
+    const now2=new Date();const tdd=ymd(now2);const yst=new Date(now2);yst.setDate(yst.getDate()-1);const ystd=ymd(yst);
+    const wk0=new Date(now2);wk0.setDate(wk0.getDate()-wk0.getDay());const wkd=ymd(wk0);
+    [["今日",()=>setRange(tdd,tdd)],["昨日",()=>setRange(ystd,ystd)],["本週",()=>setRange(wkd,tdd)],["本月",()=>setRange(ymd(new Date(now2.getFullYear(),now2.getMonth(),1)),tdd)]].forEach(([l,fn])=>{qDate.appendChild(h("button",{style:{padding:"5px 12px",borderRadius:"14px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",fontWeight:600,cursor:"pointer"},onClick:fn},l));});
+    content.appendChild(qDate);
+
+    // Action filter pills
+    const actRow=h("div",{style:{display:"flex",gap:"6px",marginBottom:"8px",flexWrap:"wrap"}});
+    [["","全部"],["in","📥 進貨"],["out","📤 出貨"],["audit","📋 盤點"]].forEach(([k,l])=>{
+      const active=S.logAction===k;
+      actRow.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"14px",border:active?"1.5px solid var(--blue)":"1px solid var(--border)",background:active?"var(--blue-light)":"#fff",color:active?"var(--blue)":"var(--sub)",fontSize:"12px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.logAction=k;render();}},l));
+    });
+    content.appendChild(actRow);
+    // Brand filter dropdown (compact)
+    const brandOpts=[...new Set(S.items.map(x=>x.b))].sort();
+    const brandSel=h("select",{className:"ipt",style:{marginBottom:"10px",fontSize:"13px",padding:"7px 10px"},onChange:e=>{S.logBrand=e.target.value;render();}});
+    brandSel.appendChild(h("option",{value:""},"所有品牌"));
+    brandOpts.forEach(b=>{const o=h("option",{value:b},b);if(S.logBrand===b)o.selected=true;brandSel.appendChild(o);});
+    content.appendChild(brandSel);
+
+    // Build name→brand map for brand filtering
+    const nameToItem={};S.items.forEach(x=>{nameToItem[x.n]=x;});
+    const nameToBrand=Object.fromEntries(Object.entries(nameToItem).map(([k,v])=>[k,v.b]));
 
     // Filter logs
     let filteredLogs=S.logs;
     if(S.logSearch){const ls=S.logSearch.toLowerCase();filteredLogs=filteredLogs.filter(l=>(l.n||"").toLowerCase().includes(ls)||(l.d||"").toLowerCase().includes(ls)||(l.u||"").toLowerCase().includes(ls));}
     if(S.logDateFrom){const df=S.logDateFrom.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)>=df);}
     if(S.logDateTo){const dt=S.logDateTo.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)<=dt);}
+    if(S.logBrand){filteredLogs=filteredLogs.filter(l=>nameToBrand[l.n]===S.logBrand);}
+    if(S.logAction){filteredLogs=filteredLogs.filter(l=>{const a=l.a||"";if(S.logAction==="in")return a.includes("進")||a.includes("➕");if(S.logAction==="out")return a.includes("出");if(S.logAction==="audit")return a.includes("盤");return true;});}
 
     // Today's shipments (only show when no filters)
-    if(!S.logSearch&&!S.logDateFrom&&!S.logDateTo){
+    if(!hasFilter){
       const now2=new Date();const today=now2.getFullYear()+"/"+String(now2.getMonth()+1).padStart(2,"0")+"/"+String(now2.getDate()).padStart(2,"0");
       const todayLogs=S.logs.filter(l=>dateOnly(l.t)===today&&(l.a||"").includes("出貨"));
       if(todayLogs.length){
         const todayCard=h("div",{className:"card",style:{marginBottom:"14px",border:"2px solid #dbeafe"}});
         todayCard.appendChild(h("div",{style:{padding:"12px 14px",background:"var(--blue-light)",borderBottom:"1px solid #dbeafe",display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--blue)"}},"📦 今日出貨"),h("span",{style:{fontSize:"12px",color:"var(--blue)",fontWeight:600}},todayLogs.length+" 筆")));
-        todayLogs.forEach(l=>{todayCard.appendChild(h("div",{className:"row"},h("div",{style:{flex:1}},h("b",{style:{fontSize:"13px"}},l.n),h("span",{style:{color:"var(--sub)",marginLeft:"6px",fontSize:"11px"}},l.d)),h("span",{style:{fontSize:"12px",color:"var(--red)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)",marginLeft:"4px"}},l.u)));});
+        todayLogs.forEach(l=>{const matched=S.items.find(x=>x.n===l.n);const nameEl=matched?h("b",{style:{fontSize:"13px",color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},l.n):h("b",{style:{fontSize:"13px",color:"var(--sub)"}},l.n);todayCard.appendChild(h("div",{className:"row"},h("div",{style:{flex:1}},nameEl,h("span",{style:{color:"var(--sub)",marginLeft:"6px",fontSize:"11px"}},l.d)),h("span",{style:{fontSize:"12px",color:"var(--red)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)",marginLeft:"4px"}},l.u)));});
         content.appendChild(todayCard);
       }
     }
 
     // Result count
-    if(S.logSearch||S.logDateFrom||S.logDateTo){
+    if(hasFilter){
       content.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"8px",fontWeight:500}},"找到 "+filteredLogs.length+" 筆紀錄"));
     }
 
     // Logs grouped by date
-    const byDate={};filteredLogs.slice(0,500).forEach(l=>{const d=dateOnly(l.t);if(!byDate[d])byDate[d]=[];byDate[d].push(l);});
+    const totalFiltered=filteredLogs.length;const shown=filteredLogs.slice(0,S.logLimit);
+    const byDate={};shown.forEach(l=>{const d=dateOnly(l.t);if(!byDate[d])byDate[d]=[];byDate[d].push(l);});
     const logCard=h("div",{className:"card"});
     Object.keys(byDate).forEach(date=>{
       const dayLogs=byDate[date];
@@ -600,16 +848,36 @@ function renderMain(){
       const outC=dayLogs.filter(l=>(l.a||"").includes("出")).length;
       const auC=dayLogs.filter(l=>(l.a||"").includes("盤")).length;
       logCard.appendChild(h("div",{className:"day-header"},h("span",{},date),h("span",{style:{fontWeight:500,fontSize:"11px"}},"進"+inC+" 出"+outC+(auC?" 盤"+auC:"")+" 共"+dayLogs.length+"筆")));
-      dayLogs.forEach((l,i)=>{logCard.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"8px 14px",fontSize:"12px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9"}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},h("b",{},l.n),l.d?h("span",{style:{color:"var(--sub)",marginLeft:"4px",fontSize:"11px"}},l.d):null),h("span",{style:{fontSize:"11px",color:(l.nq||0)>(l.pq||0)?"var(--green)":(l.nq||0)<(l.pq||0)?"var(--red)":"var(--sub)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)"}},l.u)));});
+      dayLogs.forEach((l,i)=>{const matched=nameToItem[l.n];const brandCol=matched?gc(matched.b):"#cbd5e1";const nameEl=matched?h("b",{style:{color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},l.n):h("b",{style:{color:"var(--sub)"},title:"品項已刪除"},l.n);logCard.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"8px 14px 8px 10px",fontSize:"12px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9",borderLeft:"3px solid "+brandCol}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},nameEl,l.d?h("span",{style:{color:"var(--sub)",marginLeft:"4px",fontSize:"11px"}},l.d):null),h("span",{style:{fontSize:"11px",color:(l.nq||0)>(l.pq||0)?"var(--green)":(l.nq||0)<(l.pq||0)?"var(--red)":"var(--sub)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)"}},l.u)));});
     });
-    if(!filteredLogs.length)logCard.appendChild(h("div",{style:{padding:"30px",textAlign:"center",color:"var(--sub)"}},S.logSearch||S.logDateFrom||S.logDateTo?"沒有符合的紀錄":"尚無紀錄"));
+    if(!filteredLogs.length)logCard.appendChild(h("div",{style:{padding:"30px",textAlign:"center",color:"var(--sub)"}},hasFilter?"沒有符合的紀錄":"尚無紀錄"));
     content.appendChild(logCard);
+    if(totalFiltered>shown.length){
+      content.appendChild(h("button",{style:{width:"100%",marginTop:"10px",padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.logLimit+=100;S._skipScrollRestore=false;render();}},"載入更多（剩 "+(totalFiltered-shown.length)+" 筆）"));
+    }
   }else if(S.tab==="stats"){
     // Monthly stats
     const now=new Date();const ym=now.getFullYear()+"/"+String(now.getMonth()+1).padStart(2,"0");
+    const today=now.getFullYear()+"/"+String(now.getMonth()+1).padStart(2,"0")+"/"+String(now.getDate()).padStart(2,"0");
     const monthLogs=S.logs.filter(l=>(l.t||"").startsWith(ym));
     const mIn=monthLogs.filter(l=>(l.a||"").includes("進"));
     const mOut=monthLogs.filter(l=>(l.a||"").includes("出"));
+    // Today summary + yesterday comparison
+    const yDate=new Date(now.getTime()-86400000);const yesterday=yDate.getFullYear()+"/"+String(yDate.getMonth()+1).padStart(2,"0")+"/"+String(yDate.getDate()).padStart(2,"0");
+    const todayLogs=S.logs.filter(l=>(l.t||"").startsWith(today));
+    const yLogs=S.logs.filter(l=>(l.t||"").startsWith(yesterday));
+    const tIn=todayLogs.filter(l=>(l.a||"").includes("進")).length,yIn=yLogs.filter(l=>(l.a||"").includes("進")).length;
+    const tOut=todayLogs.filter(l=>(l.a||"").includes("出")).length,yOut=yLogs.filter(l=>(l.a||"").includes("出")).length;
+    const tAu=todayLogs.filter(l=>(l.a||"").includes("盤")).length,yAu=yLogs.filter(l=>(l.a||"").includes("盤")).length;
+    const ystrip=(t,y)=>{const d=t-y;return h("div",{style:{fontSize:"9px",color:d>0?"var(--green)":d<0?"var(--red)":"var(--sub)",fontWeight:600,marginTop:"2px"}},"昨 "+y+(d!==0?" ("+(d>0?"+":"")+d+")":""));};
+    const todayCard=h("div",{className:"card",style:{marginBottom:"14px",padding:"14px",border:"2px solid #dbeafe"}});
+    todayCard.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}},h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--blue)"}},"📅 今日"),h("span",{style:{fontSize:"11px",color:"var(--sub)",fontWeight:500}},(now.getMonth()+1)+"/"+now.getDate())));
+    todayCard.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"6px"}},
+      h("div",{style:{textAlign:"center",padding:"8px",background:"#f0fdf4",borderRadius:"8px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"進貨"),h("div",{style:{fontSize:"20px",fontWeight:800,color:"var(--green)"}},String(tIn)),ystrip(tIn,yIn)),
+      h("div",{style:{textAlign:"center",padding:"8px",background:"#fef2f2",borderRadius:"8px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"出貨"),h("div",{style:{fontSize:"20px",fontWeight:800,color:"var(--red)"}},String(tOut)),ystrip(tOut,yOut)),
+      h("div",{style:{textAlign:"center",padding:"8px",background:"var(--blue-light)",borderRadius:"8px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"盤點"),h("div",{style:{fontSize:"20px",fontWeight:800,color:"var(--blue)"}},String(tAu)),ystrip(tAu,yAu))
+    ));
+    content.appendChild(todayCard);
     // Summary card
     const sumCard=h("div",{className:"card",style:{marginBottom:"14px",padding:"16px"}});
     sumCard.appendChild(h("div",{style:{fontSize:"15px",fontWeight:700,marginBottom:"12px"}},"📊 "+(now.getMonth()+1)+"月 統計"));
@@ -627,11 +895,13 @@ function renderMain(){
       topCard.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px"}},"🔥 本月出貨排行"));
       topOut.forEach(([name,qty],i)=>{
         const maxQ=topOut[0][1];const pct=Math.round(qty/maxQ*100);
-        topCard.appendChild(h("div",{style:{padding:"8px 14px",display:"flex",alignItems:"center",gap:"8px",borderBottom:"1px solid #f1f5f9"}},
+        const matched=S.items.find(x=>x.n===name);
+        const row=h("div",{style:{padding:"8px 14px",display:"flex",alignItems:"center",gap:"8px",borderBottom:"1px solid #f1f5f9",cursor:matched?"pointer":"default"}},
           h("span",{style:{fontSize:"12px",fontWeight:700,color:i<3?"var(--red)":"var(--sub)",minWidth:"20px"}},String(i+1)),
-          h("div",{style:{flex:1}},h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"3px"}},name),h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9"}},h("div",{style:{height:"4px",borderRadius:"2px",background:i<3?"var(--red)":"var(--blue)",width:pct+"%"}}))),
-          h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--red)"}},String(qty))
-        ));});
+          h("div",{style:{flex:1}},h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"3px",color:matched?"var(--blue)":"var(--sub)"}},name),h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9"}},h("div",{style:{height:"4px",borderRadius:"2px",background:i<3?"var(--red)":"var(--blue)",width:pct+"%"}}))),
+          h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--red)"}},String(qty)));
+        if(matched)row.addEventListener("click",()=>{S.modal={t:"detail",id:matched.id};render();});
+        topCard.appendChild(row);});
       content.appendChild(topCard);
     }
     // Top in items
@@ -642,11 +912,13 @@ function renderMain(){
       topInCard.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px"}},"📦 本月進貨排行"));
       topIn.forEach(([name,qty],i)=>{
         const maxQ=topIn[0][1];const pct=Math.round(qty/maxQ*100);
-        topInCard.appendChild(h("div",{style:{padding:"8px 14px",display:"flex",alignItems:"center",gap:"8px",borderBottom:"1px solid #f1f5f9"}},
+        const matched=S.items.find(x=>x.n===name);
+        const row=h("div",{style:{padding:"8px 14px",display:"flex",alignItems:"center",gap:"8px",borderBottom:"1px solid #f1f5f9",cursor:matched?"pointer":"default"}},
           h("span",{style:{fontSize:"12px",fontWeight:700,color:i<3?"var(--green)":"var(--sub)",minWidth:"20px"}},String(i+1)),
-          h("div",{style:{flex:1}},h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"3px"}},name),h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9"}},h("div",{style:{height:"4px",borderRadius:"2px",background:i<3?"var(--green)":"var(--blue)",width:pct+"%"}}))),
-          h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--green)"}},String(qty))
-        ));});
+          h("div",{style:{flex:1}},h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"3px",color:matched?"var(--blue)":"var(--sub)"}},name),h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9"}},h("div",{style:{height:"4px",borderRadius:"2px",background:i<3?"var(--green)":"var(--blue)",width:pct+"%"}}))),
+          h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--green)"}},String(qty)));
+        if(matched)row.addEventListener("click",()=>{S.modal={t:"detail",id:matched.id};render();});
+        topInCard.appendChild(row);});
       content.appendChild(topInCard);
     }
     if(!monthLogs.length)content.appendChild(h("div",{style:{textAlign:"center",padding:"40px",color:"var(--sub)"}},"本月尚無紀錄"));
@@ -655,6 +927,41 @@ function renderMain(){
   const am=renderActionModal();if(am)root.appendChild(am);
   const adm=renderAddModal();if(adm)root.appendChild(adm);
   const em=renderExportModal();if(em)root.appendChild(em);
+  const dm=renderDetailModal();if(dm)root.appendChild(dm);
+  const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
+  const lbm=renderLightboxModal();if(lbm)root.appendChild(lbm);
+  // Missing data modal
+  if(S.modal&&S.modal.t==="missing"){
+    const filter=S.modal.filter||"all";
+    const baseList=(S.items||[]).filter(x=>!x.img||!x.dsc);
+    const list=filter==="img"?baseList.filter(x=>!x.img):filter==="dsc"?baseList.filter(x=>!x.dsc):baseList;
+    const byBrand={};list.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
+    const box=h("div",{className:"modal-box",style:{maxWidth:"520px"}});
+    box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},
+      h("h3",{style:{fontSize:"16px",fontWeight:700}},"🟡 缺資料清單"),
+      h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:()=>{S.modal=null;render();}},"✕")));
+    // Filter tabs
+    const cntAll=baseList.length,cntImg=baseList.filter(x=>!x.img).length,cntDsc=baseList.filter(x=>!x.dsc).length;
+    const tabRow=h("div",{style:{display:"flex",gap:"6px",marginBottom:"10px"}});
+    [["all","全部",cntAll],["img","🖼 缺圖片",cntImg],["dsc","📝 缺敘述",cntDsc]].forEach(([k,l,n])=>{
+      const active=filter===k;
+      tabRow.appendChild(h("button",{style:{flex:1,padding:"8px 4px",borderRadius:"8px",border:active?"2px solid #d97706":"1px solid var(--border)",background:active?"#fef3c7":"#fff",color:active?"#b45309":"var(--sub)",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"missing",filter:k};render();}},l+" "+n));
+    });
+    box.appendChild(tabRow);
+    if(!list.length){box.appendChild(h("div",{style:{padding:"40px",textAlign:"center",color:"var(--green)",fontSize:"14px",fontWeight:600}},"✅ 所有品項資料完整！"));}
+    Object.keys(byBrand).sort().forEach(brand=>{
+      const bcol=gc(brand);const bis=byBrand[brand];
+      box.appendChild(h("div",{style:{padding:"8px 12px",background:bcol+"10",borderRadius:"8px",marginBottom:"4px",marginTop:"6px",fontWeight:700,fontSize:"13px",color:bcol,display:"flex",justifyContent:"space-between"}},brand,h("span",{style:{fontWeight:500,fontSize:"11px",color:"var(--sub)"}},bis.length+"項")));
+      bis.forEach(it=>{
+        box.appendChild(h("div",{style:{padding:"8px 12px 8px 20px",fontSize:"13px",display:"flex",alignItems:"center",gap:"8px",borderBottom:"1px solid #f1f5f9",cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,edit:true,back:{t:"missing",filter:filter}};render();}},
+          h("span",{style:{width:"28px",height:"28px",borderRadius:"6px",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}},it.img?h("img",{src:it.img,style:{width:"100%",height:"100%",objectFit:"cover"}}):h("span",{style:{fontSize:"12px",color:"#cbd5e1"}},"📷")),
+          h("div",{style:{flex:1,minWidth:0}},h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),h("div",{style:{fontSize:"10px",color:"var(--sub)"}},it.c+" · "+(it.z||"店內"))),
+          h("div",{style:{display:"flex",gap:"4px",flexShrink:0}},!it.img?h("span",{style:{fontSize:"10px",padding:"2px 6px",borderRadius:"6px",background:"#fef3c7",color:"#b45309",fontWeight:600}},"缺圖"):null,!it.dsc?h("span",{style:{fontSize:"10px",padding:"2px 6px",borderRadius:"6px",background:"#fef3c7",color:"#b45309",fontWeight:600}},"缺敘述"):null),
+          h("span",{style:{fontSize:"11px",color:"var(--blue)",flexShrink:0}},"✏️")
+        ));});
+    });
+    root.appendChild(h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box));
+  }
   // Zero / Low stock modal
   if(S.modal&&(S.modal.t==="zero"||S.modal.t==="low")){
     const isZero=S.modal.t==="zero";const title=isZero?"🔴 零庫存清單（需補貨）":"🟠 低庫存清單（庫存≤2）";
@@ -669,8 +976,8 @@ function renderMain(){
       const col=gc(brand);const items=byBrand[brand];
       box.appendChild(h("div",{style:{padding:"8px 12px",background:col+"10",borderRadius:"8px",marginBottom:"4px",fontWeight:700,fontSize:"13px",color:col,display:"flex",justifyContent:"space-between"}},brand,h("span",{style:{fontWeight:500,fontSize:"11px",color:"var(--sub)"}},items.length+"項")));
       items.forEach(it=>{
-        box.appendChild(h("div",{style:{padding:"6px 12px 6px 24px",fontSize:"13px",display:"flex",alignItems:"center",gap:"6px",borderBottom:"1px solid #f1f5f9"}},
-          h("span",{style:{flex:1}},it.n),
+        box.appendChild(h("div",{style:{padding:"6px 12px 6px 24px",fontSize:"13px",display:"flex",alignItems:"center",gap:"6px",borderBottom:"1px solid #f1f5f9",cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,back:{t:isZero?"zero":"low"}};render();}},
+          h("span",{style:{flex:1,color:"var(--blue)"}},it.n),
           h("span",{style:{color:isZero?"var(--red)":"var(--orange)",fontWeight:700,fontSize:"13px"}},String(it.q)),
           h("span",{style:{fontSize:"10px",color:"var(--sub)"}},it.c)
         ));});
@@ -681,7 +988,14 @@ function renderMain(){
   return root;
 }
 
-function render(){const a=document.getElementById("app");a.innerHTML="";if(S.phase==="login")a.appendChild(renderLogin());else if(S.phase==="loading"||!S.items)a.appendChild(renderLoading());else a.appendChild(renderMain());}
+let _bodyLockY=0;
+function lockBody(){if(document.body.dataset.locked==="1")return;_bodyLockY=window.scrollY||document.documentElement.scrollTop||0;document.body.dataset.locked="1";document.body.style.position="fixed";document.body.style.top=(-_bodyLockY)+"px";document.body.style.width="100%";document.body.style.overflow="hidden";}
+function unlockBody(){if(document.body.dataset.locked!=="1")return;document.body.dataset.locked="";document.body.style.position="";document.body.style.top="";document.body.style.width="";document.body.style.overflow="";window.scrollTo(0,_bodyLockY);}
+function render(){const a=document.getElementById("app");const wasLocked=document.body.dataset.locked==="1";const sy=wasLocked?_bodyLockY:(window.scrollY||document.documentElement.scrollTop||0);const skipRestore=S._skipScrollRestore;S._skipScrollRestore=false;a.innerHTML="";if(S.phase==="login")a.appendChild(renderLogin());else if(S.phase==="loading"||!S.items)a.appendChild(renderLoading());else a.appendChild(renderMain());if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}}
+// Esc closes modal
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&S.modal){if(S.modal.t==="detail"&&S.modal.edit)return;S.modal=S.modal.back||null;render();}});
+// Re-render every minute to refresh "Xm ago" label in header
+setInterval(()=>{if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")render();},60000);
 render();
 </script>
 </body>
