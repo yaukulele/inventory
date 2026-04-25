@@ -144,7 +144,7 @@ const dateStr=()=>{const d=new Date();return(d.getMonth()+1)+"/"+d.getDate();};
 const dateOnly=t=>(t||"").split(" ")[0]||"";
 
 const _savedUser=(()=>{try{const u=localStorage.getItem("inv_user");return u&&US.includes(u)?u:US[0];}catch(e){return US[0];}})();
-let S={items:null,logs:[],user:_savedUser,phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",stockFilter:null,brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100};
+let S={items:null,logs:[],olderLogs:[],loadingOlder:false,user:_savedUser,phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",stockFilter:null,brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100};
 
 const EXPECTED_COUNT=mkInit().length;
 const RESET_VER="v20260413d";
@@ -156,7 +156,7 @@ const INJECT_ITEMS=[
 ];
 function hydrateFromCache(){try{const raw=localStorage.getItem("inv_cache");if(!raw)return false;const c=JSON.parse(raw);if(c&&Array.isArray(c.items)&&c.items.length>0){S.items=c.items.filter(x=>x&&x.id&&x.n);if(!S.items.length)return false;S.logs=(Array.isArray(c.logs)?c.logs:[]).filter(x=>x);S.catOrd=(c.catOrd&&typeof c.catOrd==="object")?c.catOrd:{};S.lastSyncAt=c.t||null;return true;}}catch(e){}return false;}
 function saveCache(){try{const payload={items:S.items||[],logs:(S.logs||[]).slice(0,200),catOrd:S.catOrd||{},t:S.lastSyncAt||Date.now()};localStorage.setItem("inv_cache",JSON.stringify(payload));}catch(e){}}
-async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.once("value"),dbO.once("value")]),tm(8000)]);const i=a.val(),l=b.val(),o=c.val();
+async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);const i=a.val();const lRaw=b.val();const l=Array.isArray(lRaw)?lRaw:(lRaw&&typeof lRaw==="object"?Object.keys(lRaw).sort((a,b)=>+a-+b).map(k=>lRaw[k]):null);const o=c.val();
   const ver=(o&&o.__ver)||"";
   if(i&&Array.isArray(i)&&i.length>0){
     S.items=i;
@@ -190,28 +190,46 @@ function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transact
 // catOrd: atomically set one key so concurrent drags from different users don't clobber each other
 function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(!err&&snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
 
+// Optimistic UI tracking — items currently in flight to Firebase
+const _pendingItems=new Set();
+const _pendingDeletes=new Set();
+
+// Throttled render for listener-triggered updates — coalesces multi-user broadcasts within 50ms window
+let _listenerRenderTimer=null;
+function listenerRender(){if(_listenerRenderTimer)return;_listenerRenderTimer=setTimeout(()=>{_listenerRenderTimer=null;render();},50);}
+
 // Real-time sync: listen for changes from other users
 let fbListening=false;
 function startRealtimeSync(){
   if(fbListening)return;fbListening=true;
   // Connection status — writes only reach Firebase when online
-  db.ref(".info/connected").on("value",snap=>{const online=!!snap.val();if(S.online===online)return;S.online=online;if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")render();});
+  db.ref(".info/connected").on("value",snap=>{const online=!!snap.val();if(S.online===online)return;S.online=online;if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")listenerRender();});
   // Don't re-render if a modal is open or user is typing — prevents focus loss / mid-action UI jump
   const canRender=()=>!S.modal&&document.activeElement?.tagName!=="INPUT";
   dbI.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote)||!S.items)return;
+    // Reconcile remote with optimistic state — preserve pending items, drop pending deletes
+    let merged=remote.filter(x=>x);
+    if(_pendingItems.size){
+      merged=merged.map(r=>{if(_pendingItems.has(r.id)){const local=S.items.find(x=>x.id===r.id);if(local)return local;}return r;});
+      const remoteIds=new Set(merged.map(x=>x.id));
+      S.items.forEach(x=>{if(_pendingItems.has(x.id)&&!remoteIds.has(x.id))merged.push(x);});
+    }
+    if(_pendingDeletes.size)merged=merged.filter(x=>!_pendingDeletes.has(x.id));
     const sig=arr=>JSON.stringify(arr.map(x=>x&&[x.id,x.q,x.n,x.b,x.c,x.z,x.img||"",x.dsc||""]));
-    const prev=sig(S.items),next=sig(remote);
-    if(prev!==next){S.items=remote.filter(x=>x);S.lastSyncAt=Date.now();saveCache();if(canRender())render();}
+    const prev=sig(S.items),next=sig(merged);
+    if(prev!==next){S.items=merged;S.lastSyncAt=Date.now();saveCache();if(canRender())listenerRender();}
   });
-  dbL.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote))return;
+  dbL.limitToFirst(200).on("value",snap=>{const raw=snap.val();
+    const remote=Array.isArray(raw)?raw:(raw&&typeof raw==="object"?Object.keys(raw).sort((a,b)=>+a-+b).map(k=>raw[k]):null);
+    if(!remote||!Array.isArray(remote))return;
     const prev=S.logs.length?S.logs[0].id:null;
     const next=remote.length?remote[0].id:null;
-    if(prev!==next||remote.length!==S.logs.length){S.logs=remote.filter(x=>x);saveCache();if(canRender())render();}
+    if(prev!==next||remote.length!==S.logs.length){S.logs=remote.filter(x=>x);saveCache();if(canRender())listenerRender();}
   });
   // catOrd sync: when another user reorders, reflect it
   dbO.on("value",snap=>{const remote=snap.val();if(!remote||typeof remote!=="object")return;
     const prev=JSON.stringify(S.catOrd),next=JSON.stringify(remote);
-    if(prev!==next){S.catOrd=remote;if(canRender())render();}
+    if(prev!==next){S.catOrd=remote;if(canRender())listenerRender();}
   });
 }
 
@@ -219,31 +237,60 @@ function startRealtimeSync(){
 async function doAction(type,it,qty,note){
   const back=S.modal&&S.modal.back||null;
   const amt=Math.max(type==="audit"?0:1,qty);
-  let rq=0,nq=0,aborted=null;
-  const tx=await fbTxItem(it.id,cur=>{
-    rq=cur.q||0;
-    if(type==="out"&&rq<=0){aborted="⚠ 庫存為 0，無法出貨";return undefined;}
-    const oa=type==="out"?Math.min(rq,amt):amt;
-    if(type==="in")nq=rq+amt;
-    else if(type==="out")nq=Math.max(0,rq-oa);
-    else nq=Math.max(0,amt);
-    if(type==="audit"&&nq===rq){aborted="數量相同，無需盤點";return undefined;}
-    return{...cur,q:nq};
-  }).catch(e=>{console.error(e);return{committed:false,arr:null};});
-  if(tx.missing){S.modal=back&&back.t==="detail"&&back.id===it.id?(back.back||null):back;showToast("⚠ 此品項已被刪除");if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);render();return {ok:false,retry:false};}
-  if(aborted){S.modal=back;showToast(aborted);render();return {ok:false,retry:false};}
-  if(!tx.committed){showToast("同步失敗，請重試");return {ok:false,retry:true};}
-  if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
+  const idx=S.items.findIndex(x=>x.id===it.id);
+  if(idx<0){S.modal=back;showToast("⚠ 此品項已被刪除");render();return {ok:false};}
+  const orig=S.items[idx],rq=orig.q||0;
+  if(type==="out"&&rq<=0){S.modal=back;showToast("⚠ 庫存為 0，無法出貨");render();return {ok:false};}
   const oa=type==="out"?Math.min(rq,amt):amt;
-  const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+nq);
-  const logEntry={id:uid(),u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,d:det,pq:rq,nq};
+  const optNq=type==="in"?rq+amt:type==="out"?Math.max(0,rq-oa):Math.max(0,amt);
+  if(type==="audit"&&optNq===rq){S.modal=back;showToast("數量相同，無需盤點");render();return {ok:false};}
+  // Optimistic: update locally, close modal, show toast — instant UI feedback
+  _pendingItems.add(it.id);
+  S.items=[...S.items.slice(0,idx),{...orig,q:optNq},...S.items.slice(idx+1)];
+  const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+optNq);
+  const logEntry={id:uid(),u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,d:det,pq:rq,nq:optNq};
   S.logs=[logEntry,...S.logs].slice(0,500);
-  fbAppendLogTx(logEntry).catch(e=>console.error(e));
+  saveCache();
   S.modal=back;
-  const diff=nq-rq;const diffStr=type==="audit"?(diff===0?"":" ("+(diff>0?"+":"")+diff+")"):"";
+  const diff=optNq-rq;const diffStr=type==="audit"?(diff===0?"":" ("+(diff>0?"+":"")+diff+")"):"";
   try{navigator.vibrate&&navigator.vibrate(30);}catch(e){}
-  showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+nq+diffStr);
+  showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+optNq+diffStr);
   render();
+  // Background sync — relative for in/out (concurrent-safe), absolute for audit
+  let serverRq=rq,serverNq=optNq,failReason=null;
+  try{
+    const tx=await fbTxItem(it.id,cur=>{
+      serverRq=cur.q||0;
+      if(type==="in"){serverNq=serverRq+amt;return{...cur,q:serverNq};}
+      if(type==="out"){if(serverRq<=0)return undefined;const o=Math.min(serverRq,amt);serverNq=Math.max(0,serverRq-o);return{...cur,q:serverNq};}
+      serverNq=Math.max(0,amt);return{...cur,q:serverNq};
+    });
+    if(tx.missing)failReason="⚠ 此品項已被刪除";
+    else if(!tx.committed)failReason="⚠ 同步失敗，請重試";
+  }catch(e){console.error(e);failReason="⚠ 連線錯誤";}
+  _pendingItems.delete(it.id);
+  if(failReason){
+    if(failReason==="⚠ 此品項已被刪除")S.items=S.items.filter(x=>x.id!==it.id);
+    else{const i2=S.items.findIndex(x=>x.id===it.id);if(i2>=0)S.items=[...S.items.slice(0,i2),{...S.items[i2],q:rq},...S.items.slice(i2+1)];}
+    S.logs=S.logs.filter(l=>l.id!==logEntry.id);
+    saveCache();showToast(failReason);render();
+    return {ok:false};
+  }
+  // Reconcile to server result (handles concurrent edits)
+  const i2=S.items.findIndex(x=>x.id===it.id);
+  if(i2>=0&&S.items[i2].q!==serverNq){
+    S.items=[...S.items.slice(0,i2),{...S.items[i2],q:serverNq},...S.items.slice(i2+1)];
+    render();
+  }
+  if(serverRq!==rq||serverNq!==optNq){
+    const lIdx=S.logs.findIndex(l=>l.id===logEntry.id);
+    if(lIdx>=0){
+      const fixedOa=type==="out"?Math.min(serverRq,amt):oa;
+      const fixedDet=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:"")):(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:"盤點 "+serverRq+"→"+serverNq);
+      S.logs[lIdx]={...logEntry,pq:serverRq,nq:serverNq,d:fixedDet};
+    }
+  }
+  fbAppendLogTx(S.logs.find(l=>l.id===logEntry.id)||logEntry).catch(e=>console.error(e));
   return {ok:true};
 }
 function normalizeImgUrl(url){
@@ -259,15 +306,24 @@ function normalizeImgUrl(url){
 }
 async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   if(f.img)ni.img=normalizeImgUrl(f.img);if(f.dsc)ni.dsc=f.dsc;
-  const tx=await fbAddItemTx(ni).catch(e=>{console.error(e);return{committed:false};});
-  if(!tx.committed){showToast("新增失敗");return;}
-  try{localStorage.setItem("inv_lastB",f.b);localStorage.setItem("inv_lastC",f.c);}catch(e){}
-  if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
+  // Optimistic add
+  _pendingItems.add(ni.id);
+  S.items=[...S.items,ni];
   const logEntry={id:uid(),u:S.user,a:"➕",n:ni.n,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()};
   S.logs=[logEntry,...S.logs].slice(0,500);
-  fbAppendLogTx(logEntry).catch(e=>console.error(e));
+  saveCache();
+  try{localStorage.setItem("inv_lastB",f.b);localStorage.setItem("inv_lastC",f.c);}catch(e){}
   try{navigator.vibrate&&navigator.vibrate(30);}catch(e){}
   S.modal=null;showToast("已新增 "+ni.n);render();
+  // Sync
+  const tx=await fbAddItemTx(ni).catch(e=>{console.error(e);return{committed:false};});
+  _pendingItems.delete(ni.id);
+  if(!tx.committed){
+    S.items=S.items.filter(x=>x.id!==ni.id);
+    S.logs=S.logs.filter(l=>l.id!==logEntry.id);
+    saveCache();showToast("⚠ 新增失敗，請重試");render();return;
+  }
+  fbAppendLogTx(logEntry).catch(e=>console.error(e));
 }
 async function doUpdateMeta(id,patch){
   let noChange=false;
@@ -289,19 +345,49 @@ async function doUpdateMeta(id,patch){
   return true;
 }
 async function doDelNoConfirm(it){
-  const tx=await fbDelItemTx(it.id).catch(e=>{console.error(e);return{committed:false};});
-  if(!tx.committed){showToast("刪除失敗");return;}
-  if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
+  // Optimistic remove
+  _pendingDeletes.add(it.id);
+  S.items=S.items.filter(x=>x.id!==it.id);
   const logEntry={id:uid(),u:S.user,a:"🗑",n:it.n,d:"",pq:it.q,nq:0,t:ts()};
   S.logs=[logEntry,...S.logs].slice(0,500);
-  fbAppendLogTx(logEntry).catch(e=>console.error(e));
+  saveCache();
   try{navigator.vibrate&&navigator.vibrate([50,30,50]);}catch(e){}
   showToast("🗑 已刪除 "+it.n);render();
+  // Sync
+  const tx=await fbDelItemTx(it.id).catch(e=>{console.error(e);return{committed:false};});
+  _pendingDeletes.delete(it.id);
+  if(!tx.committed){
+    if(!S.items.some(x=>x.id===it.id))S.items=[...S.items,it];
+    S.logs=S.logs.filter(l=>l.id!==logEntry.id);
+    saveCache();showToast("⚠ 刪除失敗，請重試");render();return;
+  }
+  fbAppendLogTx(logEntry).catch(e=>console.error(e));
 }
 function doDel(it){S.modal={t:"del-confirm",id:it.id};render();}
-let toastSeq=0;
-function showToast(m){const mySeq=++toastSeq;S.toast=m;render();setTimeout(()=>{if(mySeq===toastSeq){S.toast="";render();}},2000);}
+// Toast lives in body, outside #app — survives renders without triggering them
+let _toastEl=null,_toastTimer=null;
+function showToast(m){
+  if(_toastTimer){clearTimeout(_toastTimer);_toastTimer=null;}
+  if(_toastEl){_toastEl.remove();_toastEl=null;}
+  const el=document.createElement("div");el.className="toast";el.textContent=m;
+  document.body.appendChild(el);_toastEl=el;
+  _toastTimer=setTimeout(()=>{if(_toastEl===el){el.remove();_toastEl=null;}_toastTimer=null;},2000);
+}
 async function doSync(){showToast("同步中…");const before=S.lastSyncAt;await fbLoad();if(S.lastSyncAt===before)showToast("⚠ 同步失敗，檢查連線");else showToast("已同步");render();}
+// Fetch logs older than the cached 200 (up to full 500). Stored separately so the listener's 200-window doesn't overwrite them.
+async function loadOlderLogs(){
+  if(S.loadingOlder||S.olderLogs.length)return;
+  S.loadingOlder=true;render();
+  try{
+    const snap=await dbL.once("value");
+    const raw=snap.val();
+    const all=Array.isArray(raw)?raw.filter(x=>x):[];
+    const currentIds=new Set(S.logs.map(l=>l.id));
+    S.olderLogs=all.filter(l=>l&&!currentIds.has(l.id));
+    showToast(S.olderLogs.length?"✅ 已載入 "+S.olderLogs.length+" 筆舊紀錄":"已載入全部紀錄");
+  }catch(e){console.error(e);showToast("⚠ 載入舊紀錄失敗");}
+  S.loadingOlder=false;render();
+}
 
 function h(t,p,...c){const e=document.createElement(t);if(p)Object.entries(p).forEach(([k,v])=>{if(k==="style"&&typeof v==="object")Object.assign(e.style,v);else if(k.startsWith("on"))e[k.toLowerCase()]=v;else if(k==="className")e.className=v;else if(k==="disabled")e.disabled=v;else e.setAttribute(k,v);});c.flat(9).forEach(x=>{if(x==null||x===false)return;if(typeof x==="string"||typeof x==="number")e.appendChild(document.createTextNode(x));else if(x instanceof Node)e.appendChild(x);});return e;}
 
@@ -313,7 +399,7 @@ function renderLogin(){
       h("p",{style:{color:"var(--sub)",fontSize:"13px",marginBottom:"24px"}},"多人協作 · Firebase 即時同步"),
       h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"選擇使用者")),
       (()=>{const s=h("select",{className:"ipt",style:{marginBottom:"16px"},onChange:e=>{S.user=e.target.value;}});US.forEach(u=>{const o=h("option",{value:u},u);if(u===S.user)o.selected=true;s.appendChild(o);});return s;})(),
-      h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async()=>{try{localStorage.setItem("inv_user",S.user);}catch(e){}const cached=hydrateFromCache();S.phase=cached?"ready":"loading";render();await fbLoad();startRealtimeSync();S.phase="ready";render();}},"進入系統")
+      h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async()=>{try{localStorage.setItem("inv_user",S.user);}catch(e){}const cached=hydrateFromCache();S.phase=cached?"ready":"loading";render();if(cached){fbLoad().then(()=>{startRealtimeSync();S.phase="ready";render();});}else{await fbLoad();S.phase="ready";render();startRealtimeSync();}}},"進入系統")
   ));
 }
 
@@ -400,7 +486,7 @@ function renderActionModal(){
   updatePrev();box.appendChild(prevEl);
   const canInit=!tags.length;
   const initLabel=type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"確認盤點 "+it.q+"→"+it.q;
-  var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:async function(){if(this.disabled)return;const fn=selN==="調貨"&&customT?"調貨："+customT:selN;const prevLabel=this.textContent;this.disabled=true;this.style.opacity="0.6";this.textContent="處理中…";const r=await doAction(type,it,selQ,fn);if(r&&r.retry){this.disabled=false;this.style.opacity="1";this.textContent=prevLabel;}}},initLabel);
+  var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:function(){if(this.disabled)return;this.disabled=true;const fn=selN==="調貨"&&customT?"調貨："+customT:selN;doAction(type,it,selQ,fn);}},initLabel);
   box.appendChild(confirmBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!confirmBtn.disabled){e.preventDefault();confirmBtn.click();}});
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeAction}),box);
@@ -442,7 +528,7 @@ function renderAddModal(){
   // Description
   const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"60px",resize:"vertical",fontFamily:"inherit"}});
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
-  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}if(!selB){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===selB&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+selB+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;this.style.opacity="0.6";this.textContent="新增中…";await doAdd({z:zS.value,b:selB,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
+  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}if(!selB){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===selB&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+selB+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;doAdd({z:zS.value,b:selB,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
@@ -560,7 +646,7 @@ function renderDelConfirmModal(){
   const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}});
   const delBack=S.modal.back;
   btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal=delBack||null;render();}},"取消"));
-  btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--red)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;this.disabled=true;this.style.opacity="0.6";this.textContent="刪除中…";const grandBack=(delBack&&delBack.t==="detail"&&delBack.id===it.id)?(delBack.back||null):delBack;S.modal=grandBack;await doDelNoConfirm(it);}},"確認刪除"));
+  btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--red)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;this.disabled=true;const grandBack=(delBack&&delBack.t==="detail"&&delBack.id===it.id)?(delBack.back||null):delBack;S.modal=grandBack;doDelNoConfirm(it);}},"確認刪除"));
   box.appendChild(btnRow);
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=delBack||null;render();}}),box);
 }
@@ -813,8 +899,8 @@ function renderMain(){
     const nameToItem={};S.items.forEach(x=>{nameToItem[x.n]=x;});
     const nameToBrand=Object.fromEntries(Object.entries(nameToItem).map(([k,v])=>[k,v.b]));
 
-    // Filter logs
-    let filteredLogs=S.logs;
+    // Filter logs (combine with older logs if user explicitly loaded them)
+    let filteredLogs=S.olderLogs.length?[...S.logs,...S.olderLogs]:S.logs;
     if(S.logSearch){const ls=S.logSearch.toLowerCase();filteredLogs=filteredLogs.filter(l=>(l.n||"").toLowerCase().includes(ls)||(l.d||"").toLowerCase().includes(ls)||(l.u||"").toLowerCase().includes(ls));}
     if(S.logDateFrom){const df=S.logDateFrom.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)>=df);}
     if(S.logDateTo){const dt=S.logDateTo.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)<=dt);}
@@ -855,17 +941,28 @@ function renderMain(){
     if(totalFiltered>shown.length){
       content.appendChild(h("button",{style:{width:"100%",marginTop:"10px",padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.logLimit+=100;S._skipScrollRestore=false;render();}},"載入更多（剩 "+(totalFiltered-shown.length)+" 筆）"));
     }
+    // Older logs button — fetch entries beyond the listener's 200-entry window (up to full 500)
+    if(!S.olderLogs.length&&S.logs.length>=200){
+      content.appendChild(h("button",{disabled:S.loadingOlder,style:{width:"100%",marginTop:"8px",padding:"12px",borderRadius:"10px",border:"1px dashed var(--border)",background:"#f8fafc",color:S.loadingOlder?"var(--sub)":"#7c3aed",fontSize:"12px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer",opacity:S.loadingOlder?.6:1},onClick:loadOlderLogs},S.loadingOlder?"⏳ 載入中…":"📜 載入更舊紀錄（最舊 ~300 筆）"));
+    }else if(S.olderLogs.length){
+      content.appendChild(h("div",{style:{marginTop:"8px",padding:"10px",textAlign:"center",fontSize:"11px",color:"var(--sub)",background:"#f8fafc",borderRadius:"8px"}},"已載入全部 "+(S.logs.length+S.olderLogs.length)+" 筆紀錄"));
+    }
   }else if(S.tab==="stats"){
+    // Use combined logs if older have been loaded — gives more accurate monthly stats when activity is high
+    const allLogs=S.olderLogs.length?[...S.logs,...S.olderLogs]:S.logs;
+    if(!S.olderLogs.length&&S.logs.length>=200){
+      content.appendChild(h("div",{style:{padding:"10px 12px",margin:"0 0 12px 0",background:"#fef3c7",borderRadius:"8px",fontSize:"11px",color:"#b45309",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px"}},h("span",{},"📊 統計基於最新 200 筆紀錄"),h("button",{disabled:S.loadingOlder,style:{padding:"4px 10px",borderRadius:"6px",border:"none",background:S.loadingOlder?"#e2e8f0":"#7c3aed",color:"#fff",fontSize:"11px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer",flexShrink:0},onClick:loadOlderLogs},S.loadingOlder?"載入中…":"載入全部")));
+    }
     // Monthly stats
     const now=new Date();const ym=now.getFullYear()+"/"+String(now.getMonth()+1).padStart(2,"0");
     const today=now.getFullYear()+"/"+String(now.getMonth()+1).padStart(2,"0")+"/"+String(now.getDate()).padStart(2,"0");
-    const monthLogs=S.logs.filter(l=>(l.t||"").startsWith(ym));
+    const monthLogs=allLogs.filter(l=>(l.t||"").startsWith(ym));
     const mIn=monthLogs.filter(l=>(l.a||"").includes("進"));
     const mOut=monthLogs.filter(l=>(l.a||"").includes("出"));
     // Today summary + yesterday comparison
     const yDate=new Date(now.getTime()-86400000);const yesterday=yDate.getFullYear()+"/"+String(yDate.getMonth()+1).padStart(2,"0")+"/"+String(yDate.getDate()).padStart(2,"0");
-    const todayLogs=S.logs.filter(l=>(l.t||"").startsWith(today));
-    const yLogs=S.logs.filter(l=>(l.t||"").startsWith(yesterday));
+    const todayLogs=allLogs.filter(l=>(l.t||"").startsWith(today));
+    const yLogs=allLogs.filter(l=>(l.t||"").startsWith(yesterday));
     const tIn=todayLogs.filter(l=>(l.a||"").includes("進")).length,yIn=yLogs.filter(l=>(l.a||"").includes("進")).length;
     const tOut=todayLogs.filter(l=>(l.a||"").includes("出")).length,yOut=yLogs.filter(l=>(l.a||"").includes("出")).length;
     const tAu=todayLogs.filter(l=>(l.a||"").includes("盤")).length,yAu=yLogs.filter(l=>(l.a||"").includes("盤")).length;
@@ -984,14 +1081,16 @@ function renderMain(){
     });
     root.appendChild(h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box));
   }
-  if(S.toast)root.appendChild(h("div",{className:"toast"},S.toast));
   return root;
 }
 
 let _bodyLockY=0;
 function lockBody(){if(document.body.dataset.locked==="1")return;_bodyLockY=window.scrollY||document.documentElement.scrollTop||0;document.body.dataset.locked="1";document.body.style.position="fixed";document.body.style.top=(-_bodyLockY)+"px";document.body.style.width="100%";document.body.style.overflow="hidden";}
 function unlockBody(){if(document.body.dataset.locked!=="1")return;document.body.dataset.locked="";document.body.style.position="";document.body.style.top="";document.body.style.width="";document.body.style.overflow="";window.scrollTo(0,_bodyLockY);}
-function render(){const a=document.getElementById("app");const wasLocked=document.body.dataset.locked==="1";const sy=wasLocked?_bodyLockY:(window.scrollY||document.documentElement.scrollTop||0);const skipRestore=S._skipScrollRestore;S._skipScrollRestore=false;a.innerHTML="";if(S.phase==="login")a.appendChild(renderLogin());else if(S.phase==="loading"||!S.items)a.appendChild(renderLoading());else a.appendChild(renderMain());if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}}
+// Coalesce multiple sync render() calls into one — saves redundant rebuilds when listeners fire together
+let _renderQueued=false;
+function render(){if(_renderQueued)return;_renderQueued=true;queueMicrotask(()=>{_renderQueued=false;_render();});}
+function _render(){const a=document.getElementById("app");const wasLocked=document.body.dataset.locked==="1";const sy=wasLocked?_bodyLockY:(window.scrollY||document.documentElement.scrollTop||0);const skipRestore=S._skipScrollRestore;S._skipScrollRestore=false;a.innerHTML="";if(S.phase==="login")a.appendChild(renderLogin());else if(S.phase==="loading"||!S.items)a.appendChild(renderLoading());else a.appendChild(renderMain());if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}}
 // Esc closes modal
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&S.modal){if(S.modal.t==="detail"&&S.modal.edit)return;S.modal=S.modal.back||null;render();}});
 // Re-render every minute to refresh "Xm ago" label in header
