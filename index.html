@@ -180,7 +180,19 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
   // Logs: clear old test logs once (version check)
   if(ver===RESET_VER){S.logs=Array.isArray(l)?l:[];}
   else{S.logs=[];dbL.set([]);const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);console.log("Logs cleared:",RESET_VER);}
-  S.catOrd=(o&&typeof o==="object")?o:{};S.lastSyncAt=Date.now();saveCache();}catch(e){console.error("fbLoad failed:",e);if(!S.items){S.items=mkInit();S.logs=[];}/* do NOT write to Firebase on timeout — remote may have good data */}}
+  S.catOrd=(o&&typeof o==="object")?o:{};
+  // One-time migration: Yamaha 鼓配件/鼓音箱 → "配件專區（含音箱）" brand
+  if(!S.catOrd.__brandMigYamahaAcc){
+    await new Promise(resolve=>{dbI.transaction(cur=>{
+      if(!Array.isArray(cur))return cur;
+      let changed=false;
+      const next=cur.map(x=>{if(x&&x.b==="Yamaha"&&(x.c==="鼓配件"||x.c==="鼓音箱")){changed=true;return{...x,b:"配件專區（含音箱）"};}return x;});
+      return changed?next:cur;
+    },(err,committed,snap)=>{if(!err&&snap&&Array.isArray(snap.val()))S.items=snap.val().filter(x=>x);resolve();},false);});
+    await fbSetOrdKey("__brandMigYamahaAcc",true);
+    console.log("Brand migration: Yamaha 鼓配件/鼓音箱 → 配件專區（含音箱）");
+  }
+  S.lastSyncAt=Date.now();saveCache();}catch(e){console.error("fbLoad failed:",e);if(!S.items){S.items=mkInit();S.logs=[];}/* do NOT write to Firebase on timeout — remote may have good data */}}
 
 // Atomic per-item transaction — prevents concurrent writes from clobbering each other
 function fbTxItem(id,updater){return new Promise((resolve,reject)=>{let missing=false;dbI.transaction(cur=>{missing=false;if(!Array.isArray(cur))return cur;const idx=cur.findIndex(x=>x&&x.id===id);if(idx<0){missing=true;return cur;}const r=updater(cur[idx]);if(r===undefined)return undefined;cur[idx]=r;return cur;},(err,committed,snap)=>{if(err)return reject(err);resolve({committed:committed&&!missing,missing,arr:snap&&snap.val()});},false);});}
@@ -505,11 +517,13 @@ function renderAddModal(){
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"區域"),zS));
   const brands=[...brandsSet].sort();
   const cS=h("select",{className:"ipt",onChange:e=>{selC=e.target.value;}});cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));
-  const rebuildCats=()=>{cS.innerHTML="";cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));if(selB){[...new Set(S.items.filter(x=>x.b===selB).map(x=>x.c))].sort().forEach(c=>{const o=h("option",{value:c},c);if(c===lastC)o.selected=true;cS.appendChild(o);});if(lastC&&S.items.some(x=>x.b===selB&&x.c===lastC))selC=lastC;}cS.appendChild(h("option",{value:"__new"},"✏️ 自訂"));};
-  const bS=h("select",{className:"ipt",onChange:e=>{selB=e.target.value;selC="";ccI.style.display="none";ccI.value="";rebuildCats();}});
+  const rebuildCats=()=>{cS.innerHTML="";cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));if(selB&&selB!=="__newB"){[...new Set(S.items.filter(x=>x.b===selB).map(x=>x.c))].sort().forEach(c=>{const o=h("option",{value:c},c);if(c===lastC)o.selected=true;cS.appendChild(o);});if(lastC&&S.items.some(x=>x.b===selB&&x.c===lastC))selC=lastC;}cS.appendChild(h("option",{value:"__new"},"✏️ 自訂"));};
+  const bcI=h("input",{className:"ipt",placeholder:"新品牌名稱",style:{display:"none",marginTop:"6px"}});
+  const bS=h("select",{className:"ipt",onChange:e=>{selB=e.target.value;selC="";ccI.style.display="none";ccI.value="";bcI.style.display=e.target.value==="__newB"?"block":"none";if(e.target.value==="__newB")setTimeout(()=>bcI.focus(),0);rebuildCats();}});
   bS.appendChild(h("option",{value:""},"-- 選擇品牌 --"));brands.forEach(b=>{const o=h("option",{value:b},b);if(b===lastB)o.selected=true;bS.appendChild(o);});
+  bS.appendChild(h("option",{value:"__newB"},"✏️ 自訂新品牌"));
   if(lastB)rebuildCats();
-  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"品牌 *"),bS));
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"品牌 *"),bS,bcI));
   const ccI=h("input",{className:"ipt",placeholder:"新分類名稱",style:{display:"none",marginTop:"6px"}});
   cS.addEventListener("change",e=>{ccI.style.display=e.target.value==="__new"?"block":"none";});
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"分類 *"),cS,ccI));
@@ -528,7 +542,7 @@ function renderAddModal(){
   // Description
   const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"60px",resize:"vertical",fontFamily:"inherit"}});
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
-  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}if(!selB){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===selB&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+selB+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;doAdd({z:zS.value,b:selB,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
+  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;doAdd({z:zS.value,b:brand,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
@@ -583,15 +597,17 @@ function renderDetailModal(){
     box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"商品名稱"),nI));
     // Brand + Category + Zone
     const allBrands=[...new Set(S.items.map(x=>x.b))].sort();
+    const bcInp=h("input",{className:"ipt",placeholder:"新品牌名稱",style:{display:"none",marginTop:"6px"}});
     const bSel=h("select",{className:"ipt"});allBrands.forEach(b=>{const o=h("option",{value:b},b);if(b===it.b)o.selected=true;bSel.appendChild(o);});
+    bSel.appendChild(h("option",{value:"__newB"},"✏️ 自訂新品牌"));
     const cSel=h("select",{className:"ipt"});
     const ccInp=h("input",{className:"ipt",placeholder:"新分類名稱",style:{display:"none",marginTop:"6px"}});
-    const rebuildCat=()=>{cSel.innerHTML="";const cats=[...new Set(S.items.filter(x=>x.b===bSel.value).map(x=>x.c))].sort();cats.forEach(c=>{const o=h("option",{value:c},c);if(c===it.c&&bSel.value===it.b)o.selected=true;cSel.appendChild(o);});cSel.appendChild(h("option",{value:"__new"},"✏️ 自訂"));};
+    const rebuildCat=()=>{cSel.innerHTML="";if(bSel.value!=="__newB"){const cats=[...new Set(S.items.filter(x=>x.b===bSel.value).map(x=>x.c))].sort();cats.forEach(c=>{const o=h("option",{value:c},c);if(c===it.c&&bSel.value===it.b)o.selected=true;cSel.appendChild(o);});}cSel.appendChild(h("option",{value:"__new"},"✏️ 自訂"));};
     rebuildCat();
-    bSel.addEventListener("change",()=>{rebuildCat();ccInp.style.display="none";ccInp.value="";});
+    bSel.addEventListener("change",()=>{rebuildCat();ccInp.style.display="none";ccInp.value="";bcInp.style.display=bSel.value==="__newB"?"block":"none";if(bSel.value==="__newB")setTimeout(()=>bcInp.focus(),0);});
     cSel.addEventListener("change",e=>{ccInp.style.display=e.target.value==="__new"?"block":"none";});
     box.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"10px"}},
-      h("div",{},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"品牌"),bSel),
+      h("div",{},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"品牌"),bSel,bcInp),
       h("div",{},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"分類"),cSel,ccInp)
     ));
     // Zone is locked by default to prevent accidental "moves" — user must tap unlock to change
@@ -613,7 +629,7 @@ function renderDetailModal(){
     box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述"),dscI));
     const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
     btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,back};render();}},"取消"));
-    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}const newB=bSel.value||it.b;let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim()});if(ok){showToast("已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
+    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim()});if(ok){showToast("已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
     btnRow.appendChild(saveBtn);
     box.appendChild(btnRow);
     box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!saveBtn.disabled){e.preventDefault();saveBtn.click();}});
