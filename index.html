@@ -814,33 +814,76 @@ function renderMain(){
     sw.appendChild(searchInp);sw.appendChild(clearBtn);sr.appendChild(sw);
     const zl=h("label",{className:"zl-box"});const zc=h("input",{type:"checkbox",onChange:e=>{S.showZero=e.target.checked;render();}});zc.checked=S.showZero;zl.appendChild(zc);zl.appendChild(document.createTextNode("零庫存"));sr.appendChild(zl);content.appendChild(sr);
     if(S.search){content.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"8px",padding:"4px 8px",fontWeight:500}},"🔍 找到 "+fil.length+" 項符合「"+S.search+"」"));}
-    // Brand drag sort
-    let dragBrand=null;
+    // Drag state — single active drag at a time across brands/cats/items
+    let dragBrand=null;            // bi (brand reorder)
+    let dragCatBi=null,dragCatName=null;  // (cross-brand cat move)
+    let dragItemId=null,dragItemSrcBrand=null,dragItemSrcCat=null;  // (cross-brand item move)
+    const clearDrag=()=>{dragBrand=null;dragCatBi=null;dragCatName=null;dragItemId=null;dragItemSrcBrand=null;dragItemSrcCat=null;};
+    // Cross-brand/cat move via Firebase transaction (concurrent-safe; preserves all other fields)
+    const moveItems=(predicate,patch)=>new Promise(resolve=>{dbI.transaction(cur=>{
+      if(!Array.isArray(cur))return cur;
+      let changed=false;
+      const next=cur.map(x=>{if(x&&predicate(x)){changed=true;return{...x,...patch};}return x;});
+      return changed?next:cur;
+    },(err,committed,snap)=>{if(!err&&snap&&Array.isArray(snap.val())){S.items=snap.val().filter(x=>x);saveCache();render();}resolve();},false);});
     // Items
     grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.search?true:S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
       const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:true});
-      bCard.addEventListener("dragstart",e=>{dragBrand=bi;e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
-      bCard.addEventListener("dragend",()=>{dragBrand=null;bCard.style.opacity="1";});
-      bCard.addEventListener("dragover",e=>{e.preventDefault();if(dragBrand!==null&&dragBrand!==bi)bCard.style.borderTop="3px solid var(--blue)";});
+      bCard.addEventListener("dragstart",e=>{clearDrag();dragBrand=bi;e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
+      bCard.addEventListener("dragend",()=>{clearDrag();bCard.style.opacity="1";});
+      bCard.addEventListener("dragover",e=>{e.preventDefault();
+        const canDrop=(dragBrand!==null&&dragBrand!==bi)||(dragCatBi!==null&&dragCatBi!==bi)||(dragItemSrcBrand!==null&&dragItemSrcBrand!==b);
+        if(canDrop)bCard.style.borderTop="3px solid var(--blue)";
+      });
       bCard.addEventListener("dragleave",()=>{bCard.style.borderTop="";});
-      bCard.addEventListener("drop",e=>{e.preventDefault();bCard.style.borderTop="";if(dragBrand===null||dragBrand===bi)return;
-        const bNames=grouped.map(g=>g.b);const mv=bNames.splice(dragBrand,1)[0];bNames.splice(bi,0,mv);
-        S.catOrd[zone+"|__brands"]=bNames;fbSetOrdKey(zone+"|__brands",bNames);render();});
+      bCard.addEventListener("drop",e=>{e.preventDefault();bCard.style.borderTop="";
+        if(dragBrand!==null&&dragBrand!==bi){
+          // Brand reorder
+          const bNames=grouped.map(g=>g.b);const mv=bNames.splice(dragBrand,1)[0];bNames.splice(bi,0,mv);
+          S.catOrd[zone+"|__brands"]=bNames;fbSetOrdKey(zone+"|__brands",bNames);render();
+        }else if(dragCatBi!==null&&dragCatBi!==bi){
+          // Cross-brand category move: keep cat name, change brand
+          const srcBrand=grouped[dragCatBi].b,catName=dragCatName;
+          showToast("📦 移動分類：「"+srcBrand+" / "+catName+"」→ "+b);
+          moveItems(x=>x.b===srcBrand&&x.c===catName,{b});
+        }else if(dragItemId!==null&&dragItemSrcBrand!==b){
+          // Cross-brand single-item move: keep cat name, change brand
+          const id=dragItemId,it=S.items.find(x=>x.id===id);
+          if(it){showToast("📦 移動商品：「"+it.n+"」→ "+b);moveItems(x=>x.id===id,{b});}
+        }
+      });
       bCard.appendChild(h("div",{className:"brand-hdr",onClick:()=>{S.bOpen[bk]=!S.bOpen[bk];render();}},
         h("span",{style:{fontSize:"10px",color:col,transform:bo?"rotate(0)":"rotate(-90deg)",transition:"transform .15s",fontWeight:900,display:"inline-block"}},"▼"),
         h("span",{style:{width:"4px",height:"20px",borderRadius:"2px",background:col,flexShrink:0}}),
         h("span",{style:{fontSize:"15px",fontWeight:800,color:col}},b),
         h("span",{style:{marginLeft:"auto",fontSize:"12px",color:"var(--sub)",fontWeight:500}},bC+"項 / "+bT)));
-      if(bo){let dragCat=null,dragItem=null,dragItemCat=null;
+      if(bo){
         cats.forEach(({c,its},ci)=>{const ck=bk+"|"+c;const co=S.search?true:S.cOpen[ck];const cT=its.reduce((s,x)=>s+x.q,0);
         const catEl=h("div",{className:"cat-hdr",draggable:true});
-        catEl.addEventListener("dragstart",e=>{e.stopPropagation();dragCat=ci;dragItem=null;e.dataTransfer.effectAllowed="move";catEl.style.opacity="0.5";});
-        catEl.addEventListener("dragend",()=>{dragCat=null;catEl.style.opacity="1";});
-        catEl.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();if(dragCat!==null&&dragCat!==ci)catEl.style.borderTop="3px solid "+col;});
+        catEl.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragCatBi=bi;dragCatName=c;e.dataTransfer.effectAllowed="move";catEl.style.opacity="0.5";});
+        catEl.addEventListener("dragend",()=>{clearDrag();catEl.style.opacity="1";});
+        catEl.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();
+          const canDrop=(dragCatBi===bi&&dragCatName!==c)||(dragCatBi!==null&&dragCatBi!==bi)||(dragItemId!==null&&(dragItemSrcBrand!==b||dragItemSrcCat!==c));
+          if(canDrop)catEl.style.borderTop="3px solid "+col;
+        });
         catEl.addEventListener("dragleave",()=>{catEl.style.borderTop="";});
-        catEl.addEventListener("drop",e=>{e.preventDefault();e.stopPropagation();catEl.style.borderTop="";if(dragCat===null||dragCat===ci)return;
-          const cNames=cats.map(x=>x.c);const mv=cNames.splice(dragCat,1)[0];cNames.splice(ci,0,mv);
-          S.catOrd[zone+"|"+b]=cNames;fbSetOrdKey(zone+"|"+b,cNames);render();});
+        catEl.addEventListener("drop",e=>{e.preventDefault();e.stopPropagation();catEl.style.borderTop="";
+          if(dragCatBi===bi&&dragCatName!==c){
+            // Same-brand cat reorder
+            const cNames=cats.map(x=>x.c);const fromIdx=cNames.indexOf(dragCatName);if(fromIdx<0)return;
+            const mv=cNames.splice(fromIdx,1)[0];cNames.splice(ci,0,mv);
+            S.catOrd[zone+"|"+b]=cNames;fbSetOrdKey(zone+"|"+b,cNames);render();
+          }else if(dragCatBi!==null&&dragCatBi!==bi){
+            // Cross-brand cat merge: src brand+cat → b+c (rename cat too)
+            const srcBrand=grouped[dragCatBi].b,srcCat=dragCatName;
+            showToast("📦 合併到「"+b+" / "+c+"」");
+            moveItems(x=>x.b===srcBrand&&x.c===srcCat,{b,c});
+          }else if(dragItemId!==null&&(dragItemSrcBrand!==b||dragItemSrcCat!==c)){
+            // Item drop on cat: change brand+cat
+            const id=dragItemId,it=S.items.find(x=>x.id===id);
+            if(it){showToast("📦 移動到「"+b+" / "+c+"」");moveItems(x=>x.id===id,{b,c});}
+          }
+        });
         catEl.appendChild(h("span",{style:{fontSize:"8px",color:"var(--sub)",transform:co?"rotate(0)":"rotate(-90deg)",transition:"transform .1s",display:"inline-block"}},"▼"));
         catEl.appendChild(h("span",{style:{fontSize:"12px",fontWeight:600,color:col}},c));
         catEl.appendChild(h("span",{style:{marginLeft:"auto",fontSize:"11px",color:"var(--sub)"}},its.length+"/"+cT));
@@ -849,13 +892,19 @@ function renderMain(){
         if(co)its.forEach((it,ii)=>{
           const row=renderRow(it);
           row.draggable=true;
-          row.addEventListener("dragstart",e=>{e.stopPropagation();dragItem=ii;dragItemCat=c;dragCat=null;e.dataTransfer.effectAllowed="move";row.style.opacity="0.5";});
-          row.addEventListener("dragend",()=>{dragItem=null;dragItemCat=null;row.style.opacity="1";});
-          row.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();if(dragItem!==null&&dragItemCat===c&&dragItem!==ii)row.style.borderTop="2px solid var(--blue)";});
+          row.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragItemId=it.id;dragItemSrcBrand=b;dragItemSrcCat=c;e.dataTransfer.effectAllowed="move";row.style.opacity="0.5";});
+          row.addEventListener("dragend",()=>{clearDrag();row.style.opacity="1";});
+          row.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();
+            if(dragItemId!==null&&dragItemSrcBrand===b&&dragItemSrcCat===c&&dragItemId!==it.id)row.style.borderTop="2px solid var(--blue)";
+          });
           row.addEventListener("dragleave",()=>{row.style.borderTop="";});
-          row.addEventListener("drop",e=>{e.preventDefault();e.stopPropagation();row.style.borderTop="";if(dragItem===null||dragItemCat!==c||dragItem===ii)return;
-            const ids=its.map(x=>x.id);const mv=ids.splice(dragItem,1)[0];ids.splice(ii,0,mv);
-            S.catOrd[zone+"|"+b+"|"+c]=ids;fbSetOrdKey(zone+"|"+b+"|"+c,ids);render();});
+          row.addEventListener("drop",e=>{e.preventDefault();e.stopPropagation();row.style.borderTop="";
+            if(dragItemId===null||dragItemSrcBrand!==b||dragItemSrcCat!==c||dragItemId===it.id)return;
+            // Same-cat reorder
+            const ids=its.map(x=>x.id);const fromIdx=ids.indexOf(dragItemId);if(fromIdx<0)return;
+            const mv=ids.splice(fromIdx,1)[0];ids.splice(ii,0,mv);
+            S.catOrd[zone+"|"+b+"|"+c]=ids;fbSetOrdKey(zone+"|"+b+"|"+c,ids);render();
+          });
           bCard.appendChild(row);
         });
       });}
