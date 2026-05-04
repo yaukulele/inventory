@@ -520,7 +520,14 @@ function renderRow(it){
 
 function renderActionModal(){
   const m=S.modal;if(!m||!["in","out","audit"].includes(m.t))return null;
-  const type=m.t,it=m.it;const actBack=m.back||null;
+  // Re-fetch the item to ensure we display the latest q/name in case the listener updated S.items while the modal was open (e.g. someone else just did +1)
+  const fresh=m.it&&S.items.find(x=>x.id===m.it.id);
+  if(!fresh){
+    S.modal=m.back||null;
+    showToast("⚠ 此品項已被刪除");
+    return null;
+  }
+  const type=m.t,it=fresh;const actBack=m.back||null;
   const closeAction=()=>{S.modal=actBack;render();};
   const col=type==="in"?"var(--green)":type==="out"?"var(--orange)":"var(--blue)";
   const lbl={in:"📥 進貨",out:"📤 出貨",audit:"📋 盤點"}[type];
