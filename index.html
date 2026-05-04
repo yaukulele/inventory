@@ -215,7 +215,19 @@ let fbListening=false;
 function startRealtimeSync(){
   if(fbListening)return;fbListening=true;
   // Connection status — writes only reach Firebase when online
-  db.ref(".info/connected").on("value",snap=>{const online=!!snap.val();if(S.online===online)return;S.online=online;if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")listenerRender();});
+  // Toast on disconnect/reconnect — but skip the first ~3s of subscriber events so the initial connection handshake doesn't fire spurious notifications
+  const _connStart=Date.now();
+  let _hadOffline=false;
+  db.ref(".info/connected").on("value",snap=>{
+    const online=!!snap.val();if(S.online===online)return;S.online=online;
+    const stable=(Date.now()-_connStart)>3000;
+    if(!online)_hadOffline=true;
+    if(stable){
+      if(online&&_hadOffline){showToast("✅ 已重新連線，同步中…");_hadOffline=false;}
+      else if(!online)showToast("⚠ 連線中斷，修改會排隊");
+    }
+    if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")listenerRender();
+  });
   // Don't re-render if a modal is open or user is typing — prevents focus loss / mid-action UI jump
   const canRender=()=>!S.modal&&document.activeElement?.tagName!=="INPUT";
   dbI.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote)||!S.items)return;
@@ -300,6 +312,7 @@ async function doAction(type,it,qty,note){
       const fixedOa=type==="out"?Math.min(serverRq,amt):oa;
       const fixedDet=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:"")):(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:"盤點 "+serverRq+"→"+serverNq);
       S.logs[lIdx]={...logEntry,pq:serverRq,nq:serverNq,d:fixedDet};
+      saveCache();
     }
   }
   fbAppendLogTx(S.logs.find(l=>l.id===logEntry.id)||logEntry).catch(e=>console.error(e));
@@ -405,7 +418,7 @@ function showToast(m){
   document.body.appendChild(el);_toastEl=el;
   _toastTimer=setTimeout(()=>{if(_toastEl===el){el.remove();_toastEl=null;}_toastTimer=null;},2000);
 }
-async function doSync(){showToast("同步中…");const before=S.lastSyncAt;await fbLoad();if(S.lastSyncAt===before)showToast("⚠ 同步失敗，檢查連線");else showToast("已同步");render();}
+async function doSync(){showToast("同步中…");const before=S.lastSyncAt;S.olderLogs=[];await fbLoad();if(S.lastSyncAt===before)showToast("⚠ 同步失敗，檢查連線");else showToast("已同步");render();}
 // Fetch logs older than the cached 200 (up to full 500). Stored separately so the listener's 200-window doesn't overwrite them.
 async function loadOlderLogs(){
   if(S.loadingOlder||S.olderLogs.length)return;
@@ -431,7 +444,7 @@ function renderLogin(){
       h("p",{style:{color:"var(--sub)",fontSize:"13px",marginBottom:"24px"}},"多人協作 · Firebase 即時同步"),
       h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"選擇使用者")),
       (()=>{const s=h("select",{className:"ipt",style:{marginBottom:"16px"},onChange:e=>{S.user=e.target.value;}});US.forEach(u=>{const o=h("option",{value:u},u);if(u===S.user)o.selected=true;s.appendChild(o);});return s;})(),
-      h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async()=>{try{localStorage.setItem("inv_user",S.user);}catch(e){}const cached=hydrateFromCache();S.phase=cached?"ready":"loading";render();if(cached){fbLoad().then(()=>{startRealtimeSync();S.phase="ready";render();});}else{await fbLoad();S.phase="ready";render();startRealtimeSync();}}},"進入系統")
+      h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async function(){if(this.disabled)return;this.disabled=true;this.style.opacity="0.6";this.textContent="連線中…";try{localStorage.setItem("inv_user",S.user);}catch(e){}const cached=hydrateFromCache();S.phase=cached?"ready":"loading";render();if(cached){fbLoad().then(()=>{startRealtimeSync();S.phase="ready";render();});}else{await fbLoad();S.phase="ready";render();startRealtimeSync();}}},"進入系統")
   ));
 }
 
@@ -821,7 +834,7 @@ function renderMain(){
     h("div",{style:{display:"flex",gap:"6px"}},
       h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
       (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{id:"syncLabel",style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
-      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{S.phase="login";S.items=null;render();}},"登出"))
+      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";render();}},"登出"))
   ));
   // Stats
   const statsDiv=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",padding:"12px 16px"}});
@@ -1020,7 +1033,7 @@ function renderMain(){
     const logBrand=l=>{const m=matchedItem(l);return m?m.b:(l.b||"");};
 
     // Filter logs (combine with older logs if user explicitly loaded them)
-    let filteredLogs=S.olderLogs.length?[...S.logs,...S.olderLogs]:S.logs;
+    let filteredLogs=(()=>{if(!S.olderLogs.length)return S.logs;const cIds=new Set(S.logs.map(l=>l.id));return [...S.logs,...S.olderLogs.filter(l=>!cIds.has(l.id))];})();
     if(S.logSearch){const ls=S.logSearch.toLowerCase();filteredLogs=filteredLogs.filter(l=>(l.n||"").toLowerCase().includes(ls)||(l.d||"").toLowerCase().includes(ls)||(l.u||"").toLowerCase().includes(ls));}
     if(S.logDateFrom){const df=S.logDateFrom.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)>=df);}
     if(S.logDateTo){const dt=S.logDateTo.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)<=dt);}
@@ -1069,7 +1082,7 @@ function renderMain(){
     }
   }else if(S.tab==="stats"){
     // Use combined logs if older have been loaded — gives more accurate monthly stats when activity is high
-    const allLogs=S.olderLogs.length?[...S.logs,...S.olderLogs]:S.logs;
+    const allLogs=(()=>{if(!S.olderLogs.length)return S.logs;const cIds=new Set(S.logs.map(l=>l.id));return [...S.logs,...S.olderLogs.filter(l=>!cIds.has(l.id))];})();
     if(!S.olderLogs.length&&S.logs.length>=200){
       content.appendChild(h("div",{style:{padding:"10px 12px",margin:"0 0 12px 0",background:"#fef3c7",borderRadius:"8px",fontSize:"11px",color:"#b45309",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px"}},h("span",{},"📊 統計基於最新 200 筆紀錄"),h("button",{disabled:S.loadingOlder,style:{padding:"4px 10px",borderRadius:"6px",border:"none",background:S.loadingOlder?"#e2e8f0":"#7c3aed",color:"#fff",fontSize:"11px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer",flexShrink:0},onClick:loadOlderLogs},S.loadingOlder?"載入中…":"載入全部")));
     }
@@ -1096,12 +1109,22 @@ function renderMain(){
     ));
     content.appendChild(todayCard);
     // Summary card
+    const mAudit=monthLogs.filter(l=>(l.a||"").includes("盤")).length;
+    const mEdit=monthLogs.filter(l=>(l.a||"").includes("✏️")).length;
+    const mAdd=monthLogs.filter(l=>(l.a||"").includes("➕")).length;
+    const mDel=monthLogs.filter(l=>(l.a||"").includes("🗑")).length;
     const sumCard=h("div",{className:"card",style:{marginBottom:"14px",padding:"16px"}});
     sumCard.appendChild(h("div",{style:{fontSize:"15px",fontWeight:700,marginBottom:"12px"}},"📊 "+(now.getMonth()+1)+"月 統計"));
-    sumCard.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px"}},
+    sumCard.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px",marginBottom:"8px"}},
       h("div",{style:{textAlign:"center",padding:"10px",background:"#f0fdf4",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"進貨筆數"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--green)"}},String(mIn.length))),
       h("div",{style:{textAlign:"center",padding:"10px",background:"#fef2f2",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"出貨筆數"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--red)"}},String(mOut.length))),
       h("div",{style:{textAlign:"center",padding:"10px",background:"var(--blue-light)",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"總異動"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--blue)"}},String(monthLogs.length)))
+    ));
+    if(mAudit||mEdit||mAdd||mDel)sumCard.appendChild(h("div",{style:{display:"flex",gap:"4px",justifyContent:"space-around",fontSize:"11px",color:"var(--sub)",padding:"6px 0 0",borderTop:"1px dashed #f1f5f9"}},
+      mAudit?h("span",{},"📋 盤 "+mAudit):null,
+      mEdit?h("span",{},"✏️ 編輯 "+mEdit):null,
+      mAdd?h("span",{},"➕ 新增 "+mAdd):null,
+      mDel?h("span",{},"🗑 刪除 "+mDel):null
     ));
     content.appendChild(sumCard);
     // Build id→item map. Aggregate logs by iid where possible; legacy logs (no iid) get re-keyed via current name match
@@ -1229,8 +1252,17 @@ function unlockBody(){if(document.body.dataset.locked!=="1")return;document.body
 let _renderQueued=false;
 function render(){if(_renderQueued)return;_renderQueued=true;queueMicrotask(()=>{_renderQueued=false;_render();});}
 function _render(){const a=document.getElementById("app");const wasLocked=document.body.dataset.locked==="1";const sy=wasLocked?_bodyLockY:(window.scrollY||document.documentElement.scrollTop||0);const skipRestore=S._skipScrollRestore;S._skipScrollRestore=false;a.innerHTML="";if(S.phase==="login")a.appendChild(renderLogin());else if(S.phase==="loading"||!S.items)a.appendChild(renderLoading());else a.appendChild(renderMain());if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}}
-// Esc closes modal
-document.addEventListener("keydown",e=>{if(e.key==="Escape"&&S.modal){if(S.modal.t==="detail"&&S.modal.edit)return;S.modal=S.modal.back||null;render();}});
+// Global keyboard shortcuts. Esc closes modal; '/' focuses search; 'n' opens add modal.
+// All shortcuts are skipped while user is typing in an input/textarea so nothing fires from a passing keystroke.
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"&&S.modal){if(S.modal.t==="detail"&&S.modal.edit)return;S.modal=S.modal.back||null;render();return;}
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
+  const tag=e.target&&e.target.tagName;
+  if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT")return;
+  if(S.phase!=="ready"||S.modal)return;
+  if(e.key==="/"){const sb=document.getElementById("searchBox");if(sb){e.preventDefault();sb.focus();sb.select();}}
+  else if((e.key==="n"||e.key==="N")&&!isPreview()){e.preventDefault();S.modal={t:"add"};render();}
+});
 // Refresh sync label without rebuilding DOM — full render every minute thrashes input focus, scrolling state, etc.
 setInterval(()=>{
   if(S.phase!=="ready"||document.hidden)return;
