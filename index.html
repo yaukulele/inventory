@@ -356,7 +356,10 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   pushLogLocal(logEntry);
   try{localStorage.setItem("inv_lastB",f.b);localStorage.setItem("inv_lastC",f.c);}catch(e){}
   try{navigator.vibrate&&navigator.vibrate(30);}catch(e){}
-  S.modal=null;showToast("已新增 "+ni.n);render();
+  S.modal=null;
+  // After-add toast offers to re-open the add modal — speeds up bulk inventory entry, last brand/cat are auto-filled from localStorage
+  showToast("已新增 "+ni.n,{label:"➕ 再加一個",fn:()=>{S.modal={t:"add"};render();}});
+  render();
   // Sync
   const tx=await fbAddItemTx(ni).catch(e=>{console.error(e);return{committed:false};});
   _pendingItems.delete(ni.id);
