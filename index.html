@@ -156,9 +156,11 @@ const INJECT_ITEMS=[
 ];
 function hydrateFromCache(){try{const raw=localStorage.getItem("inv_cache");if(!raw)return false;const c=JSON.parse(raw);if(c&&Array.isArray(c.items)&&c.items.length>0){S.items=c.items.filter(x=>x&&x.id&&x.n);if(!S.items.length)return false;S.logs=(Array.isArray(c.logs)?c.logs:[]).filter(x=>x);S.catOrd=(c.catOrd&&typeof c.catOrd==="object")?c.catOrd:{};S.lastSyncAt=c.t||null;return true;}}catch(e){}return false;}
 function saveCache(){try{const payload={items:S.items||[],logs:(S.logs||[]).slice(0,200),catOrd:S.catOrd||{},t:S.lastSyncAt||Date.now()};localStorage.setItem("inv_cache",JSON.stringify(payload));}catch(e){}}
-async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);const i=a.val();const lRaw=b.val();const l=Array.isArray(lRaw)?lRaw:(lRaw&&typeof lRaw==="object"?Object.keys(lRaw).sort((a,b)=>+a-+b).map(k=>lRaw[k]):null);const o=c.val();
+// Firebase arrays may come back as either real arrays or objects with numeric keys (when sparse from many deletions). Normalize to array.
+function arrFromVal(v){return Array.isArray(v)?v:(v&&typeof v==="object"?Object.keys(v).sort((a,b)=>+a-+b).map(k=>v[k]):null);}
+async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);const i=arrFromVal(a.val());const l=arrFromVal(b.val());const o=c.val();
   const ver=(o&&o.__ver)||"";
-  if(i&&Array.isArray(i)&&i.length>0){
+  if(i&&i.length>0){
     // Firebase arrays can be sparse (null gaps when keys are deleted) — strip them out before set/map operations
     S.items=i.filter(x=>x);
     // Auto-inject missing items by (brand|name) via transaction — avoids racing with other users' writes
@@ -205,7 +207,7 @@ const _pendingLogs=new Set();
 function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];return[entry,...arr].slice(0,500);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
 function pushLogLocal(entry){_pendingLogs.add(entry.id);S.logs=[entry,...S.logs].slice(0,500);saveCache();}
 function dropLogLocal(id){_pendingLogs.delete(id);S.logs=S.logs.filter(l=>l.id!==id);}
-function appendLog(entry){return fbAppendLogTx(entry).catch(e=>console.error(e)).finally(()=>{_pendingLogs.delete(entry.id);});}
+function appendLog(entry){return fbAppendLogTx(entry).catch(e=>{console.error("appendLog failed:",e);showToast("⚠ 紀錄寫入失敗，動作已生效但 log 沒同步");}).finally(()=>{_pendingLogs.delete(entry.id);});}
 // catOrd: atomically set one key so concurrent drags from different users don't clobber each other
 function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(err){console.error("fbSetOrdKey failed:",key,err);showToast("⚠ 排序儲存失敗");}else if(snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
 
@@ -239,7 +241,7 @@ function startRealtimeSync(){
   });
   // Don't re-render if a modal is open, the user is typing, or a drag is mid-flight (rebuilding DOM aborts the browser's drag operation)
   const canRender=()=>!S.modal&&!_isDragging&&document.activeElement?.tagName!=="INPUT";
-  dbI.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote)||!S.items)return;
+  dbI.on("value",snap=>{const remote=arrFromVal(snap.val());if(!remote||!S.items)return;
     // Reconcile remote with optimistic state — preserve pending items, drop pending deletes
     let merged=remote.filter(x=>x);
     if(_pendingItems.size){
@@ -252,9 +254,8 @@ function startRealtimeSync(){
     const prev=sig(S.items),next=sig(merged);
     if(prev!==next){S.items=merged;S.lastSyncAt=Date.now();saveCache();if(canRender())listenerRender();}
   });
-  dbL.limitToFirst(200).on("value",snap=>{const raw=snap.val();
-    const remote=Array.isArray(raw)?raw:(raw&&typeof raw==="object"?Object.keys(raw).sort((a,b)=>+a-+b).map(k=>raw[k]):null);
-    if(!remote||!Array.isArray(remote))return;
+  dbL.limitToFirst(200).on("value",snap=>{const remote=arrFromVal(snap.val());
+    if(!remote)return;
     let cleanRemote=remote.filter(x=>x);
     // Preserve any locally-added logs whose appendLog() hasn't yet committed — without this they briefly disappear from the UI between our local push and Firebase round-trip
     if(_pendingLogs.size){
@@ -456,8 +457,7 @@ async function loadOlderLogs(){
   S.loadingOlder=true;render();
   try{
     const snap=await dbL.once("value");
-    const raw=snap.val();
-    const all=Array.isArray(raw)?raw.filter(x=>x):[];
+    const all=(arrFromVal(snap.val())||[]).filter(x=>x);
     const currentIds=new Set(S.logs.map(l=>l.id));
     S.olderLogs=all.filter(l=>l&&!currentIds.has(l.id));
     showToast(S.olderLogs.length?"✅ 已載入 "+S.olderLogs.length+" 筆舊紀錄":"已載入全部紀錄");
