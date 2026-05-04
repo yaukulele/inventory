@@ -890,11 +890,12 @@ function renderMain(){
   if(!S.showZero)fil=fil.filter(x=>x.q>0);
   if(S.search){const terms=S.search.toLowerCase().split(/\s+/).filter(Boolean);fil=fil.filter(x=>{const hay=(x.n+" "+x.b+" "+x.c+" "+(x.dsc||"")).toLowerCase();return terms.every(t=>hay.includes(t));});}
   const m={};fil.forEach(it=>{const b=it.b||"其他";if(!m[b])m[b]={};const c=it.c||"?";if(!m[b][c])m[b][c]=[];m[b][c].push(it);});
-  const allBrands=Object.keys(m);const brandOrd=S.catOrd[zone+"|__brands"]||[];
+  // catOrd values stored in Firebase as arrays may come back as numeric-keyed objects after enough mutations — normalize before using
+  const allBrands=Object.keys(m);const brandOrd=arrFromVal(S.catOrd[zone+"|__brands"])||[];
   const sortedBrands=[...brandOrd.filter(b=>allBrands.includes(b)),...allBrands.filter(b=>!brandOrd.includes(b))];
-  const grouped=sortedBrands.map(b=>{const ks=Object.keys(m[b]);const ord=S.catOrd[zone+"|"+b]||[];const sorted=[...ord.filter(k=>ks.includes(k)),...ks.filter(k=>!ord.includes(k))];return{b,cats:sorted.map(c=>{
-    let its=m[b][c];const itemOrd=S.catOrd[zone+"|"+b+"|"+c];
-    if(itemOrd&&Array.isArray(itemOrd)){const idSet=new Set(its.map(x=>x.id));its=[...itemOrd.filter(id=>idSet.has(id)).map(id=>its.find(x=>x.id===id)),...its.filter(x=>!itemOrd.includes(x.id))];}
+  const grouped=sortedBrands.map(b=>{const ks=Object.keys(m[b]);const ord=arrFromVal(S.catOrd[zone+"|"+b])||[];const sorted=[...ord.filter(k=>ks.includes(k)),...ks.filter(k=>!ord.includes(k))];return{b,cats:sorted.map(c=>{
+    let its=m[b][c];const itemOrd=arrFromVal(S.catOrd[zone+"|"+b+"|"+c]);
+    if(itemOrd){const idSet=new Set(its.map(x=>x.id));its=[...itemOrd.filter(id=>idSet.has(id)).map(id=>its.find(x=>x.id===id)),...its.filter(x=>!itemOrd.includes(x.id))];}
     return{c,its};})};});
   const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>!x.q).length,l:items.filter(x=>x.q>0&&x.q<=2).length,m:items.filter(x=>!x.img||!x.dsc).length};
   const root=h("div",{style:{minHeight:"100vh"}});
