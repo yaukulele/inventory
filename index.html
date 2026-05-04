@@ -1262,8 +1262,15 @@ function renderMain(){
       reconCard.appendChild(h("button",{disabled:S.loadingOlder,style:{width:"100%",padding:"10px",borderRadius:"8px",border:"none",background:S.loadingOlder?"#e2e8f0":"#7c3aed",color:"#fff",fontSize:"13px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer"},onClick:loadOlderLogs},S.loadingOlder?"載入中…":"載入全部紀錄後比對"));
     }else{
       const mismatches=[];let noLog=0;
+      // Pre-bucket name → items so we can decide if a legacy (no-iid) log unambiguously refers to this item
+      const nameItems={};S.items.forEach(x=>{(nameItems[x.n]=nameItems[x.n]||[]).push(x);});
+      const skipQ=l=>{const a=l.a||"";return a.includes("✏️")||a.includes("🗑");};
       S.items.forEach(it=>{
-        const latest=allLogs.find(l=>(l.iid?l.iid===it.id:l.n===it.n)&&!((l.a||"").includes("✏️"))&&!((l.a||"").includes("🗑")));
+        // Prefer the most recent log with iid match; only fall back to name match if there's no iid log AND no name collision (otherwise we'd attribute another item's log here)
+        let latest=allLogs.find(l=>l.iid===it.id&&!skipQ(l));
+        if(!latest&&(nameItems[it.n]||[]).length===1){
+          latest=allLogs.find(l=>!l.iid&&l.n===it.n&&!skipQ(l));
+        }
         if(!latest){noLog++;return;}
         const expected=latest.nq||0;
         if(expected!==(it.q||0))mismatches.push({it,log:latest,expected,actual:it.q||0});
@@ -1370,6 +1377,7 @@ document.addEventListener("keydown",e=>{
   if(S.phase!=="ready"||S.modal)return;
   if(e.key==="/"){const sb=document.getElementById("searchBox");if(sb){e.preventDefault();sb.focus();sb.select();}}
   else if((e.key==="n"||e.key==="N")&&!isPreview()){e.preventDefault();S.modal={t:"add"};render();}
+  else if(e.key>="1"&&e.key<="4"){const tabs=["store","warehouse","log","stats"];const t=tabs[parseInt(e.key)-1];if(t&&S.tab!==t){e.preventDefault();S.tab=t;S._skipScrollRestore=true;render();}}
 });
 // Refresh sync label without rebuilding DOM — full render every minute thrashes input focus, scrolling state, etc.
 setInterval(()=>{
