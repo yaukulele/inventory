@@ -159,9 +159,10 @@ function saveCache(){try{const payload={items:S.items||[],logs:(S.logs||[]).slic
 async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);const i=a.val();const lRaw=b.val();const l=Array.isArray(lRaw)?lRaw:(lRaw&&typeof lRaw==="object"?Object.keys(lRaw).sort((a,b)=>+a-+b).map(k=>lRaw[k]):null);const o=c.val();
   const ver=(o&&o.__ver)||"";
   if(i&&Array.isArray(i)&&i.length>0){
-    S.items=i;
+    // Firebase arrays can be sparse (null gaps when keys are deleted) — strip them out before set/map operations
+    S.items=i.filter(x=>x);
     // Auto-inject missing items by (brand|name) via transaction — avoids racing with other users' writes
-    const existNames=new Set(i.map(x=>x.b+"|"+x.n));
+    const existNames=new Set(S.items.map(x=>x.b+"|"+x.n));
     const toAdd=INJECT_ITEMS.filter(x=>!existNames.has(x.b+"|"+x.n)).map(x=>({...x,id:uid()}));
     const init=mkInit();const toAddInit=init.filter(x=>!existNames.has(x.b+"|"+x.n)).map(x=>({...x,id:uid()}));
     const allNew=[...toAdd,...toAddInit];
@@ -177,8 +178,8 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
     }
   }
   else{await new Promise(resolve=>{dbI.transaction(cur=>{if(Array.isArray(cur)&&cur.length>0)return cur;return mkInit();},(err,committed,snap)=>{if(!err&&snap&&Array.isArray(snap.val()))S.items=snap.val().filter(x=>x);else S.items=mkInit();resolve();},false);});}
-  // Logs: clear old test logs once (version check)
-  if(ver===RESET_VER){S.logs=Array.isArray(l)?l:[];}
+  // Logs: clear old test logs once (version check). filter(x=>x) drops sparse-array nulls
+  if(ver===RESET_VER){S.logs=Array.isArray(l)?l.filter(x=>x):[];}
   else{S.logs=[];dbL.set([]);const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);console.log("Logs cleared:",RESET_VER);}
   S.catOrd=(o&&typeof o==="object")?o:{};
   // One-time migration: Yamaha 鼓配件/鼓音箱 → "配件專區（含音箱）" brand
@@ -1328,7 +1329,8 @@ document.addEventListener("keydown",e=>{
   if(e.key==="Escape"&&S.modal){if(S.modal.t==="detail"&&S.modal.edit)return;S.modal=S.modal.back||null;render();return;}
   if(e.ctrlKey||e.metaKey||e.altKey)return;
   const tag=e.target&&e.target.tagName;
-  if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT")return;
+  if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT"||tag==="BUTTON")return;
+  if(e.target&&e.target.isContentEditable)return;
   if(S.phase!=="ready"||S.modal)return;
   if(e.key==="/"){const sb=document.getElementById("searchBox");if(sb){e.preventDefault();sb.focus();sb.select();}}
   else if((e.key==="n"||e.key==="N")&&!isPreview()){e.preventDefault();S.modal={t:"add"};render();}
