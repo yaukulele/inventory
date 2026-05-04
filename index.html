@@ -198,7 +198,10 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
 function fbTxItem(id,updater){return new Promise((resolve,reject)=>{let missing=false;dbI.transaction(cur=>{missing=false;if(!Array.isArray(cur))return cur;const idx=cur.findIndex(x=>x&&x.id===id);if(idx<0){missing=true;return cur;}const r=updater(cur[idx]);if(r===undefined)return undefined;cur[idx]=r;return cur;},(err,committed,snap)=>{if(err)return reject(err);resolve({committed:committed&&!missing,missing,arr:snap&&snap.val()});},false);});}
 function fbAddItemTx(it){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];if(arr.some(x=>x&&x.id===it.id))return cur;return[...arr,it];},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
 function fbDelItemTx(id){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{if(!Array.isArray(cur))return cur;return cur.filter(x=>x&&x.id!==id);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+// Track logs that we've added locally but not yet committed to remote — so the dbL listener doesn't briefly drop them when it fires before our write lands
+const _pendingLogs=new Set();
 function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];return[entry,...arr].slice(0,500);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+function appendLog(entry){_pendingLogs.add(entry.id);return fbAppendLogTx(entry).catch(e=>console.error(e)).finally(()=>{_pendingLogs.delete(entry.id);});}
 // catOrd: atomically set one key so concurrent drags from different users don't clobber each other
 function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(!err&&snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
 
@@ -246,9 +249,16 @@ function startRealtimeSync(){
   dbL.limitToFirst(200).on("value",snap=>{const raw=snap.val();
     const remote=Array.isArray(raw)?raw:(raw&&typeof raw==="object"?Object.keys(raw).sort((a,b)=>+a-+b).map(k=>raw[k]):null);
     if(!remote||!Array.isArray(remote))return;
+    let cleanRemote=remote.filter(x=>x);
+    // Preserve any locally-added logs whose appendLog() hasn't yet committed — without this they briefly disappear from the UI between our local push and Firebase round-trip
+    if(_pendingLogs.size){
+      const remoteIds=new Set(cleanRemote.map(l=>l.id));
+      const pendingLocal=S.logs.filter(l=>_pendingLogs.has(l.id)&&!remoteIds.has(l.id));
+      if(pendingLocal.length)cleanRemote=[...pendingLocal,...cleanRemote].slice(0,500);
+    }
     const prev=S.logs.length?S.logs[0].id:null;
-    const next=remote.length?remote[0].id:null;
-    if(prev!==next||remote.length!==S.logs.length){S.logs=remote.filter(x=>x);saveCache();if(canRender())listenerRender();}
+    const next=cleanRemote.length?cleanRemote[0].id:null;
+    if(prev!==next||cleanRemote.length!==S.logs.length){S.logs=cleanRemote;saveCache();if(canRender())listenerRender();}
   });
   // catOrd sync: when another user reorders, reflect it
   dbO.on("value",snap=>{const remote=snap.val();if(!remote||typeof remote!=="object")return;
@@ -321,7 +331,7 @@ async function doAction(type,it,qty,note){
       saveCache();
     }
   }
-  fbAppendLogTx(S.logs.find(l=>l.id===logEntry.id)||logEntry).catch(e=>console.error(e));
+  appendLog(S.logs.find(l=>l.id===logEntry.id)||logEntry);
   return {ok:true};
 }
 function normalizeImgUrl(url){
@@ -354,7 +364,7 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
     S.logs=S.logs.filter(l=>l.id!==logEntry.id);
     saveCache();showToast("⚠ 新增失敗，請重試");render();return;
   }
-  fbAppendLogTx(logEntry).catch(e=>console.error(e));
+  appendLog(logEntry);
 }
 async function doUpdateMeta(id,patch){
   let noChange=false;
@@ -389,7 +399,7 @@ async function doUpdateMeta(id,patch){
         const lq=item.q||0;
         const logEntry={id:uid(),iid:item.id,u:S.user,a:"✏️編輯",n:item.n,b:item.b,d:det,pq:lq,nq:lq,t:ts()};
         S.logs=[logEntry,...S.logs].slice(0,500);saveCache();
-        fbAppendLogTx(logEntry).catch(e=>console.error(e));
+        appendLog(logEntry);
       }
     }
   }
@@ -412,7 +422,7 @@ async function doDelNoConfirm(it){
     S.logs=S.logs.filter(l=>l.id!==logEntry.id);
     saveCache();showToast("⚠ 刪除失敗，請重試");render();return;
   }
-  fbAppendLogTx(logEntry).catch(e=>console.error(e));
+  appendLog(logEntry);
 }
 function doDel(it){S.modal={t:"del-confirm",id:it.id};render();}
 // Toast lives in body, outside #app — survives renders without triggering them
@@ -632,6 +642,14 @@ function renderDetailModal(){
     const matchLog=l=>l.iid?l.iid===it.id:l.n===it.n;
     const allHistSrc=S.olderLogs.length?(()=>{const cIds=new Set(S.logs.map(l=>l.id));return [...S.logs,...S.olderLogs.filter(l=>!cIds.has(l.id))];})():S.logs;
     const allMatch=allHistSrc.filter(matchLog);
+    // Show creation info when we can find the ➕ log (helps when figuring out provenance of an item)
+    const createdLog=allMatch.slice().reverse().find(l=>(l.a||"").includes("➕"));
+    if(createdLog){
+      box.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginBottom:"10px",padding:"6px 10px",background:"#f8fafc",borderRadius:"8px",display:"flex",justifyContent:"space-between",gap:"8px"}},
+        h("span",{},"🕐 建立於 "+(createdLog.t||"")),
+        h("span",{style:{fontWeight:600}},"by "+(createdLog.u||""))
+      ));
+    }
     const showAllHist=!!S.modal.showAllHist;
     const limit=showAllHist?Math.min(50,allMatch.length):5;
     const recent=allMatch.slice(0,limit);
@@ -911,7 +929,7 @@ function renderMain(){
           const newBrand=patch.b||lastAffected[0].b;
           const logEntry={id:uid(),iid:lastAffected[0].id,u:S.user,a:"✏️搬移",n:summaryName,b:newBrand,d:description,pq:totalQ,nq:totalQ,t:ts()};
           S.logs=[logEntry,...S.logs].slice(0,500);saveCache();
-          fbAppendLogTx(logEntry).catch(e=>console.error(e));
+          appendLog(logEntry);
         }
         resolve();
       },false);
