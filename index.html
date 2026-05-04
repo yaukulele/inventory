@@ -212,6 +212,8 @@ function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(c
 // Optimistic UI tracking — items currently in flight to Firebase
 const _pendingItems=new Set();
 const _pendingDeletes=new Set();
+// True while user has a drag in progress — listenerRender skips so the row being dragged isn't yanked out from under the browser's drag image
+let _isDragging=false;
 
 // Throttled render for listener-triggered updates — coalesces multi-user broadcasts within 50ms window
 let _listenerRenderTimer=null;
@@ -235,8 +237,8 @@ function startRealtimeSync(){
     }
     if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")listenerRender();
   });
-  // Don't re-render if a modal is open or user is typing — prevents focus loss / mid-action UI jump
-  const canRender=()=>!S.modal&&document.activeElement?.tagName!=="INPUT";
+  // Don't re-render if a modal is open, the user is typing, or a drag is mid-flight (rebuilding DOM aborts the browser's drag operation)
+  const canRender=()=>!S.modal&&!_isDragging&&document.activeElement?.tagName!=="INPUT";
   dbI.on("value",snap=>{const remote=snap.val();if(!remote||!Array.isArray(remote)||!S.items)return;
     // Reconcile remote with optimistic state — preserve pending items, drop pending deletes
     let merged=remote.filter(x=>x);
@@ -943,8 +945,8 @@ function renderMain(){
     // Items
     grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.search?true:S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
       const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:true});
-      bCard.addEventListener("dragstart",e=>{clearDrag();dragBrand=bi;e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
-      bCard.addEventListener("dragend",()=>{clearDrag();bCard.style.opacity="1";});
+      bCard.addEventListener("dragstart",e=>{clearDrag();dragBrand=bi;_isDragging=true;e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
+      bCard.addEventListener("dragend",()=>{clearDrag();_isDragging=false;bCard.style.opacity="1";});
       bCard.addEventListener("dragover",e=>{e.preventDefault();
         const canDrop=(dragBrand!==null&&dragBrand!==bi)||(dragCatBi!==null&&dragCatBi!==bi)||(dragItemSrcBrand!==null&&dragItemSrcBrand!==b);
         if(canDrop)bCard.style.borderTop="3px solid var(--blue)";
@@ -974,8 +976,8 @@ function renderMain(){
       if(bo){
         cats.forEach(({c,its},ci)=>{const ck=bk+"|"+c;const co=S.search?true:S.cOpen[ck];const cT=its.reduce((s,x)=>s+x.q,0);
         const catEl=h("div",{className:"cat-hdr",draggable:true});
-        catEl.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragCatBi=bi;dragCatName=c;e.dataTransfer.effectAllowed="move";catEl.style.opacity="0.5";});
-        catEl.addEventListener("dragend",()=>{clearDrag();catEl.style.opacity="1";});
+        catEl.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragCatBi=bi;dragCatName=c;_isDragging=true;e.dataTransfer.effectAllowed="move";catEl.style.opacity="0.5";});
+        catEl.addEventListener("dragend",()=>{clearDrag();_isDragging=false;catEl.style.opacity="1";});
         catEl.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();
           const canDrop=(dragCatBi===bi&&dragCatName!==c)||(dragCatBi!==null&&dragCatBi!==bi)||(dragItemId!==null&&(dragItemSrcBrand!==b||dragItemSrcCat!==c));
           if(canDrop)catEl.style.borderTop="3px solid "+col;
@@ -1006,8 +1008,8 @@ function renderMain(){
         if(co)its.forEach((it,ii)=>{
           const row=renderRow(it);
           row.draggable=true;
-          row.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragItemId=it.id;dragItemSrcBrand=b;dragItemSrcCat=c;e.dataTransfer.effectAllowed="move";row.style.opacity="0.5";});
-          row.addEventListener("dragend",()=>{clearDrag();row.style.opacity="1";});
+          row.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragItemId=it.id;dragItemSrcBrand=b;dragItemSrcCat=c;_isDragging=true;e.dataTransfer.effectAllowed="move";row.style.opacity="0.5";});
+          row.addEventListener("dragend",()=>{clearDrag();_isDragging=false;row.style.opacity="1";});
           row.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();
             if(dragItemId!==null&&dragItemSrcBrand===b&&dragItemSrcCat===c&&dragItemId!==it.id)row.style.borderTop="2px solid var(--blue)";
           });
