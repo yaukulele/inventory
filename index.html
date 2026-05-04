@@ -278,7 +278,13 @@ async function doAction(type,it,qty,note){
   S.modal=back;
   const diff=optNq-rq;const diffStr=type==="audit"?(diff===0?"":" ("+(diff>0?"+":"")+diff+")"):"";
   try{navigator.vibrate&&navigator.vibrate(30);}catch(e){}
-  showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+optNq+diffStr);
+  // Undo only for in/out (where reverse action is unambiguous server-relative). Audit absolute-set has no clean inverse.
+  // Undo flag prevents recursive undo (the "(撤銷)" action shouldn't itself offer another undo).
+  const undoOpts=(!note||note.indexOf("(撤銷)")<0)&&(type==="in"||type==="out")?{
+    label:"↶ 撤銷",
+    fn:()=>{const opp=type==="in"?"out":"in";const cur=S.items.find(x=>x.id===it.id);if(!cur){showToast("⚠ 此品項已被刪除");return;}doAction(opp,cur,oa,"(撤銷)");}
+  }:null;
+  showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+optNq+diffStr,undoOpts);
   render();
   // Background sync — relative for in/out (concurrent-safe), absolute for audit
   let serverRq=rq,serverNq=optNq,failReason=null;
@@ -411,12 +417,21 @@ async function doDelNoConfirm(it){
 function doDel(it){S.modal={t:"del-confirm",id:it.id};render();}
 // Toast lives in body, outside #app — survives renders without triggering them
 let _toastEl=null,_toastTimer=null;
-function showToast(m){
+// Optional undo: pass {label, fn} as second arg. Toast stays for 8s and shows a clickable button.
+function showToast(m,undo){
   if(_toastTimer){clearTimeout(_toastTimer);_toastTimer=null;}
   if(_toastEl){_toastEl.remove();_toastEl=null;}
-  const el=document.createElement("div");el.className="toast";el.textContent=m;
+  const el=document.createElement("div");el.className="toast";
+  if(undo&&undo.fn){
+    el.appendChild(document.createTextNode(m+"  "));
+    const btn=document.createElement("button");
+    btn.textContent=undo.label||"↶ 撤銷";
+    btn.style.cssText="margin-left:6px;background:rgba(255,255,255,.25);border:none;color:#fff;padding:3px 12px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px;font-family:inherit;";
+    btn.onclick=ev=>{ev.stopPropagation();if(_toastEl===el){el.remove();_toastEl=null;}if(_toastTimer){clearTimeout(_toastTimer);_toastTimer=null;}try{undo.fn();}catch(e){console.error(e);}};
+    el.appendChild(btn);
+  }else{el.textContent=m;}
   document.body.appendChild(el);_toastEl=el;
-  _toastTimer=setTimeout(()=>{if(_toastEl===el){el.remove();_toastEl=null;}_toastTimer=null;},2000);
+  _toastTimer=setTimeout(()=>{if(_toastEl===el){el.remove();_toastEl=null;}_toastTimer=null;},undo&&undo.fn?8000:2000);
 }
 async function doSync(){showToast("同步中…");const before=S.lastSyncAt;S.olderLogs=[];await fbLoad();if(S.lastSyncAt===before)showToast("⚠ 同步失敗，檢查連線");else showToast("已同步");render();}
 // Fetch logs older than the cached 200 (up to full 500). Stored separately so the listener's 200-window doesn't overwrite them.
@@ -612,15 +627,24 @@ function renderDetailModal(){
     else box.appendChild(h("div",{style:{padding:"24px",textAlign:"center",background:"#f8fafc",borderRadius:"12px",marginBottom:"12px",border:"1px dashed var(--border)",color:"var(--sub)",fontSize:"13px"}},"🖼 尚無圖片"));
     if(it.dsc)box.appendChild(h("div",{style:{padding:"12px 14px",background:"#f8fafc",borderRadius:"10px",marginBottom:"12px",fontSize:"13px",color:"var(--text)",whiteSpace:"pre-wrap",lineHeight:1.6}},...highlightText(it.dsc,S.search)));
     else box.appendChild(h("div",{style:{padding:"14px",textAlign:"center",background:"#f8fafc",borderRadius:"10px",marginBottom:"12px",color:"var(--sub)",fontSize:"12px",border:"1px dashed var(--border)"}},"📝 尚無敘述"));
-    // Recent history (last 5) — match by iid where available, fall back to name for legacy logs
+    // Recent history — match by iid where available, fall back to name for legacy logs.
+    // Combines current logs (most recent 200) with olderLogs if user has loaded them, so a long-lived item shows full history.
     const matchLog=l=>l.iid?l.iid===it.id:l.n===it.n;
-    const recent=S.logs.filter(matchLog).slice(0,5);
+    const allHistSrc=S.olderLogs.length?(()=>{const cIds=new Set(S.logs.map(l=>l.id));return [...S.logs,...S.olderLogs.filter(l=>!cIds.has(l.id))];})():S.logs;
+    const allMatch=allHistSrc.filter(matchLog);
+    const showAllHist=!!S.modal.showAllHist;
+    const limit=showAllHist?Math.min(50,allMatch.length):5;
+    const recent=allMatch.slice(0,limit);
     if(recent.length){
       const histBox=h("div",{style:{marginBottom:"12px",border:"1px solid var(--border)",borderRadius:"10px",overflow:"hidden"}});
-      const totalCount=S.logs.filter(matchLog).length;
-      histBox.appendChild(h("div",{style:{padding:"8px 12px",fontSize:"12px",fontWeight:700,color:"var(--sub)",background:"#f8fafc",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}},h("span",{},"📜 最近異動"),h("span",{style:{fontWeight:500}},totalCount>5?"近 5 筆 / 共 "+totalCount:"共 "+totalCount+" 筆")));
+      const totalCount=allMatch.length;
+      const headerLabel=showAllHist?("顯示 "+limit+" 筆 / 共 "+totalCount):(totalCount>5?"近 5 筆 / 共 "+totalCount:"共 "+totalCount+" 筆");
+      histBox.appendChild(h("div",{style:{padding:"8px 12px",fontSize:"12px",fontWeight:700,color:"var(--sub)",background:"#f8fafc",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}},h("span",{},"📜 最近異動"),h("span",{style:{fontWeight:500}},headerLabel)));
       const tdToday=dateStr();const fmtLogT=t=>{if(!t)return "";const d=dateOnly(t);const dLabel=d.replace(/^\d{4}\//,"");return dLabel===tdToday?t.slice(11,16):dLabel;};
       recent.forEach(l=>{const up=(l.nq||0)>(l.pq||0),dn=(l.nq||0)<(l.pq||0);histBox.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"6px 12px",fontSize:"11px",borderBottom:"1px solid #f1f5f9"}},h("span",{},(l.a||"").slice(0,2)),h("span",{style:{flex:1,color:"var(--sub)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},l.d||""),h("span",{style:{color:up?"var(--green)":dn?"var(--red)":"var(--sub)",fontWeight:600,flexShrink:0}},l.pq+"→"+l.nq),h("span",{style:{color:"var(--sub)",flexShrink:0,fontSize:"10px"}},fmtLogT(l.t)+" "+l.u)));});
+      if(totalCount>5){
+        histBox.appendChild(h("button",{style:{width:"100%",padding:"8px",border:"none",background:"#f8fafc",color:"var(--blue)",fontSize:"11px",fontWeight:600,cursor:"pointer",borderTop:"1px solid var(--border)"},onClick:()=>{S.modal={...S.modal,showAllHist:!showAllHist};render();}},showAllHist?"▲ 收合":"▼ 顯示更多（最多 50 筆）"));
+      }
       box.appendChild(histBox);
     }
     if(!pv){
