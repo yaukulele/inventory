@@ -525,6 +525,7 @@ function renderActionModal(){
   if(!fresh){
     S.modal=m.back||null;
     showToast("⚠ 此品項已被刪除");
+    if(S.modal)render();
     return null;
   }
   const type=m.t,it=fresh;const actBack=m.back||null;
@@ -629,6 +630,7 @@ function renderDetailModal(){
     // Another user deleted while detail modal was open. Don't leave the body locked with no visible modal.
     S.modal=S.modal.back||null;
     showToast("⚠ 此品項已被刪除");
+    if(S.modal)render();  // Ensure the back-modal actually shows up rather than leaving the body locked with no modal
     return null;
   }
   const pv=isPreview();
@@ -756,6 +758,7 @@ function renderDelConfirmModal(){
     // Item already gone (likely deleted concurrently) — close cleanly instead of leaving the body locked.
     S.modal=S.modal.back||null;
     showToast("⚠ 此品項已被刪除");
+    if(S.modal)render();
     return null;
   }
   const box=h("div",{className:"modal-box",style:{maxWidth:"360px"}});
