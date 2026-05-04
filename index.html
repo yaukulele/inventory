@@ -260,7 +260,7 @@ async function doAction(type,it,qty,note){
   _pendingItems.add(it.id);
   S.items=[...S.items.slice(0,idx),{...orig,q:optNq},...S.items.slice(idx+1)];
   const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+optNq);
-  const logEntry={id:uid(),u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,d:det,pq:rq,nq:optNq};
+  const logEntry={id:uid(),iid:it.id,u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,b:it.b,d:det,pq:rq,nq:optNq};
   S.logs=[logEntry,...S.logs].slice(0,500);
   saveCache();
   S.modal=back;
@@ -321,7 +321,7 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   // Optimistic add
   _pendingItems.add(ni.id);
   S.items=[...S.items,ni];
-  const logEntry={id:uid(),u:S.user,a:"➕",n:ni.n,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()};
+  const logEntry={id:uid(),iid:ni.id,u:S.user,a:"➕",n:ni.n,b:ni.b,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()};
   S.logs=[logEntry,...S.logs].slice(0,500);
   saveCache();
   try{localStorage.setItem("inv_lastB",f.b);localStorage.setItem("inv_lastC",f.c);}catch(e){}
@@ -339,7 +339,9 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
 }
 async function doUpdateMeta(id,patch){
   let noChange=false;
+  let beforeFields=null;
   const tx=await fbTxItem(id,cur=>{
+    beforeFields={n:cur.n,b:cur.b,c:cur.c,z:cur.z||"店內",img:cur.img||"",dsc:cur.dsc||"",q:cur.q||0};
     const next={...cur};
     if("img" in patch){const nm=normalizeImgUrl(patch.img);if(nm)next.img=nm;else delete next.img;}
     if("dsc" in patch){if(patch.dsc)next.dsc=patch.dsc;else delete next.dsc;}
@@ -354,13 +356,31 @@ async function doUpdateMeta(id,patch){
   if(tx.missing){showToast("⚠ 此品項已被刪除");return false;}
   if(!tx.committed){showToast("更新失敗");return false;}
   if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
+  // Log meaningful field changes (rename/brand/cat/zone) — img/dsc tweaks not worth a log entry
+  if(beforeFields){
+    const item=S.items.find(x=>x.id===id);
+    if(item){
+      const changes=[];
+      if(beforeFields.n!==item.n)changes.push("改名「"+beforeFields.n+"」→「"+item.n+"」");
+      if(beforeFields.b!==item.b)changes.push("改品牌「"+beforeFields.b+"」→「"+item.b+"」");
+      if(beforeFields.c!==item.c)changes.push("改分類「"+beforeFields.c+"」→「"+item.c+"」");
+      if(beforeFields.z!==(item.z||"店內"))changes.push("搬家「"+beforeFields.z+"」→「"+(item.z||"店內")+"」");
+      if(changes.length){
+        const det=changes.join(" / ");
+        const lq=item.q||0;
+        const logEntry={id:uid(),iid:item.id,u:S.user,a:"✏️編輯",n:item.n,b:item.b,d:det,pq:lq,nq:lq,t:ts()};
+        S.logs=[logEntry,...S.logs].slice(0,500);saveCache();
+        fbAppendLogTx(logEntry).catch(e=>console.error(e));
+      }
+    }
+  }
   return true;
 }
 async function doDelNoConfirm(it){
   // Optimistic remove
   _pendingDeletes.add(it.id);
   S.items=S.items.filter(x=>x.id!==it.id);
-  const logEntry={id:uid(),u:S.user,a:"🗑",n:it.n,d:"",pq:it.q,nq:0,t:ts()};
+  const logEntry={id:uid(),iid:it.id,u:S.user,a:"🗑",n:it.n,b:it.b,d:"",pq:it.q,nq:0,t:ts()};
   S.logs=[logEntry,...S.logs].slice(0,500);
   saveCache();
   try{navigator.vibrate&&navigator.vibrate([50,30,50]);}catch(e){}
@@ -469,7 +489,7 @@ function renderActionModal(){
   // Qty
   const qDiv=h("div",{style:{marginBottom:"12px"}});qDiv.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"6px",fontWeight:600}},"數量"));
   const prevEl=h("div",{style:{fontSize:"14px",color:"var(--sub)",marginBottom:"14px",padding:"8px 12px",background:"#f8fafc",borderRadius:"8px"}});
-  const updatePrev=()=>{const p=type==="in"?it.q+Math.max(1,selQ):type==="out"?Math.max(0,it.q-Math.min(it.q,Math.max(0,selQ))):Math.max(0,selQ);prevEl.innerHTML="";prevEl.appendChild(document.createTextNode((type==="audit"?"校正後":"操作後")+"："));prevEl.appendChild(h("b",{style:{color:col,fontSize:"18px"}},String(p)));if(type==="audit"&&p!==it.q){prevEl.appendChild(h("span",{style:{color:p>it.q?"var(--green)":"var(--red)",fontSize:"13px",marginLeft:"8px"}},"("+(p>it.q?"+":"")+(p-it.q)+")"));}if(confirmBtn){const oa=type==="out"?Math.min(it.q,Math.max(0,selQ)):selQ;confirmBtn.textContent=type==="in"?"確認進貨 +"+Math.max(1,selQ):type==="out"?"確認出貨 -"+oa:("確認盤點 "+it.q+"→"+Math.max(0,selQ));}};
+  const updatePrev=()=>{const p=type==="in"?it.q+Math.max(1,selQ):type==="out"?Math.max(0,it.q-Math.min(it.q,Math.max(0,selQ))):Math.max(0,selQ);prevEl.innerHTML="";prevEl.appendChild(document.createTextNode((type==="audit"?"校正後":"操作後")+"："));prevEl.appendChild(h("b",{style:{color:col,fontSize:"18px"}},String(p)));if(type==="audit"&&p!==it.q){prevEl.appendChild(h("span",{style:{color:p>it.q?"var(--green)":"var(--red)",fontSize:"13px",marginLeft:"8px"}},"("+(p>it.q?"+":"")+(p-it.q)+")"));}if(confirmBtn){const oa=type==="out"?Math.min(it.q,Math.max(0,selQ)):selQ;confirmBtn.textContent=type==="in"?"確認進貨 +"+Math.max(1,selQ):type==="out"?"確認出貨 -"+oa:(p===it.q?"請選擇盤點數量":"確認盤點 "+it.q+"→"+p);if(type==="audit"){const same=(p===it.q);if(!tags.length){confirmBtn.disabled=same;confirmBtn.style.opacity=same?0.4:1;}}}};
   if(type!=="audit"){
     const grid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",marginBottom:"8px"}});
     [1,2,3,4,5,6,7,8,9].forEach(n=>{const dis=type==="out"&&n>it.q;grid.appendChild(h("button",{className:"num-btn"+(n===1?" active":""),disabled:dis,onClick:function(){selQ=n;grid.querySelectorAll("button").forEach((b,i)=>{if(i<9)b.className="num-btn"+((i+1)===n?" active":"");});updatePrev();}},String(n)));});
@@ -496,8 +516,9 @@ function renderActionModal(){
   }else{nDiv.appendChild(h("input",{className:"ipt",placeholder:"盤點備註",onInput:e=>{selN=e.target.value;}}));}
   box.appendChild(nDiv);
   updatePrev();box.appendChild(prevEl);
-  const canInit=!tags.length;
-  const initLabel=type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"確認盤點 "+it.q+"→"+it.q;
+  // Audit must start disabled until user picks a number that differs from current qty
+  const canInit=!tags.length&&type!=="audit";
+  const initLabel=type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"請選擇盤點數量";
   var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:function(){if(this.disabled)return;this.disabled=true;const fn=selN==="調貨"&&customT?"調貨："+customT:selN;doAction(type,it,selQ,fn);}},initLabel);
   box.appendChild(confirmBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!confirmBtn.disabled){e.preventDefault();confirmBtn.click();}});
@@ -572,11 +593,12 @@ function renderDetailModal(){
     else box.appendChild(h("div",{style:{padding:"24px",textAlign:"center",background:"#f8fafc",borderRadius:"12px",marginBottom:"12px",border:"1px dashed var(--border)",color:"var(--sub)",fontSize:"13px"}},"🖼 尚無圖片"));
     if(it.dsc)box.appendChild(h("div",{style:{padding:"12px 14px",background:"#f8fafc",borderRadius:"10px",marginBottom:"12px",fontSize:"13px",color:"var(--text)",whiteSpace:"pre-wrap",lineHeight:1.6}},...highlightText(it.dsc,S.search)));
     else box.appendChild(h("div",{style:{padding:"14px",textAlign:"center",background:"#f8fafc",borderRadius:"10px",marginBottom:"12px",color:"var(--sub)",fontSize:"12px",border:"1px dashed var(--border)"}},"📝 尚無敘述"));
-    // Recent history (last 5)
-    const recent=S.logs.filter(l=>l.n===it.n).slice(0,5);
+    // Recent history (last 5) — match by iid where available, fall back to name for legacy logs
+    const matchLog=l=>l.iid?l.iid===it.id:l.n===it.n;
+    const recent=S.logs.filter(matchLog).slice(0,5);
     if(recent.length){
       const histBox=h("div",{style:{marginBottom:"12px",border:"1px solid var(--border)",borderRadius:"10px",overflow:"hidden"}});
-      const totalCount=S.logs.filter(l=>l.n===it.n).length;
+      const totalCount=S.logs.filter(matchLog).length;
       histBox.appendChild(h("div",{style:{padding:"8px 12px",fontSize:"12px",fontWeight:700,color:"var(--sub)",background:"#f8fafc",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}},h("span",{},"📜 最近異動"),h("span",{style:{fontWeight:500}},totalCount>5?"近 5 筆 / 共 "+totalCount:"共 "+totalCount+" 筆")));
       const tdToday=dateStr();const fmtLogT=t=>{if(!t)return "";const d=dateOnly(t);const dLabel=d.replace(/^\d{4}\//,"");return dLabel===tdToday?t.slice(11,16):dLabel;};
       recent.forEach(l=>{const up=(l.nq||0)>(l.pq||0),dn=(l.nq||0)<(l.pq||0);histBox.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"6px 12px",fontSize:"11px",borderBottom:"1px solid #f1f5f9"}},h("span",{},(l.a||"").slice(0,2)),h("span",{style:{flex:1,color:"var(--sub)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},l.d||""),h("span",{style:{color:up?"var(--green)":dn?"var(--red)":"var(--sub)",fontWeight:600,flexShrink:0}},l.pq+"→"+l.nq),h("span",{style:{color:"var(--sub)",flexShrink:0,fontSize:"10px"}},fmtLogT(l.t)+" "+l.u)));});
@@ -673,9 +695,11 @@ function genExportText(zone,selDate){
   const targetDate=selDate?selDate.replace(/-/g,"/"):td;
   const dlabel=targetDate.replace(/^\d{4}\//,"");
   let all="";
-  // Get item names in this zone to filter logs
+  // Filter logs to this zone. Match by iid where available so duplicate names across zones don't cross-contaminate
+  // (e.g. STAGEPAS 100BTR exists in store, STAGEPAS 100BTR(倉) in warehouse — no overlap; but custom-added duplicates would).
+  const zoneIds=new Set(S.items.filter(x=>(x.z||"店內")===zone).map(x=>x.id));
   const zoneNames=new Set(S.items.filter(x=>(x.z||"店內")===zone).map(x=>x.n));
-  const inZone=l=>zoneNames.has(l.n);
+  const inZone=l=>l.iid?zoneIds.has(l.iid):zoneNames.has(l.n);
   // Logs for selected date, filtered by zone
   const inLogs=S.logs.filter(l=>dateOnly(l.t)===targetDate&&inZone(l)&&((l.a||"").includes("進貨")||(l.a||"").includes("➕")));
   const outLogs=S.logs.filter(l=>dateOnly(l.t)===targetDate&&inZone(l)&&(l.a||"").includes("出貨"));
@@ -784,7 +808,7 @@ function renderMain(){
     h("div",{style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"},title:"回到頂部",onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:isPreview()?"#94a3b8":"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600}},isPreview()?"👁 預覽模式":S.user),!S.online?h("span",{style:{fontSize:"10px",color:"#fff",background:"var(--red)",padding:"2px 8px",borderRadius:"10px",fontWeight:600,animation:"toastIn .3s ease"},title:"連線中斷，修改會排隊等回線"},"⚠ 離線"):null),
     h("div",{style:{display:"flex",gap:"6px"}},
       h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
-      (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
+      (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{id:"syncLabel",style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
       h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{S.phase="login";S.items=null;render();}},"登出"))
   ));
   // Stats
@@ -820,12 +844,29 @@ function renderMain(){
     let dragItemId=null,dragItemSrcBrand=null,dragItemSrcCat=null;  // (cross-brand item move)
     const clearDrag=()=>{dragBrand=null;dragCatBi=null;dragCatName=null;dragItemId=null;dragItemSrcBrand=null;dragItemSrcCat=null;};
     // Cross-brand/cat move via Firebase transaction (concurrent-safe; preserves all other fields)
-    const moveItems=(predicate,patch)=>new Promise(resolve=>{dbI.transaction(cur=>{
-      if(!Array.isArray(cur))return cur;
-      let changed=false;
-      const next=cur.map(x=>{if(x&&predicate(x)){changed=true;return{...x,...patch};}return x;});
-      return changed?next:cur;
-    },(err,committed,snap)=>{if(!err&&snap&&Array.isArray(snap.val())){S.items=snap.val().filter(x=>x);saveCache();render();}resolve();},false);});
+    // Logs a single ✏️搬移 entry summarizing the affected items so the audit trail captures who moved what.
+    const moveItems=(predicate,patch,description)=>new Promise(resolve=>{
+      let lastAffected=[];
+      dbI.transaction(cur=>{
+        if(!Array.isArray(cur))return cur;
+        lastAffected=cur.filter(x=>x&&predicate(x));
+        let changed=false;
+        const next=cur.map(x=>{if(x&&predicate(x)){changed=true;return{...x,...patch};}return x;});
+        return changed?next:cur;
+      },(err,committed,snap)=>{
+        if(!err&&snap&&Array.isArray(snap.val())){S.items=snap.val().filter(x=>x);saveCache();render();}
+        if(committed&&lastAffected.length&&description){
+          const totalQ=lastAffected.reduce((s,x)=>s+(x.q||0),0);
+          const sample=lastAffected.slice(0,3).map(x=>x.n).join("、");
+          const summaryName=lastAffected.length===1?lastAffected[0].n:(sample+(lastAffected.length>3?(" 等 "+lastAffected.length+" 項"):""));
+          const newBrand=patch.b||lastAffected[0].b;
+          const logEntry={id:uid(),iid:lastAffected[0].id,u:S.user,a:"✏️搬移",n:summaryName,b:newBrand,d:description,pq:totalQ,nq:totalQ,t:ts()};
+          S.logs=[logEntry,...S.logs].slice(0,500);saveCache();
+          fbAppendLogTx(logEntry).catch(e=>console.error(e));
+        }
+        resolve();
+      },false);
+    });
     // Items
     grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.search?true:S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
       const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:true});
@@ -845,11 +886,11 @@ function renderMain(){
           // Cross-brand category move: keep cat name, change brand
           const srcBrand=grouped[dragCatBi].b,catName=dragCatName;
           showToast("📦 移動分類：「"+srcBrand+" / "+catName+"」→ "+b);
-          moveItems(x=>x.b===srcBrand&&x.c===catName,{b});
+          moveItems(x=>x.b===srcBrand&&x.c===catName,{b},"搬分類「"+srcBrand+" / "+catName+"」→「"+b+" / "+catName+"」");
         }else if(dragItemId!==null&&dragItemSrcBrand!==b){
           // Cross-brand single-item move: keep cat name, change brand
           const id=dragItemId,it=S.items.find(x=>x.id===id);
-          if(it){showToast("📦 移動商品：「"+it.n+"」→ "+b);moveItems(x=>x.id===id,{b});}
+          if(it){showToast("📦 移動商品：「"+it.n+"」→ "+b);moveItems(x=>x.id===id,{b},"搬商品「"+it.n+"」品牌：「"+it.b+"」→「"+b+"」");}
         }
       });
       bCard.appendChild(h("div",{className:"brand-hdr",onClick:()=>{S.bOpen[bk]=!S.bOpen[bk];render();}},
@@ -877,11 +918,11 @@ function renderMain(){
             // Cross-brand cat merge: src brand+cat → b+c (rename cat too)
             const srcBrand=grouped[dragCatBi].b,srcCat=dragCatName;
             showToast("📦 合併到「"+b+" / "+c+"」");
-            moveItems(x=>x.b===srcBrand&&x.c===srcCat,{b,c});
+            moveItems(x=>x.b===srcBrand&&x.c===srcCat,{b,c},"合併「"+srcBrand+" / "+srcCat+"」→「"+b+" / "+c+"」");
           }else if(dragItemId!==null&&(dragItemSrcBrand!==b||dragItemSrcCat!==c)){
             // Item drop on cat: change brand+cat
             const id=dragItemId,it=S.items.find(x=>x.id===id);
-            if(it){showToast("📦 移動到「"+b+" / "+c+"」");moveItems(x=>x.id===id,{b,c});}
+            if(it){showToast("📦 移動到「"+b+" / "+c+"」");moveItems(x=>x.id===id,{b,c},"搬商品「"+it.n+"」→「"+b+" / "+c+"」");}
           }
         });
         catEl.appendChild(h("span",{style:{fontSize:"8px",color:"var(--sub)",transform:co?"rotate(0)":"rotate(-90deg)",transition:"transform .1s",display:"inline-block"}},"▼"));
@@ -960,16 +1001,18 @@ function renderMain(){
     brandOpts.forEach(b=>{const o=h("option",{value:b},b);if(S.logBrand===b)o.selected=true;brandSel.appendChild(o);});
     content.appendChild(brandSel);
 
-    // Build name→brand map for brand filtering
+    // Build lookup maps. Match by iid first (survives renames + duplicate names) and fall back to name for legacy logs.
     const nameToItem={};S.items.forEach(x=>{nameToItem[x.n]=x;});
-    const nameToBrand=Object.fromEntries(Object.entries(nameToItem).map(([k,v])=>[k,v.b]));
+    const idToItem={};S.items.forEach(x=>{idToItem[x.id]=x;});
+    const matchedItem=l=>l.iid?idToItem[l.iid]:nameToItem[l.n];
+    const logBrand=l=>{const m=matchedItem(l);return m?m.b:(l.b||"");};
 
     // Filter logs (combine with older logs if user explicitly loaded them)
     let filteredLogs=S.olderLogs.length?[...S.logs,...S.olderLogs]:S.logs;
     if(S.logSearch){const ls=S.logSearch.toLowerCase();filteredLogs=filteredLogs.filter(l=>(l.n||"").toLowerCase().includes(ls)||(l.d||"").toLowerCase().includes(ls)||(l.u||"").toLowerCase().includes(ls));}
     if(S.logDateFrom){const df=S.logDateFrom.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)>=df);}
     if(S.logDateTo){const dt=S.logDateTo.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)<=dt);}
-    if(S.logBrand){filteredLogs=filteredLogs.filter(l=>nameToBrand[l.n]===S.logBrand);}
+    if(S.logBrand){filteredLogs=filteredLogs.filter(l=>logBrand(l)===S.logBrand);}
     if(S.logAction){filteredLogs=filteredLogs.filter(l=>{const a=l.a||"";if(S.logAction==="in")return a.includes("進")||a.includes("➕");if(S.logAction==="out")return a.includes("出");if(S.logAction==="audit")return a.includes("盤");return true;});}
 
     // Today's shipments (only show when no filters)
@@ -979,7 +1022,7 @@ function renderMain(){
       if(todayLogs.length){
         const todayCard=h("div",{className:"card",style:{marginBottom:"14px",border:"2px solid #dbeafe"}});
         todayCard.appendChild(h("div",{style:{padding:"12px 14px",background:"var(--blue-light)",borderBottom:"1px solid #dbeafe",display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--blue)"}},"📦 今日出貨"),h("span",{style:{fontSize:"12px",color:"var(--blue)",fontWeight:600}},todayLogs.length+" 筆")));
-        todayLogs.forEach(l=>{const matched=S.items.find(x=>x.n===l.n);const nameEl=matched?h("b",{style:{fontSize:"13px",color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},l.n):h("b",{style:{fontSize:"13px",color:"var(--sub)"}},l.n);todayCard.appendChild(h("div",{className:"row"},h("div",{style:{flex:1}},nameEl,h("span",{style:{color:"var(--sub)",marginLeft:"6px",fontSize:"11px"}},l.d)),h("span",{style:{fontSize:"12px",color:"var(--red)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)",marginLeft:"4px"}},l.u)));});
+        todayLogs.forEach(l=>{const matched=matchedItem(l);const nameEl=matched?h("b",{style:{fontSize:"13px",color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},l.n):h("b",{style:{fontSize:"13px",color:"var(--sub)"}},l.n);todayCard.appendChild(h("div",{className:"row"},h("div",{style:{flex:1}},nameEl,h("span",{style:{color:"var(--sub)",marginLeft:"6px",fontSize:"11px"}},l.d)),h("span",{style:{fontSize:"12px",color:"var(--red)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)",marginLeft:"4px"}},l.u)));});
         content.appendChild(todayCard);
       }
     }
@@ -999,7 +1042,7 @@ function renderMain(){
       const outC=dayLogs.filter(l=>(l.a||"").includes("出")).length;
       const auC=dayLogs.filter(l=>(l.a||"").includes("盤")).length;
       logCard.appendChild(h("div",{className:"day-header"},h("span",{},date),h("span",{style:{fontWeight:500,fontSize:"11px"}},"進"+inC+" 出"+outC+(auC?" 盤"+auC:"")+" 共"+dayLogs.length+"筆")));
-      dayLogs.forEach((l,i)=>{const matched=nameToItem[l.n];const brandCol=matched?gc(matched.b):"#cbd5e1";const nameEl=matched?h("b",{style:{color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},l.n):h("b",{style:{color:"var(--sub)"},title:"品項已刪除"},l.n);logCard.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"8px 14px 8px 10px",fontSize:"12px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9",borderLeft:"3px solid "+brandCol}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},nameEl,l.d?h("span",{style:{color:"var(--sub)",marginLeft:"4px",fontSize:"11px"}},l.d):null),h("span",{style:{fontSize:"11px",color:(l.nq||0)>(l.pq||0)?"var(--green)":(l.nq||0)<(l.pq||0)?"var(--red)":"var(--sub)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)"}},l.u)));});
+      dayLogs.forEach((l,i)=>{const matched=matchedItem(l);const lbBrand=logBrand(l);const brandCol=lbBrand?gc(lbBrand):"#cbd5e1";const nameEl=matched?h("b",{style:{color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},l.n):h("b",{style:{color:"var(--sub)"},title:"品項已刪除"},l.n);logCard.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"8px 14px 8px 10px",fontSize:"12px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9",borderLeft:"3px solid "+brandCol}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},nameEl,l.d?h("span",{style:{color:"var(--sub)",marginLeft:"4px",fontSize:"11px"}},l.d):null),h("span",{style:{fontSize:"11px",color:(l.nq||0)>(l.pq||0)?"var(--green)":(l.nq||0)<(l.pq||0)?"var(--red)":"var(--sub)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)"}},l.u)));});
     });
     if(!filteredLogs.length)logCard.appendChild(h("div",{style:{padding:"30px",textAlign:"center",color:"var(--sub)"}},hasFilter?"沒有符合的紀錄":"尚無紀錄"));
     content.appendChild(logCard);
@@ -1049,36 +1092,49 @@ function renderMain(){
       h("div",{style:{textAlign:"center",padding:"10px",background:"var(--blue-light)",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"總異動"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--blue)"}},String(monthLogs.length)))
     ));
     content.appendChild(sumCard);
+    // Build id→item map for aggregating renamed items together; logs with iid use it as the grouping key
+    const idItemMap={};S.items.forEach(x=>{idItemMap[x.id]=x;});
+    const aggregate=logs=>{
+      const map={};
+      logs.forEach(l=>{
+        const qty=Math.abs((l.nq||0)-(l.pq||0));if(!qty)return;
+        const key=l.iid||("n:"+l.n);
+        const cur=map[key]||{qty:0,iid:l.iid||"",name:l.n};
+        cur.qty+=qty;
+        map[key]=cur;
+      });
+      return Object.values(map);
+    };
     // Top out items
-    const outMap={};mOut.forEach(l=>{const k=l.n;const qty=Math.abs((l.pq||0)-(l.nq||0));outMap[k]=(outMap[k]||0)+qty;});
-    const topOut=Object.entries(outMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    if(topOut.length){
+    const aggOut=aggregate(mOut).sort((a,b)=>b.qty-a.qty).slice(0,10);
+    if(aggOut.length){
       const topCard=h("div",{className:"card",style:{marginBottom:"14px"}});
       topCard.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px"}},"🔥 本月出貨排行"));
-      topOut.forEach(([name,qty],i)=>{
-        const maxQ=topOut[0][1];const pct=Math.round(qty/maxQ*100);
-        const matched=S.items.find(x=>x.n===name);
+      aggOut.forEach((entry,i)=>{
+        const matched=entry.iid?idItemMap[entry.iid]:S.items.find(x=>x.n===entry.name);
+        const displayName=matched?matched.n:entry.name;
+        const maxQ=aggOut[0].qty;const pct=Math.round(entry.qty/maxQ*100);
         const row=h("div",{style:{padding:"8px 14px",display:"flex",alignItems:"center",gap:"8px",borderBottom:"1px solid #f1f5f9",cursor:matched?"pointer":"default"}},
           h("span",{style:{fontSize:"12px",fontWeight:700,color:i<3?"var(--red)":"var(--sub)",minWidth:"20px"}},String(i+1)),
-          h("div",{style:{flex:1}},h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"3px",color:matched?"var(--blue)":"var(--sub)"}},name),h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9"}},h("div",{style:{height:"4px",borderRadius:"2px",background:i<3?"var(--red)":"var(--blue)",width:pct+"%"}}))),
-          h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--red)"}},String(qty)));
+          h("div",{style:{flex:1}},h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"3px",color:matched?"var(--blue)":"var(--sub)"}},displayName),h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9"}},h("div",{style:{height:"4px",borderRadius:"2px",background:i<3?"var(--red)":"var(--blue)",width:pct+"%"}}))),
+          h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--red)"}},String(entry.qty)));
         if(matched)row.addEventListener("click",()=>{S.modal={t:"detail",id:matched.id};render();});
         topCard.appendChild(row);});
       content.appendChild(topCard);
     }
     // Top in items
-    const inMap={};mIn.forEach(l=>{const k=l.n;const qty=Math.abs((l.nq||0)-(l.pq||0));inMap[k]=(inMap[k]||0)+qty;});
-    const topIn=Object.entries(inMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    if(topIn.length){
+    const aggIn=aggregate(mIn).sort((a,b)=>b.qty-a.qty).slice(0,10);
+    if(aggIn.length){
       const topInCard=h("div",{className:"card",style:{marginBottom:"14px"}});
       topInCard.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px"}},"📦 本月進貨排行"));
-      topIn.forEach(([name,qty],i)=>{
-        const maxQ=topIn[0][1];const pct=Math.round(qty/maxQ*100);
-        const matched=S.items.find(x=>x.n===name);
+      aggIn.forEach((entry,i)=>{
+        const matched=entry.iid?idItemMap[entry.iid]:S.items.find(x=>x.n===entry.name);
+        const displayName=matched?matched.n:entry.name;
+        const maxQ=aggIn[0].qty;const pct=Math.round(entry.qty/maxQ*100);
         const row=h("div",{style:{padding:"8px 14px",display:"flex",alignItems:"center",gap:"8px",borderBottom:"1px solid #f1f5f9",cursor:matched?"pointer":"default"}},
           h("span",{style:{fontSize:"12px",fontWeight:700,color:i<3?"var(--green)":"var(--sub)",minWidth:"20px"}},String(i+1)),
-          h("div",{style:{flex:1}},h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"3px",color:matched?"var(--blue)":"var(--sub)"}},name),h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9"}},h("div",{style:{height:"4px",borderRadius:"2px",background:i<3?"var(--green)":"var(--blue)",width:pct+"%"}}))),
-          h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--green)"}},String(qty)));
+          h("div",{style:{flex:1}},h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"3px",color:matched?"var(--blue)":"var(--sub)"}},displayName),h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9"}},h("div",{style:{height:"4px",borderRadius:"2px",background:i<3?"var(--green)":"var(--blue)",width:pct+"%"}}))),
+          h("span",{style:{fontSize:"14px",fontWeight:700,color:"var(--green)"}},String(entry.qty)));
         if(matched)row.addEventListener("click",()=>{S.modal={t:"detail",id:matched.id};render();});
         topInCard.appendChild(row);});
       content.appendChild(topInCard);
@@ -1158,8 +1214,21 @@ function render(){if(_renderQueued)return;_renderQueued=true;queueMicrotask(()=>
 function _render(){const a=document.getElementById("app");const wasLocked=document.body.dataset.locked==="1";const sy=wasLocked?_bodyLockY:(window.scrollY||document.documentElement.scrollTop||0);const skipRestore=S._skipScrollRestore;S._skipScrollRestore=false;a.innerHTML="";if(S.phase==="login")a.appendChild(renderLogin());else if(S.phase==="loading"||!S.items)a.appendChild(renderLoading());else a.appendChild(renderMain());if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}}
 // Esc closes modal
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&S.modal){if(S.modal.t==="detail"&&S.modal.edit)return;S.modal=S.modal.back||null;render();}});
-// Re-render every minute to refresh "Xm ago" label in header
-setInterval(()=>{if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")render();},60000);
+// Refresh sync label without rebuilding DOM — full render every minute thrashes input focus, scrolling state, etc.
+setInterval(()=>{
+  if(S.phase!=="ready"||document.hidden)return;
+  const el=document.getElementById("syncLabel");
+  if(!el||!S.lastSyncAt)return;
+  const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);
+  let label;
+  if(diffSec<10)label="剛剛";
+  else if(diffSec<60)label=diffSec+"秒前";
+  else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";
+  else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";
+  else label=Math.floor(diffSec/86400)+"天前";
+  if(el.textContent!==label)el.textContent=label;
+  el.style.color=diffSec>3600?"var(--orange)":"var(--sub)";
+},30000);
 render();
 </script>
 </body>
