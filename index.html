@@ -198,10 +198,13 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
 function fbTxItem(id,updater){return new Promise((resolve,reject)=>{let missing=false;dbI.transaction(cur=>{missing=false;if(!Array.isArray(cur))return cur;const idx=cur.findIndex(x=>x&&x.id===id);if(idx<0){missing=true;return cur;}const r=updater(cur[idx]);if(r===undefined)return undefined;cur[idx]=r;return cur;},(err,committed,snap)=>{if(err)return reject(err);resolve({committed:committed&&!missing,missing,arr:snap&&snap.val()});},false);});}
 function fbAddItemTx(it){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];if(arr.some(x=>x&&x.id===it.id))return cur;return[...arr,it];},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
 function fbDelItemTx(id){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{if(!Array.isArray(cur))return cur;return cur.filter(x=>x&&x.id!==id);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
-// Track logs that we've added locally but not yet committed to remote — so the dbL listener doesn't briefly drop them when it fires before our write lands
+// Track logs that we've added locally but not yet committed to remote — so the dbL listener doesn't briefly drop them when it fires before our write lands.
+// pushLogLocal adds the marker BEFORE the local S.logs push so even a listener firing during an `await` between push and appendLog can't wipe our entry.
 const _pendingLogs=new Set();
 function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];return[entry,...arr].slice(0,500);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
-function appendLog(entry){_pendingLogs.add(entry.id);return fbAppendLogTx(entry).catch(e=>console.error(e)).finally(()=>{_pendingLogs.delete(entry.id);});}
+function pushLogLocal(entry){_pendingLogs.add(entry.id);S.logs=[entry,...S.logs].slice(0,500);saveCache();}
+function dropLogLocal(id){_pendingLogs.delete(id);S.logs=S.logs.filter(l=>l.id!==id);}
+function appendLog(entry){return fbAppendLogTx(entry).catch(e=>console.error(e)).finally(()=>{_pendingLogs.delete(entry.id);});}
 // catOrd: atomically set one key so concurrent drags from different users don't clobber each other
 function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(!err&&snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
 
@@ -283,8 +286,7 @@ async function doAction(type,it,qty,note){
   S.items=[...S.items.slice(0,idx),{...orig,q:optNq},...S.items.slice(idx+1)];
   const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+optNq);
   const logEntry={id:uid(),iid:it.id,u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,b:it.b,d:det,pq:rq,nq:optNq};
-  S.logs=[logEntry,...S.logs].slice(0,500);
-  saveCache();
+  pushLogLocal(logEntry);
   S.modal=back;
   const diff=optNq-rq;const diffStr=type==="audit"?(diff===0?"":" ("+(diff>0?"+":"")+diff+")"):"";
   try{navigator.vibrate&&navigator.vibrate(30);}catch(e){}
@@ -312,7 +314,7 @@ async function doAction(type,it,qty,note){
   if(failReason){
     if(failReason==="⚠ 此品項已被刪除")S.items=S.items.filter(x=>x.id!==it.id);
     else{const i2=S.items.findIndex(x=>x.id===it.id);if(i2>=0)S.items=[...S.items.slice(0,i2),{...S.items[i2],q:rq},...S.items.slice(i2+1)];}
-    S.logs=S.logs.filter(l=>l.id!==logEntry.id);
+    dropLogLocal(logEntry.id);
     saveCache();showToast(failReason);render();
     return {ok:false};
   }
@@ -351,8 +353,7 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   _pendingItems.add(ni.id);
   S.items=[...S.items,ni];
   const logEntry={id:uid(),iid:ni.id,u:S.user,a:"➕",n:ni.n,b:ni.b,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()};
-  S.logs=[logEntry,...S.logs].slice(0,500);
-  saveCache();
+  pushLogLocal(logEntry);
   try{localStorage.setItem("inv_lastB",f.b);localStorage.setItem("inv_lastC",f.c);}catch(e){}
   try{navigator.vibrate&&navigator.vibrate(30);}catch(e){}
   S.modal=null;showToast("已新增 "+ni.n);render();
@@ -361,7 +362,7 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   _pendingItems.delete(ni.id);
   if(!tx.committed){
     S.items=S.items.filter(x=>x.id!==ni.id);
-    S.logs=S.logs.filter(l=>l.id!==logEntry.id);
+    dropLogLocal(logEntry.id);
     saveCache();showToast("⚠ 新增失敗，請重試");render();return;
   }
   appendLog(logEntry);
@@ -398,7 +399,7 @@ async function doUpdateMeta(id,patch){
         const det=changes.join(" / ");
         const lq=item.q||0;
         const logEntry={id:uid(),iid:item.id,u:S.user,a:"✏️編輯",n:item.n,b:item.b,d:det,pq:lq,nq:lq,t:ts()};
-        S.logs=[logEntry,...S.logs].slice(0,500);saveCache();
+        pushLogLocal(logEntry);
         appendLog(logEntry);
       }
     }
@@ -410,8 +411,7 @@ async function doDelNoConfirm(it){
   _pendingDeletes.add(it.id);
   S.items=S.items.filter(x=>x.id!==it.id);
   const logEntry={id:uid(),iid:it.id,u:S.user,a:"🗑",n:it.n,b:it.b,d:"",pq:it.q,nq:0,t:ts()};
-  S.logs=[logEntry,...S.logs].slice(0,500);
-  saveCache();
+  pushLogLocal(logEntry);
   try{navigator.vibrate&&navigator.vibrate([50,30,50]);}catch(e){}
   showToast("🗑 已刪除 "+it.n);render();
   // Sync
@@ -419,7 +419,7 @@ async function doDelNoConfirm(it){
   _pendingDeletes.delete(it.id);
   if(!tx.committed){
     if(!S.items.some(x=>x.id===it.id))S.items=[...S.items,it];
-    S.logs=S.logs.filter(l=>l.id!==logEntry.id);
+    dropLogLocal(logEntry.id);
     saveCache();showToast("⚠ 刪除失敗，請重試");render();return;
   }
   appendLog(logEntry);
@@ -928,7 +928,7 @@ function renderMain(){
           const summaryName=lastAffected.length===1?lastAffected[0].n:(sample+(lastAffected.length>3?(" 等 "+lastAffected.length+" 項"):""));
           const newBrand=patch.b||lastAffected[0].b;
           const logEntry={id:uid(),iid:lastAffected[0].id,u:S.user,a:"✏️搬移",n:summaryName,b:newBrand,d:description,pq:totalQ,nq:totalQ,t:ts()};
-          S.logs=[logEntry,...S.logs].slice(0,500);saveCache();
+          pushLogLocal(logEntry);
           appendLog(logEntry);
         }
         resolve();
