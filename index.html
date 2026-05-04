@@ -862,11 +862,19 @@ function renderExportModal(){
     downloadBlob(md,expZone+"庫存_"+d.replace(/\//g,"-")+".md","text/markdown;charset=utf-8");
     showToast("📝 Markdown 已下載");
   };
-  box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"14px"}},
+  // Full-data backup — single click downloads everything (items, logs, ordering) as a JSON file.
+  // Useful as a safety net before risky bulk operations or before deploying schema changes.
+  const jsonBackup=()=>{
+    const payload={generatedAt:new Date().toISOString(),user:S.user,items:S.items||[],logs:[...(S.logs||[]),...(S.olderLogs||[])],catOrd:S.catOrd||{}};
+    downloadBlob(JSON.stringify(payload,null,2),"inventory_backup_"+d.replace(/\//g,"-")+".json","application/json");
+    showToast("💾 已下載完整備份 ("+payload.items.length+" 品項 / "+payload.logs.length+" 筆紀錄)");
+  };
+  box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"6px"}},
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{navigator.clipboard.writeText(txt).then(()=>showToast("已複製！")).catch(()=>{const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);showToast("已複製！");});}},"📋 複製"),
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(navigator.share)navigator.share({title:(expZone==="倉庫"?"倉庫":"店內")+"庫存報表 "+d,text:txt}).catch(()=>{});else showToast("不支援分享");}},"📤 分享"),
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#7c3aed",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:csvDownload},"📊 CSV"),
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#0891b2",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:mdDownload},"📝 MD")));
+  box.appendChild(h("button",{style:{width:"100%",padding:"9px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fffbeb",color:"#b45309",fontSize:"12px",fontWeight:600,cursor:"pointer",marginBottom:"14px"},onClick:jsonBackup},"💾 下載完整備份 JSON（含所有品項與紀錄）"));
   box.appendChild(h("div",{className:"export-box"},txt));
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
