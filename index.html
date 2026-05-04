@@ -170,16 +170,16 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
     const allNew=[...toAdd,...toAddInit];
     if(allNew.length>0){
       await new Promise((resolve)=>{dbI.transaction(cur=>{
-        const arr=Array.isArray(cur)?cur:[];
+        const arr=arrFromVal(cur)||[];
         const exist=new Set(arr.map(x=>x&&(x.b+"|"+x.n)));
         const stillMissing=allNew.filter(x=>!exist.has(x.b+"|"+x.n));
         if(!stillMissing.length)return cur;
         return[...arr,...stillMissing];
-      },(err,committed,snap)=>{if(!err&&snap&&Array.isArray(snap.val()))S.items=snap.val().filter(x=>x);resolve();},false);});
+      },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=a.filter(x=>x);resolve();},false);});
       console.log("Auto-injected via tx: "+allNew.length+" item(s) checked");
     }
   }
-  else{await new Promise(resolve=>{dbI.transaction(cur=>{if(Array.isArray(cur)&&cur.length>0)return cur;return mkInit();},(err,committed,snap)=>{if(!err&&snap&&Array.isArray(snap.val()))S.items=snap.val().filter(x=>x);else S.items=mkInit();resolve();},false);});}
+  else{await new Promise(resolve=>{dbI.transaction(cur=>{const arr=arrFromVal(cur);if(arr&&arr.length>0)return arr;return mkInit();},(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=a.filter(x=>x);else S.items=mkInit();resolve();},false);});}
   // Logs: clear old test logs once (version check). filter(x=>x) drops sparse-array nulls
   if(ver===RESET_VER){S.logs=Array.isArray(l)?l.filter(x=>x):[];}
   else{S.logs=[];dbL.set([]);const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);console.log("Logs cleared:",RESET_VER);}
@@ -187,20 +187,22 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
   // One-time migration: Yamaha 鼓配件/鼓音箱 → "配件專區（含音箱）" brand
   if(!S.catOrd.__brandMigYamahaAcc){
     await new Promise(resolve=>{dbI.transaction(cur=>{
-      if(!Array.isArray(cur))return cur;
+      const arr=arrFromVal(cur);
+      if(!arr)return cur;
       let changed=false;
-      const next=cur.map(x=>{if(x&&x.b==="Yamaha"&&(x.c==="鼓配件"||x.c==="鼓音箱")){changed=true;return{...x,b:"配件專區（含音箱）"};}return x;});
-      return changed?next:cur;
-    },(err,committed,snap)=>{if(!err&&snap&&Array.isArray(snap.val()))S.items=snap.val().filter(x=>x);resolve();},false);});
+      const next=arr.map(x=>{if(x&&x.b==="Yamaha"&&(x.c==="鼓配件"||x.c==="鼓音箱")){changed=true;return{...x,b:"配件專區（含音箱）"};}return x;});
+      return changed?next:arr;
+    },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=a.filter(x=>x);resolve();},false);});
     await fbSetOrdKey("__brandMigYamahaAcc",true);
     console.log("Brand migration: Yamaha 鼓配件/鼓音箱 → 配件專區（含音箱）");
   }
   S.lastSyncAt=Date.now();saveCache();}catch(e){console.error("fbLoad failed:",e);if(!S.items){S.items=mkInit();S.logs=[];}/* do NOT write to Firebase on timeout — remote may have good data */}}
 
-// Atomic per-item transaction — prevents concurrent writes from clobbering each other
-function fbTxItem(id,updater){return new Promise((resolve,reject)=>{let missing=false;dbI.transaction(cur=>{missing=false;if(!Array.isArray(cur))return cur;const idx=cur.findIndex(x=>x&&x.id===id);if(idx<0){missing=true;return cur;}const r=updater(cur[idx]);if(r===undefined)return undefined;cur[idx]=r;return cur;},(err,committed,snap)=>{if(err)return reject(err);resolve({committed:committed&&!missing,missing,arr:snap&&snap.val()});},false);});}
-function fbAddItemTx(it){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=Array.isArray(cur)?cur:[];if(arr.some(x=>x&&x.id===it.id))return cur;return[...arr,it];},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
-function fbDelItemTx(id){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{if(!Array.isArray(cur))return cur;return cur.filter(x=>x&&x.id!==id);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+// Atomic per-item transactions — prevents concurrent writes from clobbering each other.
+// Updaters use arrFromVal so they keep working when Firebase returns the items path as an object (sparse array form).
+function fbTxItem(id,updater){return new Promise((resolve,reject)=>{let missing=false;dbI.transaction(cur=>{missing=false;const arr=arrFromVal(cur);if(!arr)return cur;const idx=arr.findIndex(x=>x&&x.id===id);if(idx<0){missing=true;return arr;}const r=updater(arr[idx]);if(r===undefined)return undefined;arr[idx]=r;return arr;},(err,committed,snap)=>{if(err)return reject(err);resolve({committed:committed&&!missing,missing,arr:arrFromVal(snap&&snap.val())});},false);});}
+function fbAddItemTx(it){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=arrFromVal(cur)||[];if(arr.some(x=>x&&x.id===it.id))return arr;return[...arr,it];},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:arrFromVal(snap&&snap.val())});},false);});}
+function fbDelItemTx(id){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=arrFromVal(cur);if(!arr)return cur;return arr.filter(x=>x&&x.id!==id);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:arrFromVal(snap&&snap.val())});},false);});}
 // Track logs that we've added locally but not yet committed to remote — so the dbL listener doesn't briefly drop them when it fires before our write lands.
 // pushLogLocal adds the marker BEFORE the local S.logs push so even a listener firing during an `await` between push and appendLog can't wipe our entry.
 const _pendingLogs=new Set();
@@ -946,14 +948,15 @@ function renderMain(){
     const moveItems=(predicate,patch,description)=>new Promise(resolve=>{
       let lastAffected=[];
       dbI.transaction(cur=>{
-        if(!Array.isArray(cur))return cur;
-        lastAffected=cur.filter(x=>x&&predicate(x));
+        const arr=arrFromVal(cur);
+        if(!arr)return cur;
+        lastAffected=arr.filter(x=>x&&predicate(x));
         let changed=false;
-        const next=cur.map(x=>{if(x&&predicate(x)){changed=true;return{...x,...patch};}return x;});
-        return changed?next:cur;
+        const next=arr.map(x=>{if(x&&predicate(x)){changed=true;return{...x,...patch};}return x;});
+        return changed?next:arr;
       },(err,committed,snap)=>{
         if(err){console.error("moveItems tx failed:",err);showToast("⚠ 搬移失敗，請重試");resolve();return;}
-        if(snap&&Array.isArray(snap.val())){S.items=snap.val().filter(x=>x);saveCache();render();}
+        const a=arrFromVal(snap&&snap.val());if(a){S.items=a.filter(x=>x);saveCache();render();}
         if(committed&&lastAffected.length&&description){
           const totalQ=lastAffected.reduce((s,x)=>s+(x.q||0),0);
           const sample=lastAffected.slice(0,3).map(x=>x.n).join("、");
