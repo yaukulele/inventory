@@ -1251,6 +1251,40 @@ function renderMain(){
       content.appendChild(topInCard);
     }
     if(!monthLogs.length)content.appendChild(h("div",{style:{textAlign:"center",padding:"40px",color:"var(--sub)"}},"本月尚無紀錄"));
+    // Reconciliation check — compare each item's q against the latest q-modifying log; mismatches usually mean a transaction was lost mid-write or a manual Firebase edit happened.
+    // Only meaningful when full log history is loaded; otherwise the "latest" might just be beyond the cached window.
+    const reconCard=h("div",{className:"card",style:{padding:"14px"}});
+    reconCard.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,marginBottom:"8px"}},"🔍 對帳檢查"));
+    if(!S.olderLogs.length&&S.logs.length>=200){
+      reconCard.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",padding:"8px 10px",background:"#fef3c7",borderRadius:"8px",marginBottom:"6px"}},"⚠ 需要載入全部紀錄才能精確比對。"));
+      reconCard.appendChild(h("button",{disabled:S.loadingOlder,style:{width:"100%",padding:"10px",borderRadius:"8px",border:"none",background:S.loadingOlder?"#e2e8f0":"#7c3aed",color:"#fff",fontSize:"13px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer"},onClick:loadOlderLogs},S.loadingOlder?"載入中…":"載入全部紀錄後比對"));
+    }else{
+      const mismatches=[];let noLog=0;
+      S.items.forEach(it=>{
+        const latest=allLogs.find(l=>(l.iid?l.iid===it.id:l.n===it.n)&&!((l.a||"").includes("✏️"))&&!((l.a||"").includes("🗑")));
+        if(!latest){noLog++;return;}
+        const expected=latest.nq||0;
+        if(expected!==(it.q||0))mismatches.push({it,log:latest,expected,actual:it.q||0});
+      });
+      reconCard.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"8px"}},
+        h("div",{style:{padding:"8px 10px",background:mismatches.length?"#fef2f2":"#f0fdf4",borderRadius:"8px",textAlign:"center"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"不符"),h("div",{style:{fontSize:"18px",fontWeight:800,color:mismatches.length?"var(--red)":"var(--green)"}},String(mismatches.length))),
+        h("div",{style:{padding:"8px 10px",background:"#f8fafc",borderRadius:"8px",textAlign:"center"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"無紀錄"),h("div",{style:{fontSize:"18px",fontWeight:800,color:"var(--sub)"}},String(noLog)))
+      ));
+      if(mismatches.length){
+        const list=h("div",{style:{maxHeight:"200px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"8px"}});
+        mismatches.slice(0,20).forEach(m=>{
+          list.appendChild(h("div",{style:{padding:"8px 10px",fontSize:"12px",borderBottom:"1px solid #f1f5f9",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"},onClick:()=>{S.modal={t:"detail",id:m.it.id};render();}},
+            h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},m.it.b+" / "+m.it.n),
+            h("span",{style:{fontSize:"11px",color:"var(--red)",fontWeight:700,marginLeft:"8px"}},"日誌 "+m.expected+" ≠ 庫存 "+m.actual)
+          ));
+        });
+        reconCard.appendChild(list);
+        if(mismatches.length>20)reconCard.appendChild(h("div",{style:{fontSize:"10px",color:"var(--sub)",textAlign:"center",marginTop:"4px"}},"還有 "+(mismatches.length-20)+" 筆未顯示"));
+      }else{
+        reconCard.appendChild(h("div",{style:{fontSize:"12px",color:"var(--green)",fontWeight:600,padding:"8px 10px",background:"#f0fdf4",borderRadius:"8px"}},"✅ 所有有紀錄的品項都對得上"));
+      }
+    }
+    content.appendChild(reconCard);
   }
   root.appendChild(content);
   const am=renderActionModal();if(am)root.appendChild(am);
