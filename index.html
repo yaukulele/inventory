@@ -242,7 +242,7 @@ function startRealtimeSync(){
     if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")listenerRender();
   });
   // Don't re-render if a modal is open, the user is typing, or a drag is mid-flight (rebuilding DOM aborts the browser's drag operation)
-  const canRender=()=>!S.modal&&!_isDragging&&document.activeElement?.tagName!=="INPUT";
+  const canRender=()=>{const t=document.activeElement?.tagName;return !S.modal&&!_isDragging&&t!=="INPUT"&&t!=="TEXTAREA";};
   dbI.on("value",snap=>{const remote=arrFromVal(snap.val());if(!remote||!S.items)return;
     // Reconcile remote with optimistic state — preserve pending items, drop pending deletes
     let merged=remote.filter(x=>x);
