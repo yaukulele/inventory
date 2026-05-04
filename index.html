@@ -1405,7 +1405,7 @@ document.addEventListener("keydown",e=>{
   if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT"||tag==="BUTTON")return;
   if(e.target&&e.target.isContentEditable)return;
   if(S.phase!=="ready"||S.modal)return;
-  if(e.key==="/"){const sb=document.getElementById("searchBox");if(sb){e.preventDefault();sb.focus();sb.select();}}
+  if(e.key==="/"){const sb=document.getElementById("searchBox")||document.getElementById("logSearch");if(sb){e.preventDefault();sb.focus();sb.select();}}
   else if((e.key==="n"||e.key==="N")&&!isPreview()){e.preventDefault();S.modal={t:"add"};render();}
   else if(e.key>="1"&&e.key<="4"){const tabs=["store","warehouse","log","stats"];const t=tabs[parseInt(e.key)-1];if(t&&S.tab!==t){e.preventDefault();S.tab=t;S._skipScrollRestore=true;render();}}
 });
