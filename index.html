@@ -589,7 +589,7 @@ function renderAddModal(){
   const ccI=h("input",{className:"ipt",placeholder:"新分類名稱",style:{display:"none",marginTop:"6px"}});
   cS.addEventListener("change",e=>{ccI.style.display=e.target.value==="__new"?"block":"none";});
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"分類 *"),cS,ccI));
-  const nI=h("input",{className:"ipt",placeholder:"型號名稱"});
+  const nI=h("input",{className:"ipt",placeholder:"型號名稱",id:"addNameInput"});
   const dupWarn=h("div",{style:{fontSize:"12px",color:"var(--red)",marginTop:"4px",display:"none",padding:"6px 10px",background:"#fef2f2",borderRadius:"6px"}},"⚠ 同品牌已有相同名稱，請確認是否重複");
   const checkDup=()=>{const n=nI.value.trim();if(!n||!selB){dupWarn.style.display="none";return;}const exists=S.items.some(x=>x.b===selB&&x.n.toLowerCase()===n.toLowerCase());dupWarn.style.display=exists?"block":"none";};
   nI.addEventListener("input",checkDup);
@@ -607,6 +607,8 @@ function renderAddModal(){
   const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;doAdd({z:zS.value,b:brand,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
+  // Auto-focus name input so the user can start typing immediately (especially after the "再加一個" continuation flow)
+  setTimeout(()=>{const el=document.getElementById("addNameInput");if(el)el.focus();},50);
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
 
@@ -1153,6 +1155,29 @@ function renderMain(){
       h("div",{style:{textAlign:"center",padding:"8px",background:"var(--blue-light)",borderRadius:"8px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"盤點"),h("div",{style:{fontSize:"20px",fontWeight:800,color:"var(--blue)"}},String(tAu)),ystrip(tAu,yAu))
     ));
     content.appendChild(todayCard);
+    // 7-day in/out trend bar chart — pure HTML/CSS, no canvas. Highlights week-over-week patterns and identifies surge days.
+    const days=[];
+    for(let i=6;i>=0;i--){const d=new Date(now.getTime()-i*86400000);days.push({label:(d.getMonth()+1)+"/"+d.getDate(),key:d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0"),isToday:i===0});}
+    const dayBuckets=days.map(d=>{const dayLogs=allLogs.filter(l=>(l.t||"").startsWith(d.key));return{...d,inN:dayLogs.filter(l=>(l.a||"").includes("進")).length,outN:dayLogs.filter(l=>(l.a||"").includes("出")).length};});
+    const maxBar=Math.max(1,...dayBuckets.map(d=>Math.max(d.inN,d.outN)));
+    if(dayBuckets.some(d=>d.inN||d.outN)){
+      const trendCard=h("div",{className:"card",style:{marginBottom:"14px",padding:"14px"}});
+      trendCard.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,marginBottom:"10px",display:"flex",justifyContent:"space-between"}},h("span",{},"📈 近 7 天趨勢"),h("span",{style:{fontSize:"10px",color:"var(--sub)",fontWeight:500}},"進 / 出")));
+      const chartGrid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:"4px",alignItems:"end",height:"80px"}});
+      dayBuckets.forEach(d=>{
+        const colCol=h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:"2px",height:"100%",justifyContent:"flex-end"}});
+        const pair=h("div",{style:{display:"flex",gap:"2px",alignItems:"flex-end",height:"100%",width:"100%",justifyContent:"center"}});
+        const inH=Math.round(d.inN/maxBar*70);
+        const outH=Math.round(d.outN/maxBar*70);
+        pair.appendChild(h("div",{style:{width:"40%",height:Math.max(d.inN?2:0,inH)+"px",background:"var(--green)",borderRadius:"3px 3px 0 0",position:"relative"},title:"進 "+d.inN}));
+        pair.appendChild(h("div",{style:{width:"40%",height:Math.max(d.outN?2:0,outH)+"px",background:"var(--red)",borderRadius:"3px 3px 0 0"},title:"出 "+d.outN}));
+        colCol.appendChild(pair);
+        colCol.appendChild(h("div",{style:{fontSize:"9px",color:d.isToday?"var(--blue)":"var(--sub)",fontWeight:d.isToday?700:500,marginTop:"2px"}},d.label));
+        chartGrid.appendChild(colCol);
+      });
+      trendCard.appendChild(chartGrid);
+      content.appendChild(trendCard);
+    }
     // Summary card
     const mAudit=monthLogs.filter(l=>(l.a||"").includes("盤")).length;
     const mEdit=monthLogs.filter(l=>(l.a||"").includes("✏️")).length;
