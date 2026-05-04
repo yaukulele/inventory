@@ -521,7 +521,7 @@ function renderActionModal(){
   const initLabel=type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"請選擇盤點數量";
   var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:function(){if(this.disabled)return;this.disabled=true;const fn=selN==="調貨"&&customT?"調貨："+customT:selN;doAction(type,it,selQ,fn);}},initLabel);
   box.appendChild(confirmBtn);
-  box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!confirmBtn.disabled){e.preventDefault();confirmBtn.click();}});
+  box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&!confirmBtn.disabled){e.preventDefault();confirmBtn.click();}});
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeAction}),box);
 }
 
@@ -565,13 +565,19 @@ function renderAddModal(){
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
   const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;doAdd({z:zS.value,b:brand,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
-  box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
+  box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
 
 function renderDetailModal(){
   if(!S.modal||S.modal.t!=="detail")return null;
-  const it=S.items.find(x=>x.id===S.modal.id);if(!it)return null;
+  const it=S.items.find(x=>x.id===S.modal.id);
+  if(!it){
+    // Another user deleted while detail modal was open. Don't leave the body locked with no visible modal.
+    S.modal=S.modal.back||null;
+    showToast("⚠ 此品項已被刪除");
+    return null;
+  }
   const pv=isPreview();
   const back=S.modal.back;
   const closeDetail=()=>{S.modal=back||null;render();};
@@ -654,7 +660,7 @@ function renderDetailModal(){
     const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim()});if(ok){showToast("已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
     btnRow.appendChild(saveBtn);
     box.appendChild(btnRow);
-    box.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.tagName!=="TEXTAREA"&&!saveBtn.disabled){e.preventDefault();saveBtn.click();}});
+    box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&!saveBtn.disabled){e.preventDefault();saveBtn.click();}});
   }
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:isEdit?null:closeDetail}),box);
 }
@@ -675,7 +681,13 @@ function renderLightboxModal(){
 
 function renderDelConfirmModal(){
   if(!S.modal||S.modal.t!=="del-confirm")return null;
-  const it=S.items.find(x=>x.id===S.modal.id);if(!it)return null;
+  const it=S.items.find(x=>x.id===S.modal.id);
+  if(!it){
+    // Item already gone (likely deleted concurrently) — close cleanly instead of leaving the body locked.
+    S.modal=S.modal.back||null;
+    showToast("⚠ 此品項已被刪除");
+    return null;
+  }
   const box=h("div",{className:"modal-box",style:{maxWidth:"360px"}});
   box.appendChild(h("div",{style:{fontSize:"36px",textAlign:"center",marginBottom:"8px"}},"🗑"));
   box.appendChild(h("div",{style:{fontSize:"16px",fontWeight:700,textAlign:"center",marginBottom:"6px"}},"刪除這個品項？"));
@@ -1092,14 +1104,19 @@ function renderMain(){
       h("div",{style:{textAlign:"center",padding:"10px",background:"var(--blue-light)",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"總異動"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--blue)"}},String(monthLogs.length)))
     ));
     content.appendChild(sumCard);
-    // Build id→item map for aggregating renamed items together; logs with iid use it as the grouping key
+    // Build id→item map. Aggregate logs by iid where possible; legacy logs (no iid) get re-keyed via current name match
+    // so a rename + a few legacy entries don't fragment a single item across multiple top-rank slots.
     const idItemMap={};S.items.forEach(x=>{idItemMap[x.id]=x;});
+    const nameItemMap={};S.items.forEach(x=>{nameItemMap[x.n]=x;});
     const aggregate=logs=>{
       const map={};
       logs.forEach(l=>{
         const qty=Math.abs((l.nq||0)-(l.pq||0));if(!qty)return;
-        const key=l.iid||("n:"+l.n);
-        const cur=map[key]||{qty:0,iid:l.iid||"",name:l.n};
+        let key,iid="";
+        if(l.iid&&idItemMap[l.iid]){key=l.iid;iid=l.iid;}
+        else if(nameItemMap[l.n]){key=nameItemMap[l.n].id;iid=key;}
+        else key=l.iid||("n:"+l.n);
+        const cur=map[key]||{qty:0,iid,name:l.n};
         cur.qty+=qty;
         map[key]=cur;
       });
