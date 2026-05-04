@@ -475,7 +475,7 @@ function renderLogin(){
       h("p",{style:{color:"var(--sub)",fontSize:"13px",marginBottom:"24px"}},"多人協作 · Firebase 即時同步"),
       h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"選擇使用者")),
       (()=>{const s=h("select",{className:"ipt",style:{marginBottom:"16px"},onChange:e=>{S.user=e.target.value;}});US.forEach(u=>{const o=h("option",{value:u},u);if(u===S.user)o.selected=true;s.appendChild(o);});return s;})(),
-      h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async function(){if(this.disabled)return;this.disabled=true;this.style.opacity="0.6";this.textContent="連線中…";try{localStorage.setItem("inv_user",S.user);}catch(e){}const cached=hydrateFromCache();S.phase=cached?"ready":"loading";render();if(cached){fbLoad().then(()=>{startRealtimeSync();S.phase="ready";render();});}else{await fbLoad();S.phase="ready";render();startRealtimeSync();}}},"進入系統")
+      h("button",{id:"loginBtn",style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async function(){if(this.disabled)return;this.disabled=true;this.style.opacity="0.6";this.textContent="連線中…";try{localStorage.setItem("inv_user",S.user);}catch(e){}const cached=hydrateFromCache();S.phase=cached?"ready":"loading";render();if(cached){fbLoad().then(()=>{startRealtimeSync();S.phase="ready";render();});}else{await fbLoad();S.phase="ready";render();startRealtimeSync();}}},"進入系統")
   ));
 }
 
@@ -1367,9 +1367,11 @@ function unlockBody(){if(document.body.dataset.locked!=="1")return;document.body
 let _renderQueued=false;
 function render(){if(_renderQueued)return;_renderQueued=true;queueMicrotask(()=>{_renderQueued=false;_render();});}
 function _render(){const a=document.getElementById("app");const wasLocked=document.body.dataset.locked==="1";const sy=wasLocked?_bodyLockY:(window.scrollY||document.documentElement.scrollTop||0);const skipRestore=S._skipScrollRestore;S._skipScrollRestore=false;a.innerHTML="";if(S.phase==="login")a.appendChild(renderLogin());else if(S.phase==="loading"||!S.items)a.appendChild(renderLoading());else a.appendChild(renderMain());if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}}
-// Global keyboard shortcuts. Esc closes modal; '/' focuses search; 'n' opens add modal.
+// Global keyboard shortcuts. Esc closes modal; '/' focuses search; 'n' opens add modal; 1-4 switches tab.
 // All shortcuts are skipped while user is typing in an input/textarea so nothing fires from a passing keystroke.
 document.addEventListener("keydown",e=>{
+  // Enter on login screen submits even when no focus on the button
+  if(S.phase==="login"&&e.key==="Enter"&&!e.isComposing&&e.keyCode!==229){const btn=document.getElementById("loginBtn");if(btn&&!btn.disabled){e.preventDefault();btn.click();}return;}
   if(e.key==="Escape"&&S.modal){if(S.modal.t==="detail"&&S.modal.edit)return;S.modal=S.modal.back||null;render();return;}
   if(e.ctrlKey||e.metaKey||e.altKey)return;
   const tag=e.target&&e.target.tagName;
