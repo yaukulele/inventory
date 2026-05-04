@@ -207,7 +207,7 @@ function pushLogLocal(entry){_pendingLogs.add(entry.id);S.logs=[entry,...S.logs]
 function dropLogLocal(id){_pendingLogs.delete(id);S.logs=S.logs.filter(l=>l.id!==id);}
 function appendLog(entry){return fbAppendLogTx(entry).catch(e=>console.error(e)).finally(()=>{_pendingLogs.delete(entry.id);});}
 // catOrd: atomically set one key so concurrent drags from different users don't clobber each other
-function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(!err&&snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
+function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(err){console.error("fbSetOrdKey failed:",key,err);showToast("⚠ 排序儲存失敗");}else if(snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
 
 // Optimistic UI tracking — items currently in flight to Firebase
 const _pendingItems=new Set();
@@ -929,7 +929,8 @@ function renderMain(){
         const next=cur.map(x=>{if(x&&predicate(x)){changed=true;return{...x,...patch};}return x;});
         return changed?next:cur;
       },(err,committed,snap)=>{
-        if(!err&&snap&&Array.isArray(snap.val())){S.items=snap.val().filter(x=>x);saveCache();render();}
+        if(err){console.error("moveItems tx failed:",err);showToast("⚠ 搬移失敗，請重試");resolve();return;}
+        if(snap&&Array.isArray(snap.val())){S.items=snap.val().filter(x=>x);saveCache();render();}
         if(committed&&lastAffected.length&&description){
           const totalQ=lastAffected.reduce((s,x)=>s+(x.q||0),0);
           const sample=lastAffected.slice(0,3).map(x=>x.n).join("、");
