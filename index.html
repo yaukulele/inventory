@@ -74,7 +74,7 @@ header{padding-top:max(10px,env(safe-area-inset-top)) !important}
 <div id="app"></div>
 <script>
 firebase.initializeApp({apiKey:"AIzaSyBxYfM4VPFg7DNrk1rmZHD_neJl2YVHaGk",authDomain:"order-system-dddca.firebaseapp.com",databaseURL:"https://order-system-dddca-default-rtdb.firebaseio.com",projectId:"order-system-dddca"});
-const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order");
+const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order"),dbU=db.ref("inventory/users"),dbA=db.ref("inventory/activityLog");
 
 const D=[
 ["aNueNue","木吉他","M1",1],["aNueNue","木吉他","M1E",2],["aNueNue","木吉他","M2",1],["aNueNue","木吉他","M2E",1],["aNueNue","木吉他","M10",1],["aNueNue","木吉他","M20",1],["aNueNue","木吉他","M15",2],["aNueNue","木吉他","M25",2],["aNueNue","木吉他","MY10",5],["aNueNue","木吉他","M32",1],["aNueNue","木吉他","M52",0],["aNueNue","木吉他","M77",1],["aNueNue","木吉他","M60",1],["aNueNue","木吉他","M88",0],["aNueNue","木吉他","M100",0],["aNueNue","木吉他","Clint",0],["aNueNue","木吉他","BOB",0],["aNueNue","木吉他","MTK PS",1],["aNueNue","木吉他","L10",3],["aNueNue","木吉他","L20",1],["aNueNue","木吉他","L100",0],["aNueNue","木吉他","LF28",1],["aNueNue","木吉他","LF23",1],["aNueNue","木吉他","MBS18E",1],["aNueNue","木吉他","N520SP",1],["aNueNue","木吉他","N520AC",1],
@@ -136,15 +136,25 @@ const BC={"aNueNue":"#ea580c","D'Addario":"#0d9488",NUX:"#2563eb",Singer:"#db277
 const _brandColorCache={};
 function hslToHex(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12;const a=s*Math.min(l,1-l);const f=n=>{const v=l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return Math.round(v*255).toString(16).padStart(2,"0");};return "#"+f(0)+f(8)+f(4);}
 function gc(b){if(BC[b])return BC[b];if(_brandColorCache[b])return _brandColorCache[b];if(!b)return "#64748b";let h=0;for(let i=0;i<b.length;i++){h=((h<<5)-h+b.charCodeAt(i))|0;}const color=hslToHex(Math.abs(h)%360,55,42);_brandColorCache[b]=color;return color;}
-const US=["快速預覽","Allie","阿淵","雨停","小愷","向秦"];
+// Login dropdown options. 快速預覽 = read-only no-password mode; the other three require password authentication.
+// Role lookup happens at login time against Firebase /inventory/users.
+const US=["快速預覽","Allie","阿淵","雨停"];
+const SEED_USERS={
+  "Allie":{pass:"Allie",role:"admin"},
+  "阿淵":{pass:"阿淵",role:"admin"},
+  "雨停":{pass:"雨停",role:"user"}
+};
 const isPreview=()=>S.user==="快速預覽";
+const isAdmin=()=>S.role==="admin";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const ts=()=>{const d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");};
 const dateStr=()=>{const d=new Date();return(d.getMonth()+1)+"/"+d.getDate();};
 const dateOnly=t=>(t||"").split(" ")[0]||"";
 
 const _savedUser=(()=>{try{const u=localStorage.getItem("inv_user");return u&&US.includes(u)?u:US[0];}catch(e){return US[0];}})();
-let S={items:null,logs:[],olderLogs:[],loadingOlder:false,user:_savedUser,phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",stockFilter:null,brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100};
+// Read fresh each time renderLogin runs — after logout we clear inv_pass and the next login render must reflect that
+const getSavedPass=()=>{try{return localStorage.getItem("inv_pass")||"";}catch(e){return "";}};
+let S={items:null,logs:[],olderLogs:[],loadingOlder:false,user:_savedUser,role:"preview",phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",stockFilter:null,brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100,users:null,activityLog:[]};
 
 const EXPECTED_COUNT=mkInit().length;
 const RESET_VER="v20260413d";
@@ -212,6 +222,27 @@ function dropLogLocal(id){_pendingLogs.delete(id);S.logs=S.logs.filter(l=>l.id!=
 function appendLog(entry){return fbAppendLogTx(entry).catch(e=>{console.error("appendLog failed:",e);showToast("⚠ 紀錄寫入失敗，動作已生效但 log 沒同步");}).finally(()=>{_pendingLogs.delete(entry.id);});}
 // catOrd: atomically set one key so concurrent drags from different users don't clobber each other
 function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(err){console.error("fbSetOrdKey failed:",key,err);showToast("⚠ 排序儲存失敗");}else if(snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
+
+// User accounts. Plaintext passwords (admin needs to see them per user requirement). Seeded on first load if /inventory/users is empty.
+async function fbLoadUsers(){
+  try{
+    const snap=await dbU.once("value");
+    const users=snap.val();
+    if(!users||typeof users!=="object"||!Object.keys(users).length){
+      // First-time setup: seed default users
+      await dbU.set(Object.fromEntries(Object.entries(SEED_USERS).map(([k,v])=>[k,{...v,createdAt:Date.now()}])));
+      return Object.fromEntries(Object.entries(SEED_USERS).map(([k,v])=>[k,{...v,createdAt:Date.now()}]));
+    }
+    return users;
+  }catch(e){console.error("fbLoadUsers failed:",e);return null;}
+}
+function fbSetUserField(username,patch){return new Promise(resolve=>{dbU.child(username).transaction(cur=>{const obj=cur&&typeof cur==="object"?{...cur,...patch}:{...patch};return obj;},(err,committed,snap)=>{if(err){console.error("fbSetUserField failed:",err);showToast("⚠ 帳號儲存失敗");}else if(snap&&snap.val())S.users={...(S.users||{}),[username]:snap.val()};resolve(!err&&committed);},false);});}
+function fbDeleteUser(username){return new Promise(resolve=>{dbU.child(username).remove().then(()=>{if(S.users){const next={...S.users};delete next[username];S.users=next;}resolve(true);}).catch(e=>{console.error("fbDeleteUser failed:",e);showToast("⚠ 刪除帳號失敗");resolve(false);});});}
+// Activity log — append-only, capped at 200 entries. Only admins see this in UI but everyone writes.
+function logActivity(action,detail){
+  const entry={id:uid(),ts:ts(),user:S.user,action,detail:detail||""};
+  dbA.transaction(cur=>{const arr=arrFromVal(cur)||[];return[entry,...arr].slice(0,200);},(err)=>{if(err)console.error("logActivity failed:",err);},false);
+}
 
 // Optimistic UI tracking — items currently in flight to Firebase
 const _pendingItems=new Set();
@@ -469,16 +500,78 @@ async function loadOlderLogs(){
 
 function h(t,p,...c){const e=document.createElement(t);if(p)Object.entries(p).forEach(([k,v])=>{if(k==="style"&&typeof v==="object")Object.assign(e.style,v);else if(k.startsWith("on"))e[k.toLowerCase()]=v;else if(k==="className")e.className=v;else if(k==="disabled")e.disabled=v;else e.setAttribute(k,v);});c.flat(9).forEach(x=>{if(x==null||x===false)return;if(typeof x==="string"||typeof x==="number")e.appendChild(document.createTextNode(x));else if(x instanceof Node)e.appendChild(x);});return e;}
 
+// After successful login (or preview entry), kick off the inventory data load and switch to ready phase.
+async function postLogin(){
+  const cached=hydrateFromCache();
+  S.phase=cached?"ready":"loading";
+  render();
+  if(cached){fbLoad().then(()=>{startRealtimeSync();S.phase="ready";render();});}
+  else{await fbLoad();S.phase="ready";render();startRealtimeSync();}
+}
+
 function renderLogin(){
-  return h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#eff6ff 0%,#f8fafc 100%)"}},
-    h("div",{style:{background:"#fff",borderRadius:"24px",padding:"40px 32px",width:"340px",boxShadow:"0 8px 30px rgba(0,0,0,.08)",textAlign:"center"}},
-      h("div",{style:{fontSize:"48px",marginBottom:"8px"}},"📦"),
-      h("h1",{style:{fontSize:"22px",fontWeight:800,marginBottom:"4px",color:"var(--text)"}},"庫存管理系統"),
-      h("p",{style:{color:"var(--sub)",fontSize:"13px",marginBottom:"24px"}},"多人協作 · Firebase 即時同步"),
-      h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"選擇使用者")),
-      (()=>{const s=h("select",{className:"ipt",style:{marginBottom:"16px"},onChange:e=>{S.user=e.target.value;}});US.forEach(u=>{const o=h("option",{value:u},u);if(u===S.user)o.selected=true;s.appendChild(o);});return s;})(),
-      h("button",{id:"loginBtn",style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"},onClick:async function(){if(this.disabled)return;this.disabled=true;this.style.opacity="0.6";this.textContent="連線中…";try{localStorage.setItem("inv_user",S.user);}catch(e){}const cached=hydrateFromCache();S.phase=cached?"ready":"loading";render();if(cached){fbLoad().then(()=>{startRealtimeSync();S.phase="ready";render();});}else{await fbLoad();S.phase="ready";render();startRealtimeSync();}}},"進入系統")
-  ));
+  const wrap=h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#eff6ff 0%,#f8fafc 100%)"}});
+  const box=h("div",{style:{background:"#fff",borderRadius:"24px",padding:"40px 32px",width:"340px",boxShadow:"0 8px 30px rgba(0,0,0,.08)",textAlign:"center"}});
+  box.appendChild(h("div",{style:{fontSize:"48px",marginBottom:"8px"}},"📦"));
+  box.appendChild(h("h1",{style:{fontSize:"22px",fontWeight:800,marginBottom:"4px",color:"var(--text)"}},"庫存管理系統"));
+  box.appendChild(h("p",{style:{color:"var(--sub)",fontSize:"13px",marginBottom:"24px"}},"多人協作 · Firebase 即時同步"));
+  // User selector
+  box.appendChild(h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"選擇使用者")));
+  const userSel=h("select",{className:"ipt",style:{marginBottom:"12px"}});
+  US.forEach(u=>{const o=h("option",{value:u},u);if(u===S.user)o.selected=true;userSel.appendChild(o);});
+  box.appendChild(userSel);
+  // Password field — hidden for 快速預覽 (read-only mode, no password)
+  const passWrap=h("div",{style:{textAlign:"left",marginBottom:"4px",display:S.user==="快速預覽"?"none":"block"}});
+  passWrap.appendChild(h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"密碼"));
+  const passInp=h("input",{type:"password",className:"ipt",id:"loginPass",style:{marginBottom:"12px"},placeholder:"輸入密碼",autocomplete:"current-password"});
+  passInp.value=getSavedPass();
+  passWrap.appendChild(passInp);
+  box.appendChild(passWrap);
+  // Error message slot
+  const errorEl=h("div",{style:{color:"var(--red)",fontSize:"13px",marginBottom:"12px",minHeight:"18px",fontWeight:500}});
+  box.appendChild(errorEl);
+  // Toggle password field visibility when user picks 快速預覽
+  userSel.addEventListener("change",e=>{
+    S.user=e.target.value;
+    passWrap.style.display=e.target.value==="快速預覽"?"none":"block";
+    errorEl.textContent="";
+    if(e.target.value!=="快速預覽")setTimeout(()=>passInp.focus(),50);
+  });
+  const loginBtn=h("button",{id:"loginBtn",style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"}},"進入系統");
+  loginBtn.onclick=async function(){
+    if(this.disabled)return;
+    const pickedUser=userSel.value;
+    const enteredPass=passInp.value;
+    errorEl.textContent="";
+    if(pickedUser==="快速預覽"){
+      S.user="快速預覽";S.role="preview";
+      try{localStorage.setItem("inv_user","快速預覽");localStorage.removeItem("inv_pass");}catch(e){}
+      this.disabled=true;this.style.opacity="0.6";this.textContent="連線中…";
+      await postLogin();
+      return;
+    }
+    // Authenticated login: validate password against Firebase
+    this.disabled=true;this.style.opacity="0.6";this.textContent="驗證中…";
+    const users=await fbLoadUsers();
+    const reset=()=>{this.disabled=false;this.style.opacity="";this.textContent="進入系統";};
+    if(!users){errorEl.textContent="⚠ 連線失敗，請重試";reset();return;}
+    const userRecord=users[pickedUser];
+    if(!userRecord){errorEl.textContent="⚠ 帳號不存在";reset();return;}
+    if((userRecord.pass||"")!==enteredPass){errorEl.textContent="⚠ 密碼錯誤";reset();return;}
+    // Success
+    S.user=pickedUser;
+    S.role=userRecord.role||"user";
+    S.users=users;
+    try{localStorage.setItem("inv_user",pickedUser);localStorage.setItem("inv_pass",enteredPass);}catch(e){}
+    this.textContent="連線中…";
+    logActivity("登入");
+    await postLogin();
+  };
+  box.appendChild(loginBtn);
+  // Auto-focus the right field — password if user known, else dropdown stays
+  if(S.user!=="快速預覽")setTimeout(()=>{const el=document.getElementById("loginPass");if(el)el.focus();},50);
+  wrap.appendChild(box);
+  return wrap;
 }
 
 function renderLoading(){return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"16px"}},h("div",{style:{fontSize:"48px"}},"📦"),h("div",{style:{color:"var(--blue)",fontSize:"16px",fontWeight:600}},"連線 Firebase 中..."),h("div",{style:{color:"var(--sub)",fontSize:"13px"}},"首次載入可能需要幾秒"));}
@@ -753,6 +846,179 @@ function renderLightboxModal(){
   return wrap;
 }
 
+// Account / password management modal.
+// Everyone (logged-in users) can change their own password. Admins additionally see all accounts (with passwords),
+// can edit other users' passwords, add new accounts, delete accounts, and view the activity log.
+// Read-only preview users only see "登出" affordance.
+function renderAccountModal(){
+  if(!S.modal||S.modal.t!=="account")return null;
+  const closeFn=()=>{S.modal=S.modal.back||null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"460px"}});
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}},
+    h("h3",{style:{fontSize:"18px",fontWeight:700}},"🔐 帳號設定"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px"},onClick:closeFn},"✕")
+  ));
+  // Identity card
+  const roleBadge=isAdmin()?{txt:"管理員",bg:"#dcfce7",fg:"#15803d"}:isPreview()?{txt:"預覽模式",bg:"#f1f5f9",fg:"var(--sub)"}:{txt:"一般使用者",bg:"#eff6ff",fg:"var(--blue)"};
+  box.appendChild(h("div",{style:{padding:"12px 14px",background:"#f8fafc",borderRadius:"10px",marginBottom:"14px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+    h("div",{},
+      h("div",{style:{fontSize:"11px",color:"var(--sub)",marginBottom:"2px"}},"目前登入"),
+      h("div",{style:{fontSize:"16px",fontWeight:700}},S.user)
+    ),
+    h("span",{style:{padding:"4px 12px",borderRadius:"12px",fontSize:"12px",fontWeight:700,background:roleBadge.bg,color:roleBadge.fg}},roleBadge.txt)
+  ));
+  if(isPreview()){
+    box.appendChild(h("div",{style:{padding:"12px",textAlign:"center",color:"var(--sub)",fontSize:"13px",background:"#f8fafc",borderRadius:"10px"}},"預覽模式無需密碼，登出即可切換帳號"));
+    return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeFn}),box);
+  }
+  // Change own password
+  const pwHeader=h("div",{style:{fontSize:"14px",fontWeight:700,marginBottom:"8px",marginTop:"4px"}},"🔑 修改自己的密碼");
+  box.appendChild(pwHeader);
+  const oldI=h("input",{type:"password",className:"ipt",placeholder:"目前密碼",style:{marginBottom:"6px"}});
+  const newI=h("input",{type:"password",className:"ipt",placeholder:"新密碼",style:{marginBottom:"6px"}});
+  const confI=h("input",{type:"password",className:"ipt",placeholder:"再次輸入新密碼",style:{marginBottom:"6px"}});
+  const pwMsg=h("div",{style:{fontSize:"12px",fontWeight:500,minHeight:"16px",marginBottom:"8px"}});
+  const pwBtn=h("button",{style:{width:"100%",padding:"10px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer",marginBottom:"14px"}},"💾 儲存新密碼");
+  pwBtn.onclick=async function(){
+    if(this.disabled)return;
+    pwMsg.textContent="";pwMsg.style.color="var(--red)";
+    const oldPw=oldI.value,newPw=newI.value,confPw=confI.value;
+    if(!oldPw||!newPw){pwMsg.textContent="⚠ 請填完所有欄位";return;}
+    if(newPw!==confPw){pwMsg.textContent="⚠ 兩次新密碼不一致";return;}
+    if(newPw===oldPw){pwMsg.textContent="⚠ 新密碼與舊密碼相同";return;}
+    this.disabled=true;this.textContent="儲存中…";
+    const users=await fbLoadUsers();
+    if(!users||!users[S.user]){pwMsg.textContent="⚠ 找不到帳號資料";this.disabled=false;this.textContent="💾 儲存新密碼";return;}
+    if((users[S.user].pass||"")!==oldPw){pwMsg.textContent="⚠ 目前密碼錯誤";this.disabled=false;this.textContent="💾 儲存新密碼";return;}
+    const ok=await fbSetUserField(S.user,{pass:newPw});
+    if(!ok){pwMsg.textContent="⚠ 儲存失敗";this.disabled=false;this.textContent="💾 儲存新密碼";return;}
+    try{localStorage.setItem("inv_pass",newPw);}catch(e){}
+    logActivity("改自己密碼");
+    pwMsg.style.color="var(--green)";pwMsg.textContent="✅ 密碼已更新";
+    oldI.value="";newI.value="";confI.value="";
+    setTimeout(()=>{this.disabled=false;this.textContent="💾 儲存新密碼";pwMsg.textContent="";},2000);
+  };
+  box.appendChild(oldI);box.appendChild(newI);box.appendChild(confI);box.appendChild(pwMsg);box.appendChild(pwBtn);
+  // Admin-only sections
+  if(isAdmin()){
+    box.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,marginBottom:"8px",borderTop:"1px dashed var(--border)",paddingTop:"14px"}},"👥 管理所有帳號"));
+    if(!S.users){
+      const loadBtn=h("button",{style:{width:"100%",padding:"10px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",cursor:"pointer",marginBottom:"10px"}},"📋 載入帳號清單");
+      loadBtn.onclick=async function(){this.disabled=true;this.textContent="載入中…";const u=await fbLoadUsers();if(u){S.users=u;render();}else{this.disabled=false;this.textContent="📋 載入帳號清單";}};
+      box.appendChild(loadBtn);
+    }else{
+      const userList=h("div",{style:{border:"1px solid var(--border)",borderRadius:"10px",overflow:"hidden",marginBottom:"10px"}});
+      Object.entries(S.users).sort(([a],[b])=>a.localeCompare(b)).forEach(([uname,udata])=>{
+        const isMe=uname===S.user;
+        const row=h("div",{style:{padding:"10px 12px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px",fontSize:"13px"}});
+        row.appendChild(h("div",{style:{flex:1,minWidth:0}},
+          h("div",{style:{fontWeight:700}},uname,h("span",{style:{marginLeft:"6px",fontSize:"10px",padding:"1px 6px",borderRadius:"6px",background:udata.role==="admin"?"#dcfce7":"#f1f5f9",color:udata.role==="admin"?"#15803d":"var(--sub)",fontWeight:600}},udata.role==="admin"?"管理員":"使用者")),
+          h("div",{style:{fontSize:"11px",color:"var(--sub)",fontFamily:"monospace"}},"密碼：",h("b",{style:{color:"var(--orange)"}},udata.pass||"(未設定)"))
+        ));
+        // Edit pass button
+        row.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account-edit",target:uname,back:S.modal};render();}},"改密"));
+        // Delete button (not for self, not for the last admin)
+        if(!isMe){
+          row.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:async()=>{
+            const adminCount=Object.values(S.users).filter(u=>u.role==="admin").length;
+            if(udata.role==="admin"&&adminCount<=1){alert("⚠ 系統至少要有一個管理員，無法刪除");return;}
+            if(!confirm("確定刪除帳號「"+uname+"」？"))return;
+            const ok=await fbDeleteUser(uname);
+            if(ok){logActivity("刪除帳號","刪除 "+uname);render();}
+          }},"刪除"));
+        }
+        userList.appendChild(row);
+      });
+      box.appendChild(userList);
+      // Add new user
+      const addWrap=h("div",{style:{padding:"10px 12px",border:"1px dashed var(--border)",borderRadius:"10px",marginBottom:"8px"}});
+      addWrap.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"6px",fontWeight:600}},"➕ 新增帳號"));
+      const addNI=h("input",{className:"ipt",placeholder:"使用者名稱",style:{marginBottom:"6px"}});
+      const addPI=h("input",{type:"text",className:"ipt",placeholder:"初始密碼",style:{marginBottom:"6px"}});
+      const addRoleSel=h("select",{className:"ipt",style:{marginBottom:"6px"}},h("option",{value:"user"},"一般使用者"),h("option",{value:"admin"},"管理員"));
+      const addMsg=h("div",{style:{fontSize:"11px",color:"var(--red)",minHeight:"14px",marginBottom:"6px",fontWeight:500}});
+      const addBtn=h("button",{style:{width:"100%",padding:"8px",borderRadius:"8px",border:"none",background:"var(--green)",color:"#fff",fontSize:"12px",fontWeight:700,cursor:"pointer"}},"建立帳號");
+      addBtn.onclick=async function(){
+        if(this.disabled)return;
+        addMsg.textContent="";
+        const name=addNI.value.trim(),pw=addPI.value,role=addRoleSel.value;
+        if(!name||!pw){addMsg.textContent="⚠ 請填完使用者名稱與密碼";return;}
+        if(S.users[name]){addMsg.textContent="⚠ 帳號已存在";return;}
+        if(name==="快速預覽"){addMsg.textContent="⚠ 不能用「快速預覽」當帳號名稱";return;}
+        this.disabled=true;this.textContent="建立中…";
+        const ok=await fbSetUserField(name,{pass:pw,role,createdAt:Date.now()});
+        if(!ok){addMsg.textContent="⚠ 建立失敗";this.disabled=false;this.textContent="建立帳號";return;}
+        logActivity("新增帳號","新增 "+name+"("+role+")");
+        addNI.value="";addPI.value="";
+        render();
+      };
+      addWrap.appendChild(addNI);addWrap.appendChild(addPI);addWrap.appendChild(addRoleSel);addWrap.appendChild(addMsg);addWrap.appendChild(addBtn);
+      box.appendChild(addWrap);
+      // Activity log peek
+      const logHdr=h("div",{style:{fontSize:"14px",fontWeight:700,marginTop:"14px",marginBottom:"8px",borderTop:"1px dashed var(--border)",paddingTop:"14px"}},"📜 最近操作紀錄");
+      box.appendChild(logHdr);
+      if(!S.activityLog.length){
+        const loadLogBtn=h("button",{style:{width:"100%",padding:"8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"12px",cursor:"pointer"}},"📋 載入操作紀錄");
+        loadLogBtn.onclick=async function(){this.disabled=true;this.textContent="載入中…";try{const snap=await dbA.once("value");const arr=arrFromVal(snap.val())||[];S.activityLog=arr.filter(x=>x);render();}catch(e){console.error(e);this.disabled=false;this.textContent="📋 載入操作紀錄";}};
+        box.appendChild(loadLogBtn);
+      }else{
+        const logBox=h("div",{style:{maxHeight:"180px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"8px"}});
+        S.activityLog.slice(0,30).forEach(l=>{
+          logBox.appendChild(h("div",{style:{padding:"6px 10px",fontSize:"11px",borderBottom:"1px solid #f1f5f9",display:"flex",gap:"8px"}},
+            h("span",{style:{color:"var(--sub)",fontFamily:"monospace",flexShrink:0}},(l.ts||"").slice(5,16)),
+            h("span",{style:{fontWeight:700,flexShrink:0}},l.user||""),
+            h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},(l.action||"")+(l.detail?" — "+l.detail:""))
+          ));
+        });
+        box.appendChild(logBox);
+      }
+    }
+  }
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeFn}),box);
+}
+
+// Admin sub-modal: edit another user's password
+function renderAccountEditModal(){
+  if(!S.modal||S.modal.t!=="account-edit")return null;
+  if(!isAdmin()){S.modal=S.modal.back||null;return null;}
+  const target=S.modal.target;
+  const back=()=>{S.modal=S.modal.back||null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"360px"}});
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},
+    h("h3",{style:{fontSize:"16px",fontWeight:700}},"✏️ 修改密碼 — "+target),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:back},"✕")
+  ));
+  const newI=h("input",{type:"text",className:"ipt",placeholder:"新密碼",style:{marginBottom:"8px"}});
+  const roleSel=h("select",{className:"ipt",style:{marginBottom:"8px"}},h("option",{value:"user"},"一般使用者"),h("option",{value:"admin"},"管理員"));
+  if(S.users&&S.users[target])roleSel.value=S.users[target].role||"user";
+  const msg=h("div",{style:{fontSize:"12px",color:"var(--red)",minHeight:"16px",marginBottom:"8px",fontWeight:500}});
+  box.appendChild(newI);box.appendChild(roleSel);box.appendChild(msg);
+  const saveBtn=h("button",{style:{width:"100%",padding:"10px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer"}},"💾 儲存");
+  saveBtn.onclick=async function(){
+    if(this.disabled)return;
+    msg.textContent="";
+    const np=newI.value;
+    if(!np){msg.textContent="⚠ 密碼不可空";return;}
+    // Last-admin guard: don't allow demoting if this would leave 0 admins
+    if(S.users&&S.users[target]&&S.users[target].role==="admin"&&roleSel.value!=="admin"){
+      const adminCount=Object.values(S.users).filter(u=>u.role==="admin").length;
+      if(adminCount<=1){msg.textContent="⚠ 系統至少要有一個管理員";return;}
+    }
+    this.disabled=true;this.textContent="儲存中…";
+    const ok=await fbSetUserField(target,{pass:np,role:roleSel.value});
+    if(!ok){msg.textContent="⚠ 儲存失敗";this.disabled=false;this.textContent="💾 儲存";return;}
+    if(target===S.user){
+      try{localStorage.setItem("inv_pass",np);}catch(e){}
+      // Self role change must propagate locally too — admin demoting themselves shouldn't keep admin UI
+      S.role=roleSel.value;
+    }
+    logActivity("改別人密碼","目標 "+target);
+    back();
+  };
+  box.appendChild(saveBtn);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:back}),box);
+}
+
 function renderDelConfirmModal(){
   if(!S.modal||S.modal.t!=="del-confirm")return null;
   const it=S.items.find(x=>x.id===S.modal.id);
@@ -901,11 +1167,12 @@ function renderMain(){
   const root=h("div",{style:{minHeight:"100vh"}});
   // Header
   root.appendChild(h("header",{style:{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)",background:"#fff",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}},
-    h("div",{style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"},title:"回到頂部",onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:isPreview()?"#94a3b8":"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600}},isPreview()?"👁 預覽模式":S.user),!S.online?h("span",{style:{fontSize:"10px",color:"#fff",background:"var(--red)",padding:"2px 8px",borderRadius:"10px",fontWeight:600,animation:"toastIn .3s ease"},title:"連線中斷，修改會排隊等回線"},"⚠ 離線"):null),
+    h("div",{style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"},title:"回到頂部",onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:isPreview()?"#94a3b8":isAdmin()?"#16a34a":"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600},title:isPreview()?"預覽模式":isAdmin()?"管理員":"一般使用者"},isPreview()?"👁 預覽模式":S.user+(isAdmin()?" ⭐":"")),!S.online?h("span",{style:{fontSize:"10px",color:"#fff",background:"var(--red)",padding:"2px 8px",borderRadius:"10px",fontWeight:600,animation:"toastIn .3s ease"},title:"連線中斷，修改會排隊等回線"},"⚠ 離線"):null),
     h("div",{style:{display:"flex",gap:"6px"}},
       h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
       (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{id:"syncLabel",style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
-      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";render();}},"登出"))
+      h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account"};render();},title:"帳號設定"},"🔐"),
+      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{if(!isPreview())logActivity("登出");S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";try{localStorage.removeItem("inv_pass");}catch(e){}render();}},"登出"))
   ));
   // Stats
   const statsDiv=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",padding:"12px 16px"}});
@@ -1330,6 +1597,8 @@ function renderMain(){
   const dm=renderDetailModal();if(dm)root.appendChild(dm);
   const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
   const lbm=renderLightboxModal();if(lbm)root.appendChild(lbm);
+  const acm=renderAccountModal();if(acm)root.appendChild(acm);
+  const aem=renderAccountEditModal();if(aem)root.appendChild(aem);
   // Missing data modal
   if(S.modal&&S.modal.t==="missing"){
     const filter=S.modal.filter||"all";
