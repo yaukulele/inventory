@@ -1683,6 +1683,23 @@ function renderMain(){
         h("div",{style:{padding:"8px 10px",background:"#f8fafc",borderRadius:"8px",textAlign:"center"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"無紀錄"),h("div",{style:{fontSize:"18px",fontWeight:800,color:"var(--sub)"}},String(noLog)))
       ));
       if(mismatches.length){
+        // Batch fix — convenient when there are many mismatches and the user trusts the logs more than the current q values.
+        // Requires explicit confirm with count to avoid accidental mass-mutation.
+        if(!isPreview()){
+          const allFixBtn=h("button",{style:{width:"100%",padding:"9px",borderRadius:"8px",border:"1px solid #f59e0b",background:"#fffbeb",color:"#b45309",fontSize:"12px",fontWeight:700,cursor:"pointer",marginBottom:"8px"}},"📋 全部修正 "+mismatches.length+" 筆 → 日誌值");
+          allFixBtn.onclick=async function(){
+            if(this.disabled)return;
+            if(!confirm("把全部 "+mismatches.length+" 筆不符品項一次盤點到日誌值？這會寫 "+mismatches.length+" 筆 📋盤點 紀錄。\n\n建議先查看單筆是否合理再批次修。"))return;
+            this.disabled=true;this.style.opacity="0.5";this.textContent="修正中…";
+            let ok=0,fail=0;
+            for(const m of mismatches){
+              const r=await doAction("audit",m.it,m.expected,"對帳批次修正");
+              if(r&&r.ok)ok++;else fail++;
+            }
+            showToast("✅ 完成 "+ok+" 筆"+(fail?"，失敗 "+fail+" 筆":""));
+          };
+          reconCard.appendChild(allFixBtn);
+        }
         const list=h("div",{style:{maxHeight:"200px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"8px"}});
         mismatches.slice(0,20).forEach(m=>{
           const rowEl=h("div",{style:{padding:"8px 10px",fontSize:"12px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"6px"}});
