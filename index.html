@@ -1662,7 +1662,29 @@ function unlockBody(){if(document.body.dataset.locked!=="1")return;document.body
 // Coalesce multiple sync render() calls into one — saves redundant rebuilds when listeners fire together
 let _renderQueued=false;
 function render(){if(_renderQueued)return;_renderQueued=true;queueMicrotask(()=>{_renderQueued=false;try{_render();}catch(e){console.error("render failed:",e);showToast("⚠ 畫面更新失敗，請重新整理頁面");}});}
-function _render(){const a=document.getElementById("app");const wasLocked=document.body.dataset.locked==="1";const sy=wasLocked?_bodyLockY:(window.scrollY||document.documentElement.scrollTop||0);const skipRestore=S._skipScrollRestore;S._skipScrollRestore=false;a.innerHTML="";if(S.phase==="login")a.appendChild(renderLogin());else if(S.phase==="loading"||!S.items)a.appendChild(renderLoading());else a.appendChild(renderMain());if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}}
+function _render(){
+  const a=document.getElementById("app");
+  const wasLocked=document.body.dataset.locked==="1";
+  const sy=wasLocked?_bodyLockY:(window.scrollY||document.documentElement.scrollTop||0);
+  const skipRestore=S._skipScrollRestore;S._skipScrollRestore=false;
+  // 在 wipe DOM 之前抓住 focus 狀態：input id + cursor + selection。新 DOM 建好後重新 focus 同 id 的元素並還原 cursor。
+  // 之前 search 框的 focus restore 是在 render() 後同步執行，但 render 用 queueMicrotask 是 async — focus 跑到「即將被 wipe 的舊元素」，然後馬上消失。typing 卡住的元兇。
+  const af=document.activeElement;
+  const focusInfo=(af&&af.id&&(af.tagName==="INPUT"||af.tagName==="TEXTAREA")&&a.contains(af))?{id:af.id,start:af.selectionStart,end:af.selectionEnd}:null;
+  a.innerHTML="";
+  if(S.phase==="login")a.appendChild(renderLogin());
+  else if(S.phase==="loading"||!S.items)a.appendChild(renderLoading());
+  else a.appendChild(renderMain());
+  if(focusInfo){
+    const el=document.getElementById(focusInfo.id);
+    if(el){
+      el.focus();
+      try{el.setSelectionRange(focusInfo.start,focusInfo.end);}catch(e){/* number input 等不支援 setSelectionRange */}
+    }
+  }
+  if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}
+  else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}
+}
 // Global keyboard shortcuts. Esc closes modal; '/' focuses search; 'n' opens add modal; 1-4 switches tab.
 // All shortcuts are skipped while user is typing in an input/textarea so nothing fires from a passing keystroke.
 document.addEventListener("keydown",e=>{
