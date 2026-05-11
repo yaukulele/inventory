@@ -1465,7 +1465,7 @@ function renderMain(){
     // Search bar (row 1)
     const hasFilter=S.logSearch||S.logDateFrom||S.logDateTo||S.logBrand||S.logAction;
     const logSw=h("div",{style:{position:"relative",marginBottom:"8px"}});
-    const logSearchInp=h("input",{className:"ipt",placeholder:"搜尋商品名稱、備註...",style:{paddingLeft:"32px",paddingRight:hasFilter?"36px":"12px",fontSize:"13px"},id:"logSearch"});
+    const logSearchInp=h("input",{className:"ipt",placeholder:"搜尋商品 / 備註 / 使用者 / 品牌...",style:{paddingLeft:"32px",paddingRight:hasFilter?"36px":"12px",fontSize:"13px"},id:"logSearch"});
     logSearchInp.value=S.logSearch||"";
     logSw.appendChild(h("span",{style:{position:"absolute",left:"10px",top:"10px",fontSize:"14px"}},"🔍"));
     if(hasFilter){logSw.appendChild(h("button",{style:{position:"absolute",right:"6px",top:"6px",width:"28px",height:"28px",borderRadius:"50%",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"14px",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";render();}},"✕"));}
