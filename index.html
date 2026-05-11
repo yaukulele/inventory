@@ -1533,7 +1533,7 @@ function renderMain(){
     const setRange=(from,to)=>{S.logDateFrom=from;S.logDateTo=to;render();};
     const now2=new Date();const tdd=ymd(now2);const yst=new Date(now2);yst.setDate(yst.getDate()-1);const ystd=ymd(yst);
     const wk0=new Date(now2);wk0.setDate(wk0.getDate()-wk0.getDay());const wkd=ymd(wk0);
-    [["今日",()=>setRange(tdd,tdd)],["昨日",()=>setRange(ystd,ystd)],["本週",()=>setRange(wkd,tdd)],["本月",()=>setRange(ymd(new Date(now2.getFullYear(),now2.getMonth(),1)),tdd)]].forEach(([l,fn])=>{qDate.appendChild(h("button",{style:{padding:"5px 12px",borderRadius:"14px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",fontWeight:600,cursor:"pointer"},onClick:fn},l));});
+    [["今日",()=>setRange(tdd,tdd)],["昨日",()=>setRange(ystd,ystd)],["本週",()=>setRange(wkd,tdd)],["本月",()=>setRange(ymd(new Date(now2.getFullYear(),now2.getMonth(),1)),tdd)],["上月",()=>{const ms=new Date(now2.getFullYear(),now2.getMonth()-1,1);const me=new Date(now2.getFullYear(),now2.getMonth(),0);setRange(ymd(ms),ymd(me));}]].forEach(([l,fn])=>{qDate.appendChild(h("button",{style:{padding:"5px 12px",borderRadius:"14px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",fontWeight:600,cursor:"pointer"},onClick:fn},l));});
     content.appendChild(qDate);
 
     // Action filter pills
