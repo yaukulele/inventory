@@ -190,10 +190,10 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
     }
   }
   else{await new Promise(resolve=>{dbI.transaction(cur=>{const arr=arrFromVal(cur);if(arr&&arr.length>0)return arr;return mkInit();},(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=a.filter(x=>x);else S.items=mkInit();resolve();},false);});}
-  // Logs: clear old test logs once (version check). filter(x=>x) drops sparse-array nulls
-  if(ver===RESET_VER){S.logs=Array.isArray(l)?l.filter(x=>x):[];}
+  // Logs: clear old test logs once (version check). filter(x=>x) drops sparse-array nulls.
+  // catOrd must be set inside the branch — the previous unconditional reassign clobbered RESET_VER right after the reset path wrote it.
+  if(ver===RESET_VER){S.logs=Array.isArray(l)?l.filter(x=>x):[];S.catOrd=(o&&typeof o==="object")?o:{};}
   else{S.logs=[];dbL.set([]);const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);console.log("Logs cleared:",RESET_VER);}
-  S.catOrd=(o&&typeof o==="object")?o:{};
   // One-time migration: Yamaha 鼓配件/鼓音箱 → "配件專區（含音箱）" brand
   if(!S.catOrd.__brandMigYamahaAcc){
     await new Promise(resolve=>{dbI.transaction(cur=>{
@@ -379,8 +379,8 @@ function normalizeImgUrl(url){
   // Google Drive: file/d/{id}/view, open?id={id}, /uc?export=view&id={id} → lh3 direct
   const gdMatch=url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:[^&]*&)*id=)([A-Za-z0-9_-]{20,})/);
   if(gdMatch)return "https://lh3.googleusercontent.com/d/"+gdMatch[1]+"=w800";
-  // imgur share page → i.imgur direct
-  const imgurMatch=url.match(/^https?:\/\/(?:www\.)?imgur\.com\/([A-Za-z0-9]{5,7})(?:[?#].*)?$/);
+  // imgur share page → i.imgur direct (legacy 5/7 char IDs and newer 8+ char IDs)
+  const imgurMatch=url.match(/^https?:\/\/(?:www\.)?imgur\.com\/(?:gallery\/|a\/)?([A-Za-z0-9]{5,10})(?:[?#].*)?$/);
   if(imgurMatch)return "https://i.imgur.com/"+imgurMatch[1]+".jpg";
   return url;
 }
@@ -1237,9 +1237,10 @@ function renderMain(){
         resolve();
       },false);
     });
-    // Items
+    // Items. Preview mode is read-only — disable drag/reorder so it can't mutate Firebase via moveItems / fbSetOrdKey.
+    const pvMode=isPreview();
     grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.search?true:S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
-      const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:true});
+      const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:!pvMode});
       bCard.addEventListener("dragstart",e=>{clearDrag();dragBrand=bi;_isDragging=true;e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
       bCard.addEventListener("dragend",()=>{clearDrag();_isDragging=false;bCard.style.opacity="1";});
       bCard.addEventListener("dragover",e=>{e.preventDefault();
@@ -1270,7 +1271,7 @@ function renderMain(){
         h("span",{style:{marginLeft:"auto",fontSize:"12px",color:"var(--sub)",fontWeight:500}},bC+"項 / "+bT)));
       if(bo){
         cats.forEach(({c,its},ci)=>{const ck=bk+"|"+c;const co=S.search?true:S.cOpen[ck];const cT=its.reduce((s,x)=>s+x.q,0);
-        const catEl=h("div",{className:"cat-hdr",draggable:true});
+        const catEl=h("div",{className:"cat-hdr",draggable:!pvMode});
         catEl.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragCatBi=bi;dragCatName=c;_isDragging=true;e.dataTransfer.effectAllowed="move";catEl.style.opacity="0.5";});
         catEl.addEventListener("dragend",()=>{clearDrag();_isDragging=false;catEl.style.opacity="1";});
         catEl.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();
@@ -1302,7 +1303,7 @@ function renderMain(){
         bCard.appendChild(catEl);
         if(co)its.forEach((it,ii)=>{
           const row=renderRow(it);
-          row.draggable=true;
+          row.draggable=!pvMode;
           row.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragItemId=it.id;dragItemSrcBrand=b;dragItemSrcCat=c;_isDragging=true;e.dataTransfer.effectAllowed="move";row.style.opacity="0.5";});
           row.addEventListener("dragend",()=>{clearDrag();_isDragging=false;row.style.opacity="1";});
           row.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();
@@ -1359,7 +1360,7 @@ function renderMain(){
 
     // Action filter pills
     const actRow=h("div",{style:{display:"flex",gap:"6px",marginBottom:"8px",flexWrap:"wrap"}});
-    [["","全部"],["in","📥 進貨"],["out","📤 出貨"],["audit","📋 盤點"]].forEach(([k,l])=>{
+    [["","全部"],["in","📥 進貨"],["out","📤 出貨"],["audit","📋 盤點"],["add","➕ 新增"],["edit","✏️ 編輯"],["del","🗑 刪除"]].forEach(([k,l])=>{
       const active=S.logAction===k;
       actRow.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"14px",border:active?"1.5px solid var(--blue)":"1px solid var(--border)",background:active?"var(--blue-light)":"#fff",color:active?"var(--blue)":"var(--sub)",fontSize:"12px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.logAction=k;render();}},l));
     });
@@ -1379,11 +1380,11 @@ function renderMain(){
 
     // Filter logs (combine with older logs if user explicitly loaded them)
     let filteredLogs=(()=>{if(!S.olderLogs.length)return S.logs;const cIds=new Set(S.logs.map(l=>l.id));return [...S.logs,...S.olderLogs.filter(l=>!cIds.has(l.id))];})();
-    if(S.logSearch){const ls=S.logSearch.toLowerCase();filteredLogs=filteredLogs.filter(l=>(l.n||"").toLowerCase().includes(ls)||(l.d||"").toLowerCase().includes(ls)||(l.u||"").toLowerCase().includes(ls));}
+    if(S.logSearch){const ls=S.logSearch.toLowerCase();filteredLogs=filteredLogs.filter(l=>(l.n||"").toLowerCase().includes(ls)||(l.d||"").toLowerCase().includes(ls)||(l.u||"").toLowerCase().includes(ls)||(logBrand(l)||"").toLowerCase().includes(ls));}
     if(S.logDateFrom){const df=S.logDateFrom.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)>=df);}
     if(S.logDateTo){const dt=S.logDateTo.replace(/-/g,"/");filteredLogs=filteredLogs.filter(l=>dateOnly(l.t)<=dt);}
     if(S.logBrand){filteredLogs=filteredLogs.filter(l=>logBrand(l)===S.logBrand);}
-    if(S.logAction){filteredLogs=filteredLogs.filter(l=>{const a=l.a||"";if(S.logAction==="in")return a.includes("進")||a.includes("➕");if(S.logAction==="out")return a.includes("出");if(S.logAction==="audit")return a.includes("盤");return true;});}
+    if(S.logAction){filteredLogs=filteredLogs.filter(l=>{const a=l.a||"";if(S.logAction==="in")return a.includes("進");if(S.logAction==="out")return a.includes("出");if(S.logAction==="audit")return a.includes("盤");if(S.logAction==="add")return a.includes("➕");if(S.logAction==="edit")return a.includes("✏️");if(S.logAction==="del")return a.includes("🗑");return true;});}
 
     // Today's shipments (only show when no filters)
     if(!hasFilter){
