@@ -518,7 +518,19 @@ function showToast(m,undo){
   document.body.appendChild(el);_toastEl=el;
   _toastTimer=setTimeout(()=>{if(_toastEl===el){el.remove();_toastEl=null;}_toastTimer=null;},undo&&undo.fn?8000:2000);
 }
-async function doSync(){showToast("同步中…");const before=S.lastSyncAt;S.olderLogs=[];await fbLoad();if(S.lastSyncAt===before)showToast("⚠ 同步失敗，檢查連線");else showToast("已同步");render();}
+// Re-entry guard prevents rapid clicks from queuing multiple 8-second fbLoad windows in parallel — wastes bandwidth and can race the listener.
+let _syncing=false;
+async function doSync(){
+  if(_syncing)return;
+  _syncing=true;
+  showToast("同步中…");
+  const before=S.lastSyncAt;
+  S.olderLogs=[];
+  try{await fbLoad();}finally{_syncing=false;}
+  if(S.lastSyncAt===before)showToast("⚠ 同步失敗，檢查連線");
+  else showToast("已同步");
+  render();
+}
 // Fetch logs older than the cached 200 (up to full 500). Stored separately so the listener's 200-window doesn't overwrite them.
 async function loadOlderLogs(){
   if(S.loadingOlder||S.olderLogs.length)return;
