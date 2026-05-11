@@ -618,11 +618,17 @@ function renderLogin(){
   // Error message slot
   const errorEl=h("div",{style:{color:"var(--red)",fontSize:"13px",marginBottom:"12px",minHeight:"18px",fontWeight:500}});
   box.appendChild(errorEl);
-  // Toggle password field visibility when user picks 快速預覽
+  // Toggle password field visibility when user picks 快速預覽.
+  // Also clear the prefilled password when switching to a different user — shared devices would otherwise leak the previous user's saved password into the new user's password field.
+  // We only keep the prefill when the dropdown selection matches the saved user (i.e. they're the same person returning).
+  const _initialUser=S.user;
   userSel.addEventListener("change",e=>{
     S.user=e.target.value;
     passWrap.style.display=e.target.value==="快速預覽"?"none":"block";
     errorEl.textContent="";
+    // Clear password input on user change (only retain prefill if returning to initially-selected user)
+    if(e.target.value!==_initialUser)passInp.value="";
+    else passInp.value=getSavedPass();
     if(e.target.value!=="快速預覽")setTimeout(()=>passInp.focus(),50);
   });
   const loginBtn=h("button",{id:"loginBtn",style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"}},"進入系統");
