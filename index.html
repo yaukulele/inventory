@@ -148,7 +148,9 @@ const isPreview=()=>S.user==="快速預覽";
 const isAdmin=()=>S.role==="admin";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const ts=()=>{const d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");};
-const dateStr=()=>{const d=new Date();return(d.getMonth()+1)+"/"+d.getDate();};
+// Must be zero-padded to match dateOnly() output ("yyyy/MM/dd").
+// Detail-page fmtLogT did `dLabel===tdToday` to decide whether to show time-of-day; the old unpadded "5/12" never matched "05/12" so today's logs always displayed as a date instead.
+const dateStr=()=>{const d=new Date();return String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0");};
 const dateOnly=t=>(t||"").split(" ")[0]||"";
 
 const _savedUser=(()=>{try{const u=localStorage.getItem("inv_user");return u&&US.includes(u)?u:US[0];}catch(e){return US[0];}})();
@@ -240,7 +242,7 @@ function fbDelItemTx(id){return new Promise((resolve,reject)=>{dbI.transaction(c
 // Track logs that we've added locally but not yet committed to remote — so the dbL listener doesn't briefly drop them when it fires before our write lands.
 // pushLogLocal adds the marker BEFORE the local S.logs push so even a listener firing during an `await` between push and appendLog can't wipe our entry.
 const _pendingLogs=new Set();
-function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=arrFromVal(cur)||[];return[entry,...arr].slice(0,500);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:snap&&snap.val()});},false);});}
+function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=arrFromVal(cur)||[];return[entry,...arr].slice(0,500);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:arrFromVal(snap&&snap.val())});},false);});}
 function pushLogLocal(entry){_pendingLogs.add(entry.id);S.logs=[entry,...S.logs].slice(0,500);saveCache();}
 function dropLogLocal(id){_pendingLogs.delete(id);S.logs=S.logs.filter(l=>l.id!==id);}
 function appendLog(entry){return fbAppendLogTx(entry).catch(e=>{console.error("appendLog failed:",e);showToast("⚠ 紀錄寫入失敗，動作已生效但 log 沒同步");}).finally(()=>{_pendingLogs.delete(entry.id);});}
@@ -1451,7 +1453,11 @@ function renderMain(){
       const inC=dayLogs.filter(l=>(l.a||"").includes("進")).length;
       const outC=dayLogs.filter(l=>(l.a||"").includes("出")).length;
       const auC=dayLogs.filter(l=>(l.a||"").includes("盤")).length;
-      logCard.appendChild(h("div",{className:"day-header"},h("span",{},date),h("span",{style:{fontWeight:500,fontSize:"11px"}},"進"+inC+" 出"+outC+(auC?" 盤"+auC:"")+" 共"+dayLogs.length+"筆")));
+      const adC=dayLogs.filter(l=>(l.a||"").includes("➕")).length;
+      const edC=dayLogs.filter(l=>(l.a||"").includes("✏️")).length;
+      const dlC=dayLogs.filter(l=>(l.a||"").includes("🗑")).length;
+      const extra=(adC?" 新"+adC:"")+(edC?" 編"+edC:"")+(dlC?" 刪"+dlC:"");
+      logCard.appendChild(h("div",{className:"day-header"},h("span",{},date),h("span",{style:{fontWeight:500,fontSize:"11px"}},"進"+inC+" 出"+outC+(auC?" 盤"+auC:"")+extra+" 共"+dayLogs.length+"筆")));
       dayLogs.forEach((l,i)=>{const matched=matchedItem(l);const lbBrand=logBrand(l);const brandCol=lbBrand?gc(lbBrand):"#cbd5e1";const nameEl=matched?h("b",{style:{color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},l.n):h("b",{style:{color:"var(--sub)"},title:"品項已刪除"},l.n);logCard.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"8px 14px 8px 10px",fontSize:"12px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9",borderLeft:"3px solid "+brandCol}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},nameEl,l.d?h("span",{style:{color:"var(--sub)",marginLeft:"4px",fontSize:"11px"}},l.d):null),h("span",{style:{fontSize:"11px",color:(l.nq||0)>(l.pq||0)?"var(--green)":(l.nq||0)<(l.pq||0)?"var(--red)":"var(--sub)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)"}},l.u)));});
     });
     if(!filteredLogs.length)logCard.appendChild(h("div",{style:{padding:"30px",textAlign:"center",color:"var(--sub)"}},hasFilter?"沒有符合的紀錄":"尚無紀錄"));
