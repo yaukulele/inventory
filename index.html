@@ -477,7 +477,9 @@ function showToast(m,undo){
     const btn=document.createElement("button");
     btn.textContent=undo.label||"↶ 撤銷";
     btn.style.cssText="margin-left:6px;background:rgba(255,255,255,.25);border:none;color:#fff;padding:3px 12px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px;font-family:inherit;";
-    btn.onclick=ev=>{ev.stopPropagation();if(_toastEl===el){el.remove();_toastEl=null;}if(_toastTimer){clearTimeout(_toastTimer);_toastTimer=null;}try{undo.fn();}catch(e){console.error(e);}};
+    // Re-entry guard: fast double-tap on mobile (or touch + click both firing) could call undo.fn twice before the toast is removed
+    let _undoClicked=false;
+    btn.onclick=ev=>{ev.stopPropagation();if(_undoClicked)return;_undoClicked=true;if(_toastEl===el){el.remove();_toastEl=null;}if(_toastTimer){clearTimeout(_toastTimer);_toastTimer=null;}try{undo.fn();}catch(e){console.error(e);}};
     el.appendChild(btn);
   }else{el.textContent=m;}
   document.body.appendChild(el);_toastEl=el;
@@ -1578,10 +1580,22 @@ function renderMain(){
       if(mismatches.length){
         const list=h("div",{style:{maxHeight:"200px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"8px"}});
         mismatches.slice(0,20).forEach(m=>{
-          list.appendChild(h("div",{style:{padding:"8px 10px",fontSize:"12px",borderBottom:"1px solid #f1f5f9",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"},onClick:()=>{S.modal={t:"detail",id:m.it.id};render();}},
-            h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},m.it.b+" / "+m.it.n),
-            h("span",{style:{fontSize:"11px",color:"var(--red)",fontWeight:700,marginLeft:"8px"}},"日誌 "+m.expected+" ≠ 庫存 "+m.actual)
-          ));
+          const rowEl=h("div",{style:{padding:"8px 10px",fontSize:"12px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"6px"}});
+          rowEl.appendChild(h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",color:"var(--blue)"},onClick:()=>{S.modal={t:"detail",id:m.it.id};render();}},m.it.b+" / "+m.it.n));
+          rowEl.appendChild(h("span",{style:{fontSize:"11px",color:"var(--red)",fontWeight:700,flexShrink:0}},"日誌 "+m.expected+" ≠ 庫存 "+m.actual));
+          // One-click fix: audit-to-log-value. Only for non-preview users — preview can't write to Firebase.
+          if(!isPreview()){
+            const fixBtn=h("button",{style:{padding:"3px 8px",borderRadius:"6px",border:"1px solid var(--blue)",background:"#fff",color:"var(--blue)",fontSize:"10px",fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"},title:"盤點到日誌值 "+m.expected},"📋→"+m.expected);
+            fixBtn.onclick=async function(ev){
+              ev.stopPropagation();
+              if(this.disabled)return;
+              if(!confirm("把「"+m.it.n+"」盤點為 "+m.expected+"（目前 "+m.actual+"）？這會寫一筆 📋盤點 紀錄。"))return;
+              this.disabled=true;this.style.opacity="0.5";this.textContent="…";
+              await doAction("audit",m.it,m.expected,"對帳修正");
+            };
+            rowEl.appendChild(fixBtn);
+          }
+          list.appendChild(rowEl);
         });
         reconCard.appendChild(list);
         if(mismatches.length>20)reconCard.appendChild(h("div",{style:{fontSize:"10px",color:"var(--sub)",textAlign:"center",marginTop:"4px"}},"還有 "+(mismatches.length-20)+" 筆未顯示"));
