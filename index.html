@@ -168,21 +168,22 @@ function hydrateFromCache(){try{const raw=localStorage.getItem("inv_cache");if(!
 function saveCache(){try{const payload={items:S.items||[],logs:(S.logs||[]).slice(0,200),catOrd:S.catOrd||{},t:S.lastSyncAt||Date.now()};localStorage.setItem("inv_cache",JSON.stringify(payload));}catch(e){}}
 // Firebase arrays may come back as either real arrays or objects with numeric keys (when sparse from many deletions). Normalize to array.
 function arrFromVal(v){return Array.isArray(v)?v:(v&&typeof v==="object"?Object.keys(v).sort((a,b)=>+a-+b).map(k=>v[k]):null);}
+// Merge a fresh server items array with any in-flight optimistic state. Used by fbLoad, moveItems, doUpdateMeta — any path that wholesale-replaces S.items from a Firebase response.
+// Without this, a doAction still awaiting fbTxItem will briefly see its locally-bumped q flicker back to the server value, then jump to the post-tx value once the round-trip completes.
+function mergeWithPending(remote){
+  if(!remote)return remote;
+  let merged=remote;
+  if(_pendingItems.size&&S.items){
+    merged=merged.map(r=>{if(_pendingItems.has(r.id)){const local=S.items.find(x=>x.id===r.id);if(local)return local;}return r;});
+    const remoteIds=new Set(merged.map(x=>x&&x.id));
+    S.items.forEach(x=>{if(x&&_pendingItems.has(x.id)&&!remoteIds.has(x.id))merged.push(x);});
+  }
+  if(_pendingDeletes.size)merged=merged.filter(x=>x&&!_pendingDeletes.has(x.id));
+  return merged;
+}
 async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);const i=arrFromVal(a.val());const l=arrFromVal(b.val());const o=c.val();
   const ver=(o&&o.__ver)||"";
-  // Preserve any in-flight optimistic state — doSync triggered mid-doAction would otherwise drop locally pushed logs / pending items / pending deletes before their tx round-trips.
-  // The realtime listener already handles this for remote-triggered updates; fbLoad is the once() path that's been missing it.
-  const mergePending=(remote)=>{
-    if(!remote)return remote;
-    let merged=remote;
-    if(_pendingItems.size&&S.items){
-      merged=merged.map(r=>{if(_pendingItems.has(r.id)){const local=S.items.find(x=>x.id===r.id);if(local)return local;}return r;});
-      const remoteIds=new Set(merged.map(x=>x&&x.id));
-      S.items.forEach(x=>{if(x&&_pendingItems.has(x.id)&&!remoteIds.has(x.id))merged.push(x);});
-    }
-    if(_pendingDeletes.size)merged=merged.filter(x=>x&&!_pendingDeletes.has(x.id));
-    return merged;
-  };
+  const mergePending=mergeWithPending;
   if(i&&i.length>0){
     // Firebase arrays can be sparse (null gaps when keys are deleted) — strip them out before set/map operations
     S.items=mergePending(i.filter(x=>x));
@@ -198,7 +199,7 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
         const stillMissing=allNew.filter(x=>!exist.has(x.b+"|"+x.n));
         if(!stillMissing.length)return cur;
         return[...arr,...stillMissing];
-      },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=a.filter(x=>x);resolve();},false);});
+      },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=mergePending(a.filter(x=>x));resolve();},false);});
       console.log("Auto-injected via tx: "+allNew.length+" item(s) checked");
     }
   }
@@ -224,7 +225,7 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
       let changed=false;
       const next=arr.map(x=>{if(x&&x.b==="Yamaha"&&(x.c==="鼓配件"||x.c==="鼓音箱")){changed=true;return{...x,b:"配件專區（含音箱）"};}return x;});
       return changed?next:arr;
-    },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=a.filter(x=>x);resolve();},false);});
+    },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=mergePending(a.filter(x=>x));resolve();},false);});
     await fbSetOrdKey("__brandMigYamahaAcc",true);
     console.log("Brand migration: Yamaha 鼓配件/鼓音箱 → 配件專區（含音箱）");
   }
@@ -447,7 +448,7 @@ async function doUpdateMeta(id,patch){
   if(noChange)return true;
   if(tx.missing){showToast("⚠ 此品項已被刪除");return false;}
   if(!tx.committed){showToast("更新失敗");return false;}
-  if(Array.isArray(tx.arr))S.items=tx.arr.filter(x=>x);
+  if(Array.isArray(tx.arr))S.items=mergeWithPending(tx.arr.filter(x=>x));
   // Log meaningful field changes (rename/brand/cat/zone) — img/dsc tweaks not worth a log entry
   if(beforeFields){
     const item=S.items.find(x=>x.id===id);
@@ -1253,7 +1254,8 @@ function renderMain(){
         return changed?next:arr;
       },(err,committed,snap)=>{
         if(err){console.error("moveItems tx failed:",err);showToast("⚠ 搬移失敗，請重試");resolve();return;}
-        const a=arrFromVal(snap&&snap.val());if(a){S.items=a.filter(x=>x);saveCache();render();}
+        const a=arrFromVal(snap&&snap.val());
+        if(a){S.items=mergeWithPending(a.filter(x=>x));saveCache();render();}
         if(committed&&lastAffected.length&&description){
           const totalQ=lastAffected.reduce((s,x)=>s+(x.q||0),0);
           const sample=lastAffected.slice(0,3).map(x=>x.n).join("、");
