@@ -1576,9 +1576,9 @@ function renderMain(){
       else countRow.appendChild(h("div",{style:{flex:1}}));
       const csvBtn=h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"#7c3aed",fontSize:"11px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"},title:hasFilter?"匯出當前篩選結果為 CSV":"匯出全部紀錄為 CSV"},hasFilter?"📥 匯出 CSV":"📥 全部 CSV");
       csvBtn.onclick=()=>{
-        // Use the same matchedItem/logBrand lookups so deleted items still get a sensible brand.
-        const rows=[["時間","動作","品牌","商品","備註","變化前","變化後","使用者"]];
-        filteredLogs.forEach(l=>rows.push([l.t||"",l.a||"",logBrand(l)||"",l.n||"",l.d||"",l.pq||0,l.nq||0,l.u||""]));
+        // Use the same matchedItem/logBrand lookups so deleted items still get a sensible brand/zone.
+        const rows=[["時間","動作","品牌","商品","區域","備註","變化前","變化後","使用者"]];
+        filteredLogs.forEach(l=>{const mi=matchedItem(l);rows.push([l.t||"",l.a||"",logBrand(l)||"",l.n||"",mi?(mi.z||"店內"):"",l.d||"",l.pq||0,l.nq||0,l.u||""]);});
         const esc=v=>{const s=String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
         const csv="﻿"+rows.map(r=>r.map(esc).join(",")).join("\r\n");
         const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
