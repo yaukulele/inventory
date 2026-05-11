@@ -831,6 +831,11 @@ function renderDetailModal(){
       if(totalCount>5){
         histBox.appendChild(h("button",{style:{width:"100%",padding:"8px",border:"none",background:"#f8fafc",color:"var(--blue)",fontSize:"11px",fontWeight:600,cursor:"pointer",borderTop:"1px solid var(--border)"},onClick:()=>{S.modal={...S.modal,showAllHist:!showAllHist};render();}},showAllHist?"▲ 收合":"▼ 顯示更多（最多 50 筆）"));
       }
+      // Inline "load older" button — saves the user from having to leave the detail modal to fetch logs beyond the 200-entry listener window.
+      // Only show when there's clearly more history available (full window of recent logs and not yet loaded).
+      if(!S.olderLogs.length&&S.logs.length>=200){
+        histBox.appendChild(h("button",{disabled:S.loadingOlder,style:{width:"100%",padding:"8px",border:"none",background:"#f8fafc",color:S.loadingOlder?"var(--sub)":"#7c3aed",fontSize:"11px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer",borderTop:"1px solid var(--border)",opacity:S.loadingOlder?.6:1},onClick:loadOlderLogs},S.loadingOlder?"⏳ 載入中…":"📜 載入更舊紀錄"));
+      }
       box.appendChild(histBox);
     }
     if(!pv){
