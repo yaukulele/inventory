@@ -574,7 +574,9 @@ async function loadOlderLogs(){
   if(S.loadingOlder||S.olderLogs.length)return;
   S.loadingOlder=true;render();
   try{
-    const snap=await dbL.once("value");
+    // Timeout guard — same reasoning as fbLoadUsers / fbLoad: dbL.once hangs on flaky connection, leaves S.loadingOlder=true forever and button stays disabled.
+    const tm=ms=>new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms));
+    const snap=await Promise.race([dbL.once("value"),tm(10000)]);
     const all=(arrFromVal(snap.val())||[]).filter(x=>x);
     const currentIds=new Set(S.logs.map(l=>l.id));
     S.olderLogs=all.filter(l=>l&&!currentIds.has(l.id));
@@ -1054,7 +1056,7 @@ function renderAccountModal(){
       box.appendChild(logHdr);
       if(!S.activityLog.length){
         const loadLogBtn=h("button",{style:{width:"100%",padding:"8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"12px",cursor:"pointer"}},"📋 載入操作紀錄");
-        loadLogBtn.onclick=async function(){this.disabled=true;this.textContent="載入中…";try{const snap=await dbA.once("value");const arr=arrFromVal(snap.val())||[];S.activityLog=arr.filter(x=>x);render();}catch(e){console.error(e);this.disabled=false;this.textContent="📋 載入操作紀錄";}};
+        loadLogBtn.onclick=async function(){this.disabled=true;this.textContent="載入中…";try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms));const snap=await Promise.race([dbA.once("value"),tm(8000)]);const arr=arrFromVal(snap.val())||[];S.activityLog=arr.filter(x=>x);render();}catch(e){console.error(e);this.disabled=false;this.textContent="📋 載入操作紀錄";showToast("⚠ 載入失敗，請重試");}};
         box.appendChild(loadLogBtn);
       }else{
         const logBox=h("div",{style:{maxHeight:"180px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"8px"}});
@@ -1463,6 +1465,8 @@ function renderMain(){
     content.appendChild(actRow);
     // Brand filter dropdown (compact)
     const brandOpts=[...new Set(S.items.map(x=>x.b))].sort();
+    // If the previously-selected brand has been deleted/renamed, the <select> falls back to showing "所有品牌" but S.logBrand keeps the orphan value — filter then returns nothing and user can't tell why. Reset stale selection.
+    if(S.logBrand&&!brandOpts.includes(S.logBrand))S.logBrand="";
     const brandSel=h("select",{className:"ipt",style:{marginBottom:"10px",fontSize:"13px",padding:"7px 10px"},onChange:e=>{S.logBrand=e.target.value;render();}});
     brandSel.appendChild(h("option",{value:""},"所有品牌"));
     brandOpts.forEach(b=>{const o=h("option",{value:b},b);if(S.logBrand===b)o.selected=true;brandSel.appendChild(o);});
