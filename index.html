@@ -1409,7 +1409,7 @@ function renderMain(){
           row.addEventListener("drop",e=>{e.preventDefault();e.stopPropagation();row.style.borderTop="";
             if(dragItemId===null||dragItemSrcBrand!==b||dragItemSrcCat!==c||dragItemId===it.id)return;
             // Same-cat reorder
-            const ids=its.map(x=>x.id);const fromIdx=ids.indexOf(dragItemId);if(fromIdx<0)return;
+            const ids=its.map(x=>x.id);const fromIdx=ids.indexOf(dragItemId);if(fromIdx<0||fromIdx===ii)return;
             const mv=ids.splice(fromIdx,1)[0];ids.splice(ii,0,mv);
             S.catOrd[zone+"|"+b+"|"+c]=ids;fbSetOrdKey(zone+"|"+b+"|"+c,ids);render();
           });
