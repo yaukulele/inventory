@@ -252,7 +252,9 @@ function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(c
 // User accounts. Plaintext passwords (admin needs to see them per user requirement). Seeded on first load if /inventory/users is empty.
 async function fbLoadUsers(){
   try{
-    const snap=await dbU.once("value");
+    // Without a timeout, dbU.once hangs forever on a flaky connection — leaves the user stuck on the "驗證中…" login button with no way to escape.
+    const tm=ms=>new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms));
+    const snap=await Promise.race([dbU.once("value"),tm(8000)]);
     const users=snap.val();
     if(!users||typeof users!=="object"||!Object.keys(users).length){
       // First-time setup: seed default users
@@ -491,9 +493,33 @@ async function doDelNoConfirm(it){
   const logEntry={id:uid(),iid:it.id,u:S.user,a:"🗑",n:it.n,b:it.b,d:"",pq:it.q,nq:0,t:ts()};
   pushLogLocal(logEntry);
   try{navigator.vibrate&&navigator.vibrate([50,30,50]);}catch(e){}
-  showToast("🗑 已刪除 "+it.n);render();
-  // Sync
-  const tx=await fbDelItemTx(it.id).catch(e=>{console.error(e);return{committed:false};});
+  // 8s undo window. Snapshot the full item (incl. img/dsc) so undo can resurrect with the original id, preserving the audit trail.
+  const undoSnapshot={...it};
+  // Hold the delete Promise in closure so the undo handler can await it before issuing fbAddItemTx.
+  // Without this, the add could land before the late delete and get clobbered (Firebase doesn't preserve client-side issue order).
+  const delPromise=fbDelItemTx(it.id).catch(e=>{console.error(e);return{committed:false};});
+  showToast("🗑 已刪除 "+it.n,{label:"↶ 撤銷",fn:async()=>{
+    if(!S.items)return;
+    _pendingItems.bump(undoSnapshot.id);
+    S.items=[...S.items,undoSnapshot];
+    const restoreLog={id:uid(),iid:undoSnapshot.id,u:S.user,a:"↶撤銷",n:undoSnapshot.n,b:undoSnapshot.b,d:"撤銷刪除",pq:0,nq:undoSnapshot.q||0,t:ts()};
+    pushLogLocal(restoreLog);
+    showToast("↶ 已復原 "+undoSnapshot.n);
+    render();
+    await delPromise;  // Order matters: the original delete must commit before we add, otherwise a delayed delete will wipe out our restore.
+    const tx=await fbAddItemTx(undoSnapshot).catch(e=>{console.error(e);return{committed:false};});
+    _pendingItems.drop(undoSnapshot.id);
+    if(!S.items)return;
+    if(!tx.committed){
+      S.items=S.items.filter(x=>x.id!==undoSnapshot.id);
+      dropLogLocal(restoreLog.id);
+      saveCache();showToast("⚠ 撤銷失敗，請重試");render();return;
+    }
+    appendLog(restoreLog);
+  }});
+  render();
+  // Sync (await the same Promise the undo handler will await)
+  const tx=await delPromise;
   _pendingDeletes.delete(it.id);
   if(!S.items)return;  // Logged out during tx.
   if(!tx.committed){
@@ -1629,12 +1655,19 @@ function renderMain(){
       // Pre-bucket name → items so we can decide if a legacy (no-iid) log unambiguously refers to this item
       const nameItems={};S.items.forEach(x=>{(nameItems[x.n]=nameItems[x.n]||[]).push(x);});
       const skipQ=l=>{const a=l.a||"";return a.includes("✏️")||a.includes("🗑");};
+      // Pre-index logs by iid (first match = latest, because logs are stored newest-first).
+      // Avoids O(items * logs) — was ~250k ops on 500 items × 500 logs, now O(items + logs).
+      const latestByIid={};
+      const legacyByName={};
+      allLogs.forEach(l=>{
+        if(skipQ(l))return;
+        if(l.iid){if(!(l.iid in latestByIid))latestByIid[l.iid]=l;}
+        else if(l.n){if(!(l.n in legacyByName))legacyByName[l.n]=l;}
+      });
       S.items.forEach(it=>{
-        // Prefer the most recent log with iid match; only fall back to name match if there's no iid log AND no name collision (otherwise we'd attribute another item's log here)
-        let latest=allLogs.find(l=>l.iid===it.id&&!skipQ(l));
-        if(!latest&&(nameItems[it.n]||[]).length===1){
-          latest=allLogs.find(l=>!l.iid&&l.n===it.n&&!skipQ(l));
-        }
+        let latest=latestByIid[it.id];
+        // Fall back to name match only when there's no iid log AND no name collision (otherwise we'd attribute another item's log here)
+        if(!latest&&(nameItems[it.n]||[]).length===1)latest=legacyByName[it.n];
         if(!latest){noLog++;return;}
         const expected=latest.nq||0;
         if(expected!==(it.q||0))mismatches.push({it,log:latest,expected,actual:it.q||0});
