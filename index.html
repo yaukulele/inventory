@@ -754,7 +754,7 @@ function renderActionModal(){
   // Audit must start disabled until user picks a number that differs from current qty
   const canInit=!tags.length&&type!=="audit";
   const initLabel=type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"請選擇盤點數量";
-  var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:function(){if(this.disabled)return;this.disabled=true;const ct=(customT||"").trim();const fn=selN==="調貨"&&ct?"調貨："+ct:(selN==="調貨"?"調貨":selN);doAction(type,it,selQ,fn);}},initLabel);
+  var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:function(){if(this.disabled)return;this.disabled=true;const ct=(customT||"").trim();const sn=(selN||"").trim();const fn=sn==="調貨"&&ct?"調貨："+ct:sn;doAction(type,it,selQ,fn);}},initLabel);
   box.appendChild(confirmBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&!confirmBtn.disabled){e.preventDefault();confirmBtn.click();}});
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeAction}),box);
