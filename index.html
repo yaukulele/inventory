@@ -1530,8 +1530,12 @@ function renderMain(){
     });
     content.appendChild(actRow);
     // Brand filter dropdown (compact)
-    const brandOpts=[...new Set(S.items.map(x=>x.b))].sort();
-    // If the previously-selected brand has been deleted/renamed, the <select> falls back to showing "所有品牌" but S.logBrand keeps the orphan value — filter then returns nothing and user can't tell why. Reset stale selection.
+    // Include brands from logs too — items might have been deleted/renamed but their historic logs still belong to the original brand, and users may want to filter that history.
+    const brandSet=new Set(S.items.map(x=>x.b));
+    const allLogsForBrand=S.olderLogs.length?[...S.logs,...S.olderLogs]:S.logs;
+    allLogsForBrand.forEach(l=>{if(l&&l.b)brandSet.add(l.b);});
+    const brandOpts=[...brandSet].sort();
+    // If the previously-selected brand has zero presence anywhere, reset stale selection (shouldn't happen with log fallback, but keep guard).
     if(S.logBrand&&!brandOpts.includes(S.logBrand))S.logBrand="";
     const brandSel=h("select",{className:"ipt",style:{marginBottom:"10px",fontSize:"13px",padding:"7px 10px"},onChange:e=>{S.logBrand=e.target.value;render();}});
     brandSel.appendChild(h("option",{value:""},"所有品牌"));
