@@ -170,9 +170,22 @@ function saveCache(){try{const payload={items:S.items||[],logs:(S.logs||[]).slic
 function arrFromVal(v){return Array.isArray(v)?v:(v&&typeof v==="object"?Object.keys(v).sort((a,b)=>+a-+b).map(k=>v[k]):null);}
 async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);const i=arrFromVal(a.val());const l=arrFromVal(b.val());const o=c.val();
   const ver=(o&&o.__ver)||"";
+  // Preserve any in-flight optimistic state — doSync triggered mid-doAction would otherwise drop locally pushed logs / pending items / pending deletes before their tx round-trips.
+  // The realtime listener already handles this for remote-triggered updates; fbLoad is the once() path that's been missing it.
+  const mergePending=(remote)=>{
+    if(!remote)return remote;
+    let merged=remote;
+    if(_pendingItems.size&&S.items){
+      merged=merged.map(r=>{if(_pendingItems.has(r.id)){const local=S.items.find(x=>x.id===r.id);if(local)return local;}return r;});
+      const remoteIds=new Set(merged.map(x=>x&&x.id));
+      S.items.forEach(x=>{if(x&&_pendingItems.has(x.id)&&!remoteIds.has(x.id))merged.push(x);});
+    }
+    if(_pendingDeletes.size)merged=merged.filter(x=>x&&!_pendingDeletes.has(x.id));
+    return merged;
+  };
   if(i&&i.length>0){
     // Firebase arrays can be sparse (null gaps when keys are deleted) — strip them out before set/map operations
-    S.items=i.filter(x=>x);
+    S.items=mergePending(i.filter(x=>x));
     // Auto-inject missing items by (brand|name) via transaction — avoids racing with other users' writes
     const existNames=new Set(S.items.map(x=>x.b+"|"+x.n));
     const toAdd=INJECT_ITEMS.filter(x=>!existNames.has(x.b+"|"+x.n)).map(x=>({...x,id:uid()}));
@@ -192,7 +205,16 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
   else{await new Promise(resolve=>{dbI.transaction(cur=>{const arr=arrFromVal(cur);if(arr&&arr.length>0)return arr;return mkInit();},(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=a.filter(x=>x);else S.items=mkInit();resolve();},false);});}
   // Logs: clear old test logs once (version check). filter(x=>x) drops sparse-array nulls.
   // catOrd must be set inside the branch — the previous unconditional reassign clobbered RESET_VER right after the reset path wrote it.
-  if(ver===RESET_VER){S.logs=Array.isArray(l)?l.filter(x=>x):[];S.catOrd=(o&&typeof o==="object")?o:{};}
+  if(ver===RESET_VER){
+    let remoteLogs=Array.isArray(l)?l.filter(x=>x):[];
+    // Same preservation idea: don't drop logs whose appendLog hasn't yet committed.
+    if(_pendingLogs.size){
+      const remoteIds=new Set(remoteLogs.map(x=>x.id));
+      const pendingLocal=(S.logs||[]).filter(x=>x&&_pendingLogs.has(x.id)&&!remoteIds.has(x.id));
+      if(pendingLocal.length)remoteLogs=[...pendingLocal,...remoteLogs].slice(0,500);
+    }
+    S.logs=remoteLogs;S.catOrd=(o&&typeof o==="object")?o:{};
+  }
   else{S.logs=[];dbL.set([]);const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);console.log("Logs cleared:",RESET_VER);}
   // One-time migration: Yamaha 鼓配件/鼓音箱 → "配件專區（含音箱）" brand
   if(!S.catOrd.__brandMigYamahaAcc){
