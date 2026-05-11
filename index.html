@@ -1721,16 +1721,20 @@ function renderMain(){
         // Batch fix — convenient when there are many mismatches and the user trusts the logs more than the current q values.
         // Requires explicit confirm with count to avoid accidental mass-mutation.
         if(!isPreview()){
-          const allFixBtn=h("button",{style:{width:"100%",padding:"9px",borderRadius:"8px",border:"1px solid #f59e0b",background:"#fffbeb",color:"#b45309",fontSize:"12px",fontWeight:700,cursor:"pointer",marginBottom:"8px"}},"📋 全部修正 "+mismatches.length+" 筆 → 日誌值");
+          // State-level flag — each doAction inside the loop triggers render, rebuilding this button. Without a state flag the rebuilt button has no memory of "we're currently fixing" and a user could re-click and run a second concurrent loop.
+          const batchRunning=!!S._batchFixing;
+          const allFixBtn=h("button",{disabled:batchRunning,style:{width:"100%",padding:"9px",borderRadius:"8px",border:"1px solid #f59e0b",background:batchRunning?"#fef3c7":"#fffbeb",color:"#b45309",fontSize:"12px",fontWeight:700,cursor:batchRunning?"default":"pointer",marginBottom:"8px",opacity:batchRunning?.6:1}},batchRunning?"⏳ 修正中…":"📋 全部修正 "+mismatches.length+" 筆 → 日誌值");
           allFixBtn.onclick=async function(){
-            if(this.disabled)return;
+            if(this.disabled||S._batchFixing)return;
             if(!confirm("把全部 "+mismatches.length+" 筆不符品項一次盤點到日誌值？這會寫 "+mismatches.length+" 筆 📋盤點 紀錄。\n\n建議先查看單筆是否合理再批次修。"))return;
-            this.disabled=true;this.style.opacity="0.5";this.textContent="修正中…";
+            S._batchFixing=true;
             let ok=0,fail=0;
-            for(const m of mismatches){
-              const r=await doAction("audit",m.it,m.expected,"對帳批次修正");
-              if(r&&r.ok)ok++;else fail++;
-            }
+            try{
+              for(const m of mismatches){
+                const r=await doAction("audit",m.it,m.expected,"對帳批次修正");
+                if(r&&r.ok)ok++;else fail++;
+              }
+            }finally{S._batchFixing=false;render();}
             showToast("✅ 完成 "+ok+" 筆"+(fail?"，失敗 "+fail+" 筆":""));
           };
           reconCard.appendChild(allFixBtn);
