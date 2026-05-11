@@ -267,8 +267,13 @@ function logActivity(action,detail){
   dbA.transaction(cur=>{const arr=arrFromVal(cur)||[];return[entry,...arr].slice(0,200);},(err)=>{if(err)console.error("logActivity failed:",err);},false);
 }
 
-// Optimistic UI tracking — items currently in flight to Firebase
-const _pendingItems=new Set();
+// Optimistic UI tracking — items currently in flight to Firebase.
+// _pendingItems is ref-counted (Map<id, count>) because multiple concurrent doAction calls on the same item id used to delete the entry after the first tx completed,
+// causing the listener to fall back to server values mid-batch and flicker the row's q.
+// has(id) / size are kept as Map-equivalent reads so existing call sites don't need to change.
+const _pendingItems=new Map();
+_pendingItems.bump=function(id){this.set(id,(this.get(id)||0)+1);};
+_pendingItems.drop=function(id){const n=(this.get(id)||0)-1;if(n<=0)this.delete(id);else this.set(id,n);};
 const _pendingDeletes=new Set();
 // True while user has a drag in progress — listenerRender skips so the row being dragged isn't yanked out from under the browser's drag image
 let _isDragging=false;
@@ -342,7 +347,7 @@ async function doAction(type,it,qty,note){
   const optNq=type==="in"?rq+amt:type==="out"?Math.max(0,rq-oa):Math.max(0,amt);
   if(type==="audit"&&optNq===rq){S.modal=back;showToast("數量相同，無需盤點");render();return {ok:false};}
   // Optimistic: update locally, close modal, show toast — instant UI feedback
-  _pendingItems.add(it.id);
+  _pendingItems.bump(it.id);
   S.items=[...S.items.slice(0,idx),{...orig,q:optNq},...S.items.slice(idx+1)];
   const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+optNq);
   const logEntry={id:uid(),iid:it.id,u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,b:it.b,d:det,pq:rq,nq:optNq};
@@ -370,7 +375,7 @@ async function doAction(type,it,qty,note){
     if(tx.missing)failReason="⚠ 此品項已被刪除";
     else if(!tx.committed)failReason="⚠ 同步失敗，請重試";
   }catch(e){console.error(e);failReason="⚠ 連線錯誤";}
-  _pendingItems.delete(it.id);
+  _pendingItems.drop(it.id);
   if(failReason){
     if(failReason==="⚠ 此品項已被刪除")S.items=S.items.filter(x=>x.id!==it.id);
     else{const i2=S.items.findIndex(x=>x.id===it.id);if(i2>=0)S.items=[...S.items.slice(0,i2),{...S.items[i2],q:rq},...S.items.slice(i2+1)];}
@@ -410,7 +415,7 @@ function normalizeImgUrl(url){
 async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   if(f.img)ni.img=normalizeImgUrl(f.img);if(f.dsc)ni.dsc=f.dsc;
   // Optimistic add
-  _pendingItems.add(ni.id);
+  _pendingItems.bump(ni.id);
   S.items=[...S.items,ni];
   const logEntry={id:uid(),iid:ni.id,u:S.user,a:"➕",n:ni.n,b:ni.b,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()};
   pushLogLocal(logEntry);
@@ -422,7 +427,7 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   render();
   // Sync
   const tx=await fbAddItemTx(ni).catch(e=>{console.error(e);return{committed:false};});
-  _pendingItems.delete(ni.id);
+  _pendingItems.drop(ni.id);
   if(!tx.committed){
     S.items=S.items.filter(x=>x.id!==ni.id);
     dropLogLocal(logEntry.id);
