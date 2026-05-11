@@ -852,6 +852,22 @@ function renderDetailModal(){
         h("span",{style:{fontWeight:600}},"by "+(createdLog.u||""))
       ));
     }
+    // Last audit time — helps user spot items that haven't been physically counted in a while
+    const lastAudit=allMatch.find(l=>(l.a||"").includes("盤"));
+    if(lastAudit){
+      // Days since last audit (rough). t format "yyyy/MM/dd HH:MM"
+      const auditDate=lastAudit.t?lastAudit.t.split(" ")[0].replace(/\//g,"-"):"";
+      let daysAgo="";
+      if(auditDate){
+        const d=new Date(auditDate);
+        if(!isNaN(d)){const days=Math.floor((Date.now()-d.getTime())/86400000);daysAgo=days===0?"今日":days===1?"昨日":days+" 天前";}
+      }
+      const isStale=lastAudit.t&&((Date.now()-new Date(lastAudit.t.split(" ")[0].replace(/\//g,"-")).getTime())/86400000)>30;
+      box.appendChild(h("div",{style:{fontSize:"11px",color:isStale?"#b45309":"var(--sub)",marginBottom:"10px",padding:"6px 10px",background:isStale?"#fef3c7":"#f8fafc",borderRadius:"8px",display:"flex",justifyContent:"space-between",gap:"8px"}},
+        h("span",{},"📋 上次盤點："+(lastAudit.t||"")+(daysAgo?" ("+daysAgo+")":"")),
+        h("span",{style:{fontWeight:600}},"by "+(lastAudit.u||""))
+      ));
+    }
     const showAllHist=!!S.modal.showAllHist;
     const limit=showAllHist?Math.min(50,allMatch.length):5;
     const recent=allMatch.slice(0,limit);
