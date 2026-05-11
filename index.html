@@ -1798,11 +1798,13 @@ function renderMain(){
           rowEl.appendChild(h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",color:"var(--blue)"},onClick:()=>{S.modal={t:"detail",id:m.it.id};render();}},m.it.b+" / "+m.it.n));
           rowEl.appendChild(h("span",{style:{fontSize:"11px",color:"var(--red)",fontWeight:700,flexShrink:0}},"日誌 "+m.expected+" ≠ 庫存 "+m.actual));
           // One-click fix: audit-to-log-value. Only for non-preview users — preview can't write to Firebase.
+          // Also disable while batch fix is running so single + batch don't issue concurrent audits and race for the same items.
           if(!isPreview()){
-            const fixBtn=h("button",{style:{padding:"3px 8px",borderRadius:"6px",border:"1px solid var(--blue)",background:"#fff",color:"var(--blue)",fontSize:"10px",fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"},title:"盤點到日誌值 "+m.expected},"📋→"+m.expected);
+            const fixDisabled=!!S._batchFixing;
+            const fixBtn=h("button",{disabled:fixDisabled,style:{padding:"3px 8px",borderRadius:"6px",border:"1px solid var(--blue)",background:"#fff",color:"var(--blue)",fontSize:"10px",fontWeight:700,cursor:fixDisabled?"default":"pointer",flexShrink:0,whiteSpace:"nowrap",opacity:fixDisabled?.4:1},title:"盤點到日誌值 "+m.expected},"📋→"+m.expected);
             fixBtn.onclick=async function(ev){
               ev.stopPropagation();
-              if(this.disabled)return;
+              if(this.disabled||S._batchFixing)return;
               if(!confirm("把「"+m.it.n+"」盤點為 "+m.expected+"（目前 "+m.actual+"）？這會寫一筆 📋盤點 紀錄。"))return;
               this.disabled=true;this.style.opacity="0.5";this.textContent="…";
               await doAction("audit",m.it,m.expected,"對帳修正");
