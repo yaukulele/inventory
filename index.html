@@ -379,6 +379,8 @@ async function doAction(type,it,qty,note){
     else if(!tx.committed)failReason="⚠ 同步失敗，請重試";
   }catch(e){console.error(e);failReason="⚠ 連線錯誤";}
   _pendingItems.drop(it.id);
+  // If the user logged out while this tx was in flight, S.items is null. Bail out cleanly instead of throwing on S.items.findIndex.
+  if(!S.items)return {ok:!failReason};
   if(failReason){
     if(failReason==="⚠ 此品項已被刪除")S.items=S.items.filter(x=>x.id!==it.id);
     else{const i2=S.items.findIndex(x=>x.id===it.id);if(i2>=0)S.items=[...S.items.slice(0,i2),{...S.items[i2],q:rq},...S.items.slice(i2+1)];}
@@ -433,6 +435,8 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   // Sync
   const tx=await fbAddItemTx(ni).catch(e=>{console.error(e);return{committed:false};});
   _pendingItems.drop(ni.id);
+  // Same logout-during-flight guard as doAction.
+  if(!S.items)return;
   if(!tx.committed){
     S.items=S.items.filter(x=>x.id!==ni.id);
     dropLogLocal(logEntry.id);
@@ -458,6 +462,7 @@ async function doUpdateMeta(id,patch){
   if(noChange)return true;
   if(tx.missing){showToast("⚠ 此品項已被刪除");return false;}
   if(!tx.committed){showToast("更新失敗");return false;}
+  if(!S.items)return false;  // Logged out mid-flight; don't resurrect S.items.
   if(Array.isArray(tx.arr))S.items=mergeWithPending(tx.arr.filter(x=>x));
   // Log meaningful field changes (rename/brand/cat/zone) — img/dsc tweaks not worth a log entry
   if(beforeFields){
@@ -490,6 +495,7 @@ async function doDelNoConfirm(it){
   // Sync
   const tx=await fbDelItemTx(it.id).catch(e=>{console.error(e);return{committed:false};});
   _pendingDeletes.delete(it.id);
+  if(!S.items)return;  // Logged out during tx.
   if(!tx.committed){
     if(!S.items.some(x=>x.id===it.id))S.items=[...S.items,it];
     dropLogLocal(logEntry.id);
@@ -1277,7 +1283,7 @@ function renderMain(){
       },(err,committed,snap)=>{
         if(err){console.error("moveItems tx failed:",err);showToast("⚠ 搬移失敗，請重試");resolve();return;}
         const a=arrFromVal(snap&&snap.val());
-        if(a){S.items=mergeWithPending(a.filter(x=>x));saveCache();render();}
+        if(a&&S.items){S.items=mergeWithPending(a.filter(x=>x));saveCache();render();}
         if(committed&&lastAffected.length&&description){
           const totalQ=lastAffected.reduce((s,x)=>s+(x.q||0),0);
           const sample=lastAffected.slice(0,3).map(x=>x.n).join("、");
@@ -1731,7 +1737,11 @@ function lockBody(){if(document.body.dataset.locked==="1")return;_bodyLockY=wind
 function unlockBody(){if(document.body.dataset.locked!=="1")return;document.body.dataset.locked="";document.body.style.position="";document.body.style.top="";document.body.style.width="";document.body.style.overflow="";window.scrollTo(0,_bodyLockY);}
 // Coalesce multiple sync render() calls into one — saves redundant rebuilds when listeners fire together
 let _renderQueued=false;
-function render(){if(_renderQueued)return;_renderQueued=true;queueMicrotask(()=>{_renderQueued=false;try{_render();}catch(e){console.error("render failed:",e);showToast("⚠ 畫面更新失敗，請重新整理頁面");}});}
+function render(){if(_renderQueued)return;_renderQueued=true;queueMicrotask(()=>{_renderQueued=false;try{_render();}catch(e){console.error("render failed:",e);
+    // If _render threw mid-flight, body may be left in fixed/locked state from a previous open modal, leaving the user unable to scroll until reload.
+    try{unlockBody();}catch(e2){/* swallow */}
+    showToast("⚠ 畫面更新失敗，請重新整理頁面");
+  }});}
 function _render(){
   const a=document.getElementById("app");
   const wasLocked=document.body.dataset.locked==="1";
