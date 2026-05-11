@@ -219,15 +219,16 @@ async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("ti
   else{S.logs=[];dbL.set([]);const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);console.log("Logs cleared:",RESET_VER);}
   // One-time migration: Yamaha 鼓配件/鼓音箱 → "配件專區（含音箱）" brand
   if(!S.catOrd.__brandMigYamahaAcc){
-    await new Promise(resolve=>{dbI.transaction(cur=>{
+    const migOk=await new Promise(resolve=>{dbI.transaction(cur=>{
       const arr=arrFromVal(cur);
       if(!arr)return cur;
       let changed=false;
       const next=arr.map(x=>{if(x&&x.b==="Yamaha"&&(x.c==="鼓配件"||x.c==="鼓音箱")){changed=true;return{...x,b:"配件專區（含音箱）"};}return x;});
       return changed?next:arr;
-    },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=mergePending(a.filter(x=>x));resolve();},false);});
-    await fbSetOrdKey("__brandMigYamahaAcc",true);
-    console.log("Brand migration: Yamaha 鼓配件/鼓音箱 → 配件專區（含音箱）");
+    },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=mergePending(a.filter(x=>x));resolve(!err);},false);});
+    // Only mark the migration done if it actually committed — otherwise we'd suppress future retries on a failed tx.
+    if(migOk){await fbSetOrdKey("__brandMigYamahaAcc",true);console.log("Brand migration: Yamaha 鼓配件/鼓音箱 → 配件專區（含音箱）");}
+    else console.warn("Brand migration tx failed; will retry next load");
   }
   S.lastSyncAt=Date.now();saveCache();}catch(e){console.error("fbLoad failed:",e);if(!S.items){S.items=mkInit();S.logs=[];}/* do NOT write to Firebase on timeout — remote may have good data */}}
 
