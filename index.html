@@ -725,7 +725,10 @@ function renderAddModal(){
   nI.addEventListener("input",checkDup);
   bS.addEventListener("change",()=>setTimeout(checkDup,0));
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"商品名稱 *"),nI,dupWarn));
-  const qI=h("input",{type:"number",inputmode:"numeric",min:0,value:"0",className:"ipt"});box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"初始庫存"),qI));
+  const qI=h("input",{type:"number",inputmode:"numeric",min:0,value:"0",className:"ipt"});
+  // Negative numbers bypass HTML min attribute via paste or arrow keys; clamp on blur so the saved value matches what the user sees.
+  qI.addEventListener("blur",()=>{const n=parseInt(qI.value);if(isNaN(n)||n<0)qI.value="0";});
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"初始庫存"),qI));
   // Image URL + preview
   const imgI=h("input",{className:"ipt",placeholder:"https://… 或留空",type:"url"});
   const imgPreview=h("div",{style:{marginTop:"6px",display:"none",width:"80px",height:"80px",borderRadius:"10px",background:"#f8fafc",border:"1px solid var(--border)",overflow:"hidden"}});
@@ -734,7 +737,7 @@ function renderAddModal(){
   // Description
   const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"60px",resize:"vertical",fontFamily:"inherit"}});
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
-  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;doAdd({z:zS.value,b:brand,c:cat,n,q:parseInt(qI.value)||0,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
+  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;const initQ=Math.max(0,parseInt(qI.value)||0);doAdd({z:zS.value,b:brand,c:cat,n,q:initQ,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
   // Auto-focus name input so the user can start typing immediately (especially after the "再加一個" continuation flow)
@@ -862,6 +865,8 @@ function renderLightboxModal(){
   const back=()=>{S.modal=fromModal||null;render();};
   const wrap=h("div",{style:{position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,.9)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"},onClick:back});
   const img=h("img",{src,style:{maxWidth:"95vw",maxHeight:"95vh",objectFit:"contain",display:"block"}});
+  // Without onerror, a dead image URL shows a broken-image icon and the user has no idea why the modal looks empty.
+  img.onerror=()=>{img.remove();wrap.insertBefore(h("div",{style:{color:"#fff",fontSize:"15px",textAlign:"center",padding:"20px",background:"rgba(220,38,38,.85)",borderRadius:"12px"}},"⚠ 圖片載入失敗",h("div",{style:{fontSize:"11px",marginTop:"6px",opacity:.8,wordBreak:"break-all"}},src)),wrap.firstChild);};
   wrap.appendChild(img);
   wrap.appendChild(h("button",{style:{position:"absolute",top:"20px",right:"20px",width:"40px",height:"40px",borderRadius:"50%",border:"none",background:"rgba(255,255,255,.2)",color:"#fff",fontSize:"20px",cursor:"pointer",backdropFilter:"blur(4px)"},onClick:e=>{e.stopPropagation();back();}},"✕"));
   const openA=h("a",{href:src,target:"_blank",rel:"noopener",style:{position:"absolute",bottom:"24px",left:"50%",transform:"translateX(-50%)",padding:"8px 16px",borderRadius:"20px",background:"rgba(255,255,255,.15)",color:"#fff",fontSize:"12px",fontWeight:600,textDecoration:"none",backdropFilter:"blur(4px)"}},"🔍 開新分頁看原圖");
@@ -1727,7 +1732,7 @@ function _render(){
 document.addEventListener("keydown",e=>{
   // Enter on login screen submits even when no focus on the button
   if(S.phase==="login"&&e.key==="Enter"&&!e.isComposing&&e.keyCode!==229){const btn=document.getElementById("loginBtn");if(btn&&!btn.disabled){e.preventDefault();btn.click();}return;}
-  if(e.key==="Escape"&&S.modal){if(S.modal.t==="detail"&&S.modal.edit)return;S.modal=S.modal.back||null;render();return;}
+  if(e.key==="Escape"&&S.modal){if(S.modal.t==="detail"&&S.modal.edit)return;S.modal=S.modal.back||S.modal.fromModal||null;render();return;}
   if(e.ctrlKey||e.metaKey||e.altKey)return;
   const tag=e.target&&e.target.tagName;
   if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT"||tag==="BUTTON")return;
