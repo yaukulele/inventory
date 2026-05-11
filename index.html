@@ -869,14 +869,29 @@ function renderDetailModal(){
       ));
     }
     const showAllHist=!!S.modal.showAllHist;
-    const limit=showAllHist?Math.min(50,allMatch.length):5;
-    const recent=allMatch.slice(0,limit);
-    if(recent.length){
+    // Optional action-type filter pill so users can isolate e.g. just out / just audit for a single item with long history.
+    const histAct=S.modal.histAct||"";
+    const filteredHist=histAct?allMatch.filter(l=>{const a=l.a||"";if(histAct==="in")return a.includes("進");if(histAct==="out")return a.includes("出");if(histAct==="audit")return a.includes("盤");return true;}):allMatch;
+    const limit=showAllHist?Math.min(50,filteredHist.length):5;
+    const recent=filteredHist.slice(0,limit);
+    if(allMatch.length){
+      // Action filter pills — only show when there's enough history to bother filtering
+      if(allMatch.length>5){
+        const pillRow=h("div",{style:{display:"flex",gap:"4px",marginBottom:"6px",flexWrap:"wrap"}});
+        [["","全部"],["in","📥"],["out","📤"],["audit","📋"]].forEach(([k,l])=>{
+          const active=histAct===k;
+          pillRow.appendChild(h("button",{style:{padding:"3px 10px",borderRadius:"10px",border:active?"1.5px solid var(--blue)":"1px solid var(--border)",background:active?"var(--blue-light)":"#fff",color:active?"var(--blue)":"var(--sub)",fontSize:"10px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={...S.modal,histAct:k};render();}},l));
+        });
+        box.appendChild(pillRow);
+      }
       const histBox=h("div",{style:{marginBottom:"12px",border:"1px solid var(--border)",borderRadius:"10px",overflow:"hidden"}});
-      const totalCount=allMatch.length;
+      const totalCount=filteredHist.length;
       const headerLabel=showAllHist?("顯示 "+limit+" 筆 / 共 "+totalCount):(totalCount>5?"近 5 筆 / 共 "+totalCount:"共 "+totalCount+" 筆");
-      histBox.appendChild(h("div",{style:{padding:"8px 12px",fontSize:"12px",fontWeight:700,color:"var(--sub)",background:"#f8fafc",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}},h("span",{},"📜 最近異動"),h("span",{style:{fontWeight:500}},headerLabel)));
+      histBox.appendChild(h("div",{style:{padding:"8px 12px",fontSize:"12px",fontWeight:700,color:"var(--sub)",background:"#f8fafc",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}},h("span",{},"📜 最近異動"+(histAct?" ("+({in:"進貨",out:"出貨",audit:"盤點"}[histAct])+")":"")),h("span",{style:{fontWeight:500}},headerLabel)));
       const tdToday=dateStr();const fmtLogT=t=>{if(!t)return "";const d=dateOnly(t);const dLabel=d.replace(/^\d{4}\//,"");return dLabel===tdToday?t.slice(11,16):dLabel;};
+      if(!recent.length){
+        histBox.appendChild(h("div",{style:{padding:"12px",textAlign:"center",fontSize:"11px",color:"var(--sub)"}},"無此類紀錄"));
+      }
       recent.forEach(l=>{const up=(l.nq||0)>(l.pq||0),dn=(l.nq||0)<(l.pq||0);histBox.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"6px 12px",fontSize:"11px",borderBottom:"1px solid #f1f5f9"}},h("span",{},(l.a||"").slice(0,2)),h("span",{style:{flex:1,color:"var(--sub)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},l.d||""),h("span",{style:{color:up?"var(--green)":dn?"var(--red)":"var(--sub)",fontWeight:600,flexShrink:0}},l.pq+"→"+l.nq),h("span",{style:{color:"var(--sub)",flexShrink:0,fontSize:"10px"}},fmtLogT(l.t)+" "+l.u)));});
       if(totalCount>5){
         histBox.appendChild(h("button",{style:{width:"100%",padding:"8px",border:"none",background:"#f8fafc",color:"var(--blue)",fontSize:"11px",fontWeight:600,cursor:"pointer",borderTop:"1px solid var(--border)"},onClick:()=>{S.modal={...S.modal,showAllHist:!showAllHist};render();}},showAllHist?"▲ 收合":"▼ 顯示更多（最多 50 筆）"));
