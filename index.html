@@ -877,6 +877,26 @@ function renderDetailModal(){
         h("span",{style:{fontWeight:600}},"by "+(lastAudit.u||""))
       ));
     }
+    // Monthly in/out summary — useful for quick per-item sales lookup without leaving detail modal.
+    {
+      const nowM=new Date();
+      const ym=nowM.getFullYear()+"/"+String(nowM.getMonth()+1).padStart(2,"0");
+      let mInTotal=0,mOutTotal=0;
+      allMatch.forEach(l=>{
+        if(!l.t||!l.t.startsWith(ym))return;
+        const a=l.a||"";
+        const diff=(l.nq||0)-(l.pq||0);
+        if(a.includes("進")&&diff>0)mInTotal+=diff;
+        else if(a.includes("出")&&diff<0)mOutTotal+=-diff;
+      });
+      if(mInTotal||mOutTotal){
+        box.appendChild(h("div",{style:{fontSize:"11px",marginBottom:"10px",padding:"6px 10px",background:"#f8fafc",borderRadius:"8px",display:"flex",justifyContent:"space-between",gap:"8px",alignItems:"center"}},
+          h("span",{style:{color:"var(--sub)"}},"📊 "+(nowM.getMonth()+1)+"月："),
+          h("span",{style:{color:"var(--green)",fontWeight:700}},"進 +"+mInTotal),
+          h("span",{style:{color:"var(--red)",fontWeight:700}},"出 -"+mOutTotal)
+        ));
+      }
+    }
     const showAllHist=!!S.modal.showAllHist;
     // Optional action-type filter pill so users can isolate e.g. just out / just audit for a single item with long history.
     const histAct=S.modal.histAct||"";
