@@ -1195,7 +1195,7 @@ function renderMain(){
     searchInp.value=S.search||"";
     const clearBtn=h("button",{style:{position:"absolute",right:"8px",top:"8px",background:"none",border:"none",fontSize:"16px",color:"var(--sub)",cursor:"pointer",display:S.search?"block":"none",padding:"2px"},onClick:()=>{S.search="";render();const el=document.getElementById("searchBox");if(el){el.value="";el.focus();}}},"✕");
     let searchTimer=null;
-    searchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;clearTimeout(searchTimer);const v=this.value;clearBtn.style.display=v?"block":"none";searchTimer=setTimeout(()=>{S.search=v;const pos=this.selectionStart;render();const el2=document.getElementById("searchBox");if(el2){el2.focus();el2.selectionStart=el2.selectionEnd=pos;}},250);});
+    searchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;clearTimeout(searchTimer);const v=this.value;clearBtn.style.display=v?"block":"none";searchTimer=setTimeout(()=>{S.search=v;render();/* focus 由 _render 自動還原 */},120);});
     searchInp.addEventListener("compositionstart",function(){this.dataset.composing="true";});
     searchInp.addEventListener("compositionend",function(){this.dataset.composing="false";S.search=this.value;clearBtn.style.display=this.value?"block":"none";setTimeout(()=>{render();const el2=document.getElementById("searchBox");if(el2)el2.focus();},50);});
     sw.appendChild(searchInp);sw.appendChild(clearBtn);sr.appendChild(sw);
@@ -1331,7 +1331,7 @@ function renderMain(){
     logSw.appendChild(h("span",{style:{position:"absolute",left:"10px",top:"10px",fontSize:"14px"}},"🔍"));
     if(hasFilter){logSw.appendChild(h("button",{style:{position:"absolute",right:"6px",top:"6px",width:"28px",height:"28px",borderRadius:"50%",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"14px",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";render();}},"✕"));}
     let logSearchTimer=null;
-    logSearchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;const v=this.value,pos=this.selectionStart;clearTimeout(logSearchTimer);logSearchTimer=setTimeout(()=>{S.logSearch=v;render();const el=document.getElementById("logSearch");if(el){el.focus();el.selectionStart=el.selectionEnd=pos;}},250);});
+    logSearchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;const v=this.value;clearTimeout(logSearchTimer);logSearchTimer=setTimeout(()=>{S.logSearch=v;render();/* focus 由 _render 自動還原 */},120);});
     logSearchInp.addEventListener("compositionstart",function(){this.dataset.composing="true";});
     logSearchInp.addEventListener("compositionend",function(){this.dataset.composing="false";S.logSearch=this.value;setTimeout(()=>{render();const el=document.getElementById("logSearch");if(el)el.focus();},50);});
     logSw.appendChild(logSearchInp);content.appendChild(logSw);
