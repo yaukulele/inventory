@@ -500,13 +500,19 @@ async function doDelNoConfirm(it){
   const delPromise=fbDelItemTx(it.id).catch(e=>{console.error(e);return{committed:false};});
   showToast("🗑 已刪除 "+it.n,{label:"↶ 撤銷",fn:async()=>{
     if(!S.items)return;
+    // Wait for the original delete tx to commit before deciding what to do.
+    // If it failed, doDelNoConfirm's own rollback already restored the item — undo is a no-op (don't write a misleading "↶撤銷" log for a delete that never happened).
+    const delResult=await delPromise;
+    if(!delResult||!delResult.committed){showToast("ℹ 刪除未完成，已自動還原");return;}
+    if(!S.items)return;
+    // Skip if item somehow already back (e.g. listener pulled it in mid-flight)
+    if(S.items.some(x=>x.id===undoSnapshot.id)){showToast("↶ 已復原 "+undoSnapshot.n);return;}
     _pendingItems.bump(undoSnapshot.id);
     S.items=[...S.items,undoSnapshot];
     const restoreLog={id:uid(),iid:undoSnapshot.id,u:S.user,a:"↶撤銷",n:undoSnapshot.n,b:undoSnapshot.b,d:"撤銷刪除",pq:0,nq:undoSnapshot.q||0,t:ts()};
     pushLogLocal(restoreLog);
     showToast("↶ 已復原 "+undoSnapshot.n);
     render();
-    await delPromise;  // Order matters: the original delete must commit before we add, otherwise a delayed delete will wipe out our restore.
     const tx=await fbAddItemTx(undoSnapshot).catch(e=>{console.error(e);return{committed:false};});
     _pendingItems.drop(undoSnapshot.id);
     if(!S.items)return;
