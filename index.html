@@ -383,9 +383,11 @@ async function doAction(type,it,qty,note){
     saveCache();showToast(failReason);render();
     return {ok:false};
   }
-  // Reconcile to server result (handles concurrent edits)
+  // Reconcile to server result (handles concurrent edits).
+  // Skip if another doAction on the same item is still in flight — its later tx has the more up-to-date server view, and overwriting q here would visibly flicker the row.
+  const stillPending=_pendingItems.has(it.id);
   const i2=S.items.findIndex(x=>x.id===it.id);
-  if(i2>=0&&S.items[i2].q!==serverNq){
+  if(!stillPending&&i2>=0&&S.items[i2].q!==serverNq){
     S.items=[...S.items.slice(0,i2),{...S.items[i2],q:serverNq},...S.items.slice(i2+1)];
     render();
   }
