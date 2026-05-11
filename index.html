@@ -21,7 +21,7 @@
 <style>
 :root{--bg:#f8fafc;--card:#fff;--border:#e2e8f0;--text:#1e293b;--sub:#64748b;--blue:#2563eb;--blue-light:#eff6ff;--green:#16a34a;--orange:#ea580c;--red:#dc2626;--shadow:0 1px 3px rgba(0,0,0,.06)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);font-family:'Noto Sans TC',system-ui,sans-serif;color:var(--text);min-height:100vh;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);font-family:'Noto Sans TC',system-ui,sans-serif;color:var(--text);min-height:100vh;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:contain}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:9px}
 select option{background:#fff;color:#1e293b}input::placeholder{color:#94a3b8}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
@@ -34,7 +34,7 @@ select option{background:#fff;color:#1e293b}input::placeholder{color:#94a3b8}
 .circle-btn:active{transform:scale(.9)}
 .modal-bg{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center}
 .modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(2px)}
-.modal-box{position:relative;background:#fff;border-radius:18px;padding:20px;width:92%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto}
+.modal-box{position:relative;background:#fff;border-radius:18px;padding:20px;width:92%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .toast{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom,0));left:50%;transform:translateX(-50%);background:var(--blue);color:#fff;padding:10px 24px;border-radius:12px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(37,99,235,.3);z-index:9999;animation:toastIn .3s ease;white-space:nowrap}
 .tag-btn{padding:9px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;border:1.5px solid var(--border);background:#fff;color:var(--sub);touch-action:manipulation}
 .tag-btn.active{border-color:var(--blue);background:var(--blue-light);color:var(--blue)}
