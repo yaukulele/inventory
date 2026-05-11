@@ -257,9 +257,10 @@ async function fbLoadUsers(){
     const snap=await Promise.race([dbU.once("value"),tm(8000)]);
     const users=snap.val();
     if(!users||typeof users!=="object"||!Object.keys(users).length){
-      // First-time setup: seed default users
-      await dbU.set(Object.fromEntries(Object.entries(SEED_USERS).map(([k,v])=>[k,{...v,createdAt:Date.now()}])));
-      return Object.fromEntries(Object.entries(SEED_USERS).map(([k,v])=>[k,{...v,createdAt:Date.now()}]));
+      // First-time setup: seed default users. Same timeout guard — offline first-login would otherwise hang on dbU.set forever.
+      const seed=Object.fromEntries(Object.entries(SEED_USERS).map(([k,v])=>[k,{...v,createdAt:Date.now()}]));
+      await Promise.race([dbU.set(seed),tm(8000)]);
+      return seed;
     }
     return users;
   }catch(e){console.error("fbLoadUsers failed:",e);return null;}
