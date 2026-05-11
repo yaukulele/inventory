@@ -431,6 +431,10 @@ async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   // Optimistic add
   _pendingItems.bump(ni.id);
   S.items=[...S.items,ni];
+  // Auto-expand the destination brand/cat so the new row is actually visible (otherwise collapsed groups hide it and user wonders if add worked).
+  const zonePrefix=(ni.z==="倉庫")?"W":"S";
+  S.bOpen[zonePrefix+ni.b]=true;
+  S.cOpen[zonePrefix+ni.b+"|"+ni.c]=true;
   const logEntry={id:uid(),iid:ni.id,u:S.user,a:"➕",n:ni.n,b:ni.b,d:"初始"+ni.q,pq:0,nq:ni.q,t:ts()};
   pushLogLocal(logEntry);
   try{localStorage.setItem("inv_lastB",f.b);localStorage.setItem("inv_lastC",f.c);}catch(e){}
