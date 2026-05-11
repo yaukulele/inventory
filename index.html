@@ -855,14 +855,22 @@ function renderDetailModal(){
     // Last audit time — helps user spot items that haven't been physically counted in a while
     const lastAudit=allMatch.find(l=>(l.a||"").includes("盤"));
     if(lastAudit){
-      // Days since last audit (rough). t format "yyyy/MM/dd HH:MM"
-      const auditDate=lastAudit.t?lastAudit.t.split(" ")[0].replace(/\//g,"-"):"";
-      let daysAgo="";
-      if(auditDate){
-        const d=new Date(auditDate);
-        if(!isNaN(d)){const days=Math.floor((Date.now()-d.getTime())/86400000);daysAgo=days===0?"今日":days===1?"昨日":days+" 天前";}
+      // Parse the full timestamp in local time. new Date("yyyy-MM-dd") alone is treated as UTC midnight which can be off by a day depending on tz.
+      // ISO without tz ("yyyy-MM-ddTHH:MM") is parsed as local time per spec.
+      let auditMs=null;
+      if(lastAudit.t){
+        const iso=lastAudit.t.replace(/\//g,"-").replace(" ","T");
+        const d=new Date(iso);if(!isNaN(d))auditMs=d.getTime();
       }
-      const isStale=lastAudit.t&&((Date.now()-new Date(lastAudit.t.split(" ")[0].replace(/\//g,"-")).getTime())/86400000)>30;
+      let daysAgo="";
+      if(auditMs){
+        // Compare midnight-to-midnight in local time so "1 day ago at 23:00" stays "昨日" rather than flipping to "今日" depending on hour.
+        const dToday=new Date();dToday.setHours(0,0,0,0);
+        const dAudit=new Date(auditMs);dAudit.setHours(0,0,0,0);
+        const days=Math.round((dToday.getTime()-dAudit.getTime())/86400000);
+        daysAgo=days<=0?"今日":days===1?"昨日":days+" 天前";
+      }
+      const isStale=auditMs&&((Date.now()-auditMs)/86400000)>30;
       box.appendChild(h("div",{style:{fontSize:"11px",color:isStale?"#b45309":"var(--sub)",marginBottom:"10px",padding:"6px 10px",background:isStale?"#fef3c7":"#f8fafc",borderRadius:"8px",display:"flex",justifyContent:"space-between",gap:"8px"}},
         h("span",{},"📋 上次盤點："+(lastAudit.t||"")+(daysAgo?" ("+daysAgo+")":"")),
         h("span",{style:{fontWeight:600}},"by "+(lastAudit.u||""))
