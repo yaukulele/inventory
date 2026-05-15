@@ -779,7 +779,10 @@ function renderActionModal(){
   const col=type==="in"?"var(--green)":type==="out"?"var(--orange)":"var(--blue)";
   const lbl={in:"📥 進貨",out:"📤 出貨",audit:"📋 盤點"}[type];
   const tags=type==="in"?["廠商補貨","退貨入庫"]:type==="out"?["MOMO出貨","PC出貨","蝦皮出貨","酷澎出貨","店銷","調貨"]:[];
-  let selQ=type==="audit"?it.q:1,selN="",customT="";
+  // Remember last picked tag per action type so a 5-item MOMO batch doesn't re-tap the same chip every time. Audit has no tags so this is in/out only.
+  const _lastTagKey="inv_lastTag_"+type;
+  const lastTag=(()=>{try{return tags.length?(localStorage.getItem(_lastTagKey)||""):"";}catch(e){return "";}})();
+  let selQ=type==="audit"?it.q:1,selN=tags.includes(lastTag)?lastTag:"",customT="";
   const box=h("div",{className:"modal-box"});
   box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px"},onClick:closeAction},"✕")));
   box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--sub)",marginBottom:"12px",padding:"8px 12px",background:"#f8fafc",borderRadius:"8px"}},(type==="audit"?"系統庫存":"目前庫存")+"：",h("b",{style:{color:col,fontSize:"16px"}},String(it.q))));
@@ -809,13 +812,15 @@ function renderActionModal(){
   const customInp=h("input",{className:"ipt",placeholder:"調貨對象",style:{marginTop:"8px",display:"none"},onInput:e=>{customT=e.target.value;}});
   if(tags.length){
     const tw=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"6px"}});
-    tags.forEach(t=>{tw.appendChild(h("button",{className:"tag-btn",onClick:function(){if(selN===t){selN="";this.className="tag-btn";}else{selN=t;tw.querySelectorAll("button").forEach(b=>b.className="tag-btn");this.className="tag-btn active";}customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display=selN?"none":"block";confirmBtn.disabled=!selN;confirmBtn.style.opacity=selN?1:.4;}},t));});
+    tags.forEach(t=>{tw.appendChild(h("button",{className:"tag-btn"+(t===selN?" active":""),onClick:function(){if(selN===t){selN="";this.className="tag-btn";}else{selN=t;tw.querySelectorAll("button").forEach(b=>b.className="tag-btn");this.className="tag-btn active";try{localStorage.setItem(_lastTagKey,t);}catch(e){}}customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display=selN?"none":"block";confirmBtn.disabled=!selN;confirmBtn.style.opacity=selN?1:.4;}},t));});
     nDiv.appendChild(tw);nDiv.appendChild(customInp);nDiv.appendChild(warnEl);
+    // Reflect the pre-selected tag in initial UI state — without this 調貨 wouldn't show customInp until re-tap, and the * 必選 warning would mislead.
+    if(selN){customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display="none";}
   }else{nDiv.appendChild(h("input",{className:"ipt",placeholder:"盤點備註",onInput:e=>{selN=e.target.value;}}));}
   box.appendChild(nDiv);
   updatePrev();box.appendChild(prevEl);
-  // Audit must start disabled until user picks a number that differs from current qty
-  const canInit=!tags.length&&type!=="audit";
+  // Audit must start disabled until user picks a number that differs from current qty. For in/out, also enabled if a pre-selected tag from localStorage is valid.
+  const canInit=(!tags.length&&type!=="audit")||(tags.length>0&&!!selN);
   const initLabel=type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"請選擇盤點數量";
   var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:function(){if(this.disabled)return;this.disabled=true;const ct=(customT||"").trim();const sn=(selN||"").trim();const fn=sn==="調貨"&&ct?"調貨："+ct:sn;doAction(type,it,selQ,fn);}},initLabel);
   box.appendChild(confirmBtn);
@@ -1203,12 +1208,21 @@ function renderAccountModal(){
       };
       addWrap.appendChild(addNI);addWrap.appendChild(addPI);addWrap.appendChild(addRoleSel);addWrap.appendChild(addMsg);addWrap.appendChild(addBtn);
       box.appendChild(addWrap);
+      // Shared loader so 載入 / 重整 reuse the same code path (lock state, run, swallow errors with a toast).
+      const fetchActivity=async(btn,readyLabel)=>{btn.disabled=true;btn.textContent="載入中…";try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms));const snap=await Promise.race([dbA.once("value"),tm(8000)]);const arr=arrFromVal(snap.val())||[];S.activityLog=arr.filter(x=>x);render();}catch(e){console.error(e);btn.disabled=false;btn.textContent=readyLabel;showToast("⚠ 載入失敗，請重試");}};
       // Activity log peek
-      const logHdr=h("div",{style:{fontSize:"14px",fontWeight:700,marginTop:"14px",marginBottom:"8px",borderTop:"1px dashed var(--border)",paddingTop:"14px"}},"📜 最近操作紀錄");
+      const logHdr=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:"14px",marginBottom:"8px",borderTop:"1px dashed var(--border)",paddingTop:"14px"}});
+      logHdr.appendChild(h("span",{style:{fontSize:"14px",fontWeight:700}},"📜 最近操作紀錄"));
+      if(S.activityLog.length){
+        // Reload button — handy after another admin makes changes while this modal is open. Without it the only way to see new entries is to close+reopen the whole account modal.
+        const reloadBtn=h("button",{style:{padding:"3px 8px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"10px",fontWeight:600,cursor:"pointer"}},"🔄 重整");
+        reloadBtn.onclick=function(){fetchActivity(this,"🔄 重整");};
+        logHdr.appendChild(reloadBtn);
+      }
       box.appendChild(logHdr);
       if(!S.activityLog.length){
         const loadLogBtn=h("button",{style:{width:"100%",padding:"8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"12px",cursor:"pointer"}},"📋 載入操作紀錄");
-        loadLogBtn.onclick=async function(){this.disabled=true;this.textContent="載入中…";try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms));const snap=await Promise.race([dbA.once("value"),tm(8000)]);const arr=arrFromVal(snap.val())||[];S.activityLog=arr.filter(x=>x);render();}catch(e){console.error(e);this.disabled=false;this.textContent="📋 載入操作紀錄";showToast("⚠ 載入失敗，請重試");}};
+        loadLogBtn.onclick=function(){fetchActivity(this,"📋 載入操作紀錄");};
         box.appendChild(loadLogBtn);
       }else{
         const logBox=h("div",{style:{maxHeight:"180px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"8px"}});
