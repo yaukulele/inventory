@@ -1697,8 +1697,14 @@ function renderMain(){
       },(err,committed,snap)=>{
         if(err){console.error("moveItems tx failed:",err);showToast("⚠ 搬移失敗，請重試");resolve();return;}
         const a=arrFromVal(snap&&snap.val());
-        if(a&&S.items){S.items=mergeWithPending(a.filter(x=>x));saveCache();render();}
+        if(a&&S.items){S.items=mergeWithPending(a.filter(x=>x));saveCache();}
         if(committed&&lastAffected.length&&description){
+          // Auto-expand destination brand+cat so dragged items don't appear to vanish into a collapsed brand card.
+          const newZ=patch.z||lastAffected[0].z||"店內";
+          const zonePrefix=newZ==="倉庫"?"W":"S";
+          const newB=patch.b||lastAffected[0].b;
+          const newC=patch.c||lastAffected[0].c;
+          if(newB){S.bOpen[zonePrefix+newB]=true;if(newC)S.cOpen[zonePrefix+newB+"|"+newC]=true;}
           const totalQ=lastAffected.reduce((s,x)=>s+(x.q||0),0);
           const sample=lastAffected.slice(0,3).map(x=>x.n).join("、");
           const summaryName=lastAffected.length===1?lastAffected[0].n:(sample+(lastAffected.length>3?(" 等 "+lastAffected.length+" 項"):""));
@@ -1707,6 +1713,7 @@ function renderMain(){
           pushLogLocal(logEntry);
           appendLog(logEntry);
         }
+        render();
         resolve();
       },false);
     });
