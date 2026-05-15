@@ -1411,8 +1411,14 @@ async function bulkMoveItems(ids,patch,description){
     },(err,committed,snap)=>{
       if(err){console.error("bulkMoveItems failed:",err);showToast("⚠ 搬移失敗");resolve(false);return;}
       const a=arrFromVal(snap&&snap.val());
-      if(a&&S.items){S.items=mergeWithPending(a.filter(x=>x));saveCache();render();}
+      if(a&&S.items){S.items=mergeWithPending(a.filter(x=>x));saveCache();}
       if(committed&&lastAffected.length){
+        // Auto-expand destination so the moved items are immediately visible — without this users see the source row vanish and might think the items were deleted.
+        const newZ=patch.z||lastAffected[0].z||"店內";
+        const zonePrefix=newZ==="倉庫"?"W":"S";
+        const newB=patch.b||lastAffected[0].b;
+        const newC=patch.c||lastAffected[0].c;
+        if(newB){S.bOpen[zonePrefix+newB]=true;if(newC)S.cOpen[zonePrefix+newB+"|"+newC]=true;}
         const totalQ=lastAffected.reduce((s,x)=>s+(x.q||0),0);
         const sample=lastAffected.slice(0,3).map(x=>x.n).join("、");
         const summaryName=lastAffected.length===1?lastAffected[0].n:(sample+(lastAffected.length>3?(" 等 "+lastAffected.length+" 項"):""));
@@ -1420,6 +1426,7 @@ async function bulkMoveItems(ids,patch,description){
         const logEntry={id:uid(),iid:lastAffected[0].id,u:S.user,a:"✏️搬移",n:summaryName,b:newBrand,d:description,pq:totalQ,nq:totalQ,t:ts()};
         pushLogLocal(logEntry);appendLog(logEntry);
       }
+      render();
       resolve(committed);
     },false);
   });
