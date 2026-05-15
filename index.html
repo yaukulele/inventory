@@ -1822,6 +1822,46 @@ function renderMain(){
       ));
     }
     content.appendChild(sumCard);
+    // 7-day user activity leaderboard — quick "who's been working" view without leaving stats. Uses allLogs so loaded older history feeds in too.
+    const wkStart=Date.now()-7*86400000;
+    const byUser={};
+    allLogs.forEach(l=>{
+      const t=l.t;if(!t)return;
+      const iso=t.replace(/\//g,"-").replace(" ","T");
+      const d=new Date(iso);if(isNaN(d)||d.getTime()<wkStart)return;
+      const u=l.u||"未知";
+      if(!byUser[u])byUser[u]={total:0,in:0,out:0,audit:0,other:0};
+      byUser[u].total++;
+      const a=l.a||"";
+      if(a.includes("進"))byUser[u].in++;
+      else if(a.includes("出"))byUser[u].out++;
+      else if(a.includes("盤"))byUser[u].audit++;
+      else byUser[u].other++;
+    });
+    const userEntries=Object.entries(byUser).sort((a,b)=>b[1].total-a[1].total);
+    if(userEntries.length){
+      const userCard=h("div",{className:"card",style:{marginBottom:"14px"}});
+      userCard.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px"}},"👥 近 7 天活動"));
+      const maxT=userEntries[0][1].total;
+      userEntries.forEach(([u,st],i)=>{
+        const pct=Math.round(st.total/maxT*100);
+        const row=h("div",{style:{padding:"8px 14px",borderBottom:"1px solid #f1f5f9"}});
+        row.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"4px"}},
+          h("span",{style:{fontSize:"12px",fontWeight:700,color:i===0?"var(--blue)":"var(--sub)",minWidth:"20px"}},String(i+1)),
+          h("div",{style:{flex:1,fontSize:"13px",fontWeight:600}},u),
+          h("span",{style:{fontSize:"13px",fontWeight:700,color:"var(--blue)"}},String(st.total))
+        ));
+        row.appendChild(h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9",marginBottom:"4px"}},h("div",{style:{height:"4px",borderRadius:"2px",background:i===0?"var(--blue)":"#94a3b8",width:pct+"%"}})));
+        const parts=[];
+        if(st.in)parts.push(h("span",{style:{color:"var(--green)"}},"📥"+st.in));
+        if(st.out)parts.push(h("span",{style:{color:"var(--red)"}},"📤"+st.out));
+        if(st.audit)parts.push(h("span",{style:{color:"var(--blue)"}},"📋"+st.audit));
+        if(st.other)parts.push(h("span",{style:{color:"var(--sub)"}},"其他"+st.other));
+        row.appendChild(h("div",{style:{display:"flex",gap:"8px",fontSize:"10px",color:"var(--sub)"}},parts));
+        userCard.appendChild(row);
+      });
+      content.appendChild(userCard);
+    }
     // Build id→item map. Aggregate logs by iid where possible; legacy logs (no iid) get re-keyed via current name match
     // so a rename + a few legacy entries don't fragment a single item across multiple top-rank slots.
     const idItemMap={};S.items.forEach(x=>{idItemMap[x.id]=x;});
