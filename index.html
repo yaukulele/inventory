@@ -634,17 +634,21 @@ function h(t,p,...c){const e=document.createElement(t);if(p)Object.entries(p).fo
 async function postLogin(){
   const cached=hydrateFromCache();
   S.phase=cached?"ready":"loading";
+  // lastSyncAt is only bumped on successful fbLoad; comparing before/after lets us surface a silent timeout that would otherwise leave the user staring at stale cached data with no clue why everything looks frozen.
+  const beforeSync=S.lastSyncAt;
   render();
   if(cached){
     fbLoad().then(()=>{
       // If user logged out while background fbLoad was running, don't yank them back to ready.
       if(S.phase==="login")return;
+      if(S.lastSyncAt===beforeSync)showToast("⚠ 同步失敗，目前顯示本地快取");
       startRealtimeSync();S.phase="ready";render();
     });
   }
   else{
     await fbLoad();
     if(S.phase==="login")return;  // Same guard for non-cached path
+    if(S.lastSyncAt===beforeSync)showToast("⚠ 同步失敗，使用預設清單");
     S.phase="ready";render();startRealtimeSync();
   }
 }
