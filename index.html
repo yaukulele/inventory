@@ -351,7 +351,17 @@ async function startRealtimeSync(){
     if(_pendingDeletes.size)merged=merged.filter(x=>!_pendingDeletes.has(x.id));
     const sig=arr=>JSON.stringify(arr.map(x=>x&&[x.id,x.q,x.n,x.b,x.c,x.z,x.img||"",x.dsc||""]));
     const prev=sig(S.items),next=sig(merged);
-    if(prev!==next){S.items=merged;S.lastSyncAt=Date.now();saveCache();if(canRender())listenerRender();}
+    if(prev!==next){
+      S.items=merged;
+      S.lastSyncAt=Date.now();
+      // Prune _sel of items that no longer exist remotely — otherwise the "已選 N" count keeps phantom ids that another user has already deleted, and bulk operations would write log entries for non-existent items.
+      if(S._sel&&S._sel.size){
+        const liveIds=new Set(merged.map(x=>x.id));
+        S._sel=new Set([...S._sel].filter(id=>liveIds.has(id)));
+      }
+      saveCache();
+      if(canRender())listenerRender();
+    }
   });
   dbL.limitToFirst(200).on("value",snap=>{const remote=arrFromVal(snap.val());
     if(!remote)return;
