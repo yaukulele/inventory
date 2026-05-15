@@ -1367,6 +1367,102 @@ function renderDelConfirmModal(){
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=delBack||null;render();}}),box);
 }
 
+// Top-level bulk move so the modal (outside renderMain's drag-handler scope) can invoke it. Mirrors moveItems but takes a Set of ids — single dbI.transaction touches all affected entries, then writes one summary log so the audit trail stays compact.
+async function bulkMoveItems(ids,patch,description){
+  return new Promise(resolve=>{
+    let lastAffected=[];
+    dbI.transaction(cur=>{
+      const arr=arrFromVal(cur);
+      if(!arr)return cur;
+      lastAffected=arr.filter(x=>x&&ids.has(x.id));
+      let changed=false;
+      const next=arr.map(x=>{if(x&&ids.has(x.id)){changed=true;return{...x,...patch};}return x;});
+      return changed?next:arr;
+    },(err,committed,snap)=>{
+      if(err){console.error("bulkMoveItems failed:",err);showToast("⚠ 搬移失敗");resolve(false);return;}
+      const a=arrFromVal(snap&&snap.val());
+      if(a&&S.items){S.items=mergeWithPending(a.filter(x=>x));saveCache();render();}
+      if(committed&&lastAffected.length){
+        const totalQ=lastAffected.reduce((s,x)=>s+(x.q||0),0);
+        const sample=lastAffected.slice(0,3).map(x=>x.n).join("、");
+        const summaryName=lastAffected.length===1?lastAffected[0].n:(sample+(lastAffected.length>3?(" 等 "+lastAffected.length+" 項"):""));
+        const newBrand=patch.b||lastAffected[0].b;
+        const logEntry={id:uid(),iid:lastAffected[0].id,u:S.user,a:"✏️搬移",n:summaryName,b:newBrand,d:description,pq:totalQ,nq:totalQ,t:ts()};
+        pushLogLocal(logEntry);appendLog(logEntry);
+      }
+      resolve(committed);
+    },false);
+  });
+}
+
+// Modal for bulk moving N items to a new brand+cat (optionally zone). Triggered from the select-mode action bar.
+function renderBulkMoveModal(){
+  if(!S.modal||S.modal.t!=="bulk-move")return null;
+  const ids=new Set(S.modal.ids||[]);
+  const items=(S.items||[]).filter(x=>x&&ids.has(x.id));
+  const close=()=>{S.modal=null;render();};
+  if(!items.length){S.modal=null;showToast("⚠ 沒有選取項");return null;}
+  const box=h("div",{className:"modal-box",style:{maxWidth:"420px"}});
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},
+    h("h3",{style:{fontSize:"18px",fontWeight:700}},"📦 批次搬移"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")
+  ));
+  // Show preview of items being moved
+  const sampleNames=items.slice(0,5).map(x=>x.n).join("、")+(items.length>5?(" … 等 "+items.length+" 項"):"");
+  box.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"12px",padding:"8px 10px",background:"#f8fafc",borderRadius:"8px"}},"將搬移 "+items.length+" 項：",h("div",{style:{marginTop:"4px",color:"var(--text)",fontWeight:500}},sampleNames)));
+  // Brand picker
+  const brands=[...new Set((S.items||[]).map(x=>x.b))].sort();
+  const bcInp=h("input",{className:"ipt",placeholder:"新品牌名稱",style:{display:"none",marginTop:"6px"}});
+  const bSel=h("select",{className:"ipt"});
+  bSel.appendChild(h("option",{value:""},"-- 維持原品牌 --"));
+  brands.forEach(b=>bSel.appendChild(h("option",{value:b},b)));
+  bSel.appendChild(h("option",{value:"__newB"},"✏️ 自訂新品牌"));
+  const ccInp=h("input",{className:"ipt",placeholder:"新分類名稱",style:{display:"none",marginTop:"6px"}});
+  const cSel=h("select",{className:"ipt"});
+  const rebuildCats=()=>{
+    cSel.innerHTML="";
+    cSel.appendChild(h("option",{value:""},"-- 維持原分類 --"));
+    if(bSel.value&&bSel.value!=="__newB"){
+      [...new Set((S.items||[]).filter(x=>x.b===bSel.value).map(x=>x.c))].sort().forEach(c=>cSel.appendChild(h("option",{value:c},c)));
+    }
+    cSel.appendChild(h("option",{value:"__new"},"✏️ 自訂新分類"));
+  };
+  rebuildCats();
+  bSel.addEventListener("change",()=>{bcInp.style.display=bSel.value==="__newB"?"block":"none";if(bSel.value==="__newB")setTimeout(()=>bcInp.focus(),0);rebuildCats();ccInp.style.display="none";ccInp.value="";});
+  cSel.addEventListener("change",()=>{ccInp.style.display=cSel.value==="__new"?"block":"none";});
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"新品牌"),bSel,bcInp));
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"新分類"),cSel,ccInp));
+  // Zone picker
+  const zSel=h("select",{className:"ipt"},h("option",{value:""},"-- 維持原區域 --"),h("option",{value:"店內"},"🏪 店內"),h("option",{value:"倉庫"},"🏭 倉庫"));
+  box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"區域"),zSel));
+  const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
+  btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:close},"取消"));
+  const confirmBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){
+    if(this.disabled)return;
+    let newB=bSel.value==="__newB"?bcInp.value.trim():bSel.value;
+    let newC=cSel.value==="__new"?ccInp.value.trim():cSel.value;
+    if(bSel.value==="__newB"&&!newB){alert("請輸入新品牌名稱");return;}
+    if(cSel.value==="__new"&&!newC){alert("請輸入新分類名稱");return;}
+    const newZ=zSel.value;
+    const patch={};if(newB)patch.b=newB;if(newC)patch.c=newC;if(newZ)patch.z=newZ;
+    if(!Object.keys(patch).length){alert("沒有變更");return;}
+    const desc=[newB?"品牌「"+newB+"」":"",newC?"分類「"+newC+"」":"",newZ?"區域「"+newZ+"」":""].filter(Boolean).join(" / ");
+    if(!confirm("把 "+items.length+" 個品項搬到 "+desc+"？"))return;
+    this.disabled=true;this.textContent="搬移中…";
+    const ok=await bulkMoveItems(ids,patch,"批次搬到 "+desc);
+    if(ok){
+      S.modal=null;S._sel=null;S._selectMode=false;
+      showToast("📦 已批次搬移 "+items.length+" 項");
+      render();
+    } else {
+      this.disabled=false;this.textContent="📦 確認搬移";
+    }
+  }},"📦 確認搬移");
+  btnRow.appendChild(confirmBtn);
+  box.appendChild(btnRow);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
+}
+
 function genExportText(zone,selDate){
   const today=new Date();const td=today.getFullYear()+"/"+String(today.getMonth()+1).padStart(2,"0")+"/"+String(today.getDate()).padStart(2,"0");
   // Use selected date or today
@@ -2124,6 +2220,7 @@ function renderMain(){
   const lbm=renderLightboxModal();if(lbm)root.appendChild(lbm);
   const acm=renderAccountModal();if(acm)root.appendChild(acm);
   const aem=renderAccountEditModal();if(aem)root.appendChild(aem);
+  const bmm=renderBulkMoveModal();if(bmm)root.appendChild(bmm);
   // Missing data modal
   if(S.modal&&S.modal.t==="missing"){
     const filter=S.modal.filter||"all";
@@ -2199,6 +2296,7 @@ function renderMain(){
     }
     bar.appendChild(h("div",{style:{flex:1}}));
     if(selSize>0){
+      bar.appendChild(h("button",{style:{padding:"7px 12px",borderRadius:"8px",border:"1px solid var(--blue)",background:"#fff",color:"var(--blue)",fontSize:"12px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"},onClick:()=>{S.modal={t:"bulk-move",ids:[...S._sel]};render();}},"📦 搬到…"));
       bar.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"8px",border:"none",background:"var(--red)",color:"#fff",fontSize:"12px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"},onClick:()=>{if(S._sel)bulkDeleteSelection(new Set(S._sel));}},"🗑 刪除 "+selSize));
     }
     bar.appendChild(h("button",{style:{padding:"7px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{S._selectMode=false;S._sel=null;render();}},"退出"));
