@@ -1868,7 +1868,11 @@ function renderMain(){
       const countRow=h("div",{style:{display:"flex",alignItems:"center",marginBottom:"8px",gap:"8px"}});
       if(hasFilter)countRow.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:500,flex:1}},"找到 "+filteredLogs.length+" 筆紀錄"));
       else countRow.appendChild(h("div",{style:{flex:1}}));
-      const csvBtn=h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"#7c3aed",fontSize:"11px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"},title:hasFilter?"匯出當前篩選結果為 CSV":"匯出全部紀錄為 CSV"},hasFilter?"📥 匯出 CSV":"📥 全部 CSV");
+      // "全部 CSV" is misleading when olderLogs hasn't been fetched — we'd only export the 200-log listener window. Surface this so the user knows whether to fetch older first.
+      const csvFullData=S.olderLogs.length||S.logs.length<200;
+      const csvLabel=hasFilter?"📥 匯出 CSV":(csvFullData?"📥 全部 CSV":"📥 最新 200 CSV");
+      const csvTitle=hasFilter?"匯出當前篩選結果為 CSV":(csvFullData?"匯出全部紀錄為 CSV":"目前只看到最新 200 筆，先按下方「📜 載入更舊紀錄」才有完整資料");
+      const csvBtn=h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"#7c3aed",fontSize:"11px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"},title:csvTitle},csvLabel);
       csvBtn.onclick=()=>{
         // Use the same matchedItem/logBrand lookups so deleted items still get a sensible brand/zone.
         const rows=[["時間","動作","品牌","商品","區域","備註","變化前","變化後","使用者"]];
