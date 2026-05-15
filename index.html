@@ -2304,7 +2304,8 @@ function renderMain(){
     // "全選" toggles all currently filtered/visible items in this zone — respects search + showZero so user can search "EG弦", 全選, delete.
     const visibleIds=fil.map(x=>x.id);
     const allVisibleSelected=visibleIds.length>0&&S._sel&&visibleIds.every(id=>S._sel.has(id));
-    const bar=h("div",{style:{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:"2px solid var(--blue)",padding:"10px 12px",display:"flex",gap:"6px",alignItems:"center",zIndex:50,boxShadow:"0 -4px 12px rgba(0,0,0,.08)"}});
+    // flex-wrap so action buttons drop to a second row on narrow phones instead of overflowing the viewport horizontally.
+    const bar=h("div",{style:{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:"2px solid var(--blue)",padding:"10px 12px",display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap",zIndex:50,boxShadow:"0 -4px 12px rgba(0,0,0,.08)"}});
     // iOS home-bar safe area — without this the action bar tucks behind the home indicator on notch phones.
     bar.style.paddingBottom="calc(10px + env(safe-area-inset-bottom,0))";
     bar.appendChild(h("span",{style:{fontSize:"13px",fontWeight:700,color:"var(--blue)",marginRight:"4px",whiteSpace:"nowrap"}},"已選 "+selSize));
@@ -2324,8 +2325,8 @@ function renderMain(){
     }
     bar.appendChild(h("button",{style:{padding:"7px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{S._selectMode=false;S._sel=null;render();}},"退出"));
     root.appendChild(bar);
-    // Ensure the bottom rows aren't covered by the fixed bar.
-    content.style.paddingBottom="80px";
+    // Ensure the bottom rows aren't covered by the fixed bar (which can be 1-2 rows tall with flex-wrap on narrow viewports).
+    content.style.paddingBottom="120px";
   }
   return root;
 }
