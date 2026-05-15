@@ -747,7 +747,12 @@ function renderRow(it){
   // Name (clickable) + missing indicators
   const nameWrap=h("div",{style:{flex:1,minWidth:0,overflow:"hidden",cursor:"pointer",display:"flex",alignItems:"center",gap:"4px"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
   nameWrap.appendChild(h("span",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}},...highlightText(it.n,S.search)));
-  if(!it.img||!it.dsc)nameWrap.appendChild(h("span",{style:{fontSize:"9px",color:"#f59e0b",flexShrink:0,title:"缺資料"},title:(!it.img?"無圖 ":"")+(!it.dsc?"無敘述":"")},"●"));
+  if(!it.img||!it.dsc){
+    // Clicking the orange dot is a shortcut to "fill missing info" — opens straight into edit mode instead of detail-view-then-edit. Stop propagation so the parent nameWrap's plain-detail click doesn't fire.
+    const dot=h("span",{style:{fontSize:"9px",color:"#f59e0b",flexShrink:0,cursor:pv?"default":"pointer"},title:(!it.img?"無圖 ":"")+(!it.dsc?"無敘述":"")+(pv?"":" — 點擊編輯")},"●");
+    if(!pv)dot.onclick=e=>{e.stopPropagation();S.modal={t:"detail",id:it.id,edit:true};render();};
+    nameWrap.appendChild(dot);
+  }
   row.appendChild(nameWrap);
   row.appendChild(h("span",{style:{minWidth:"36px",padding:"2px 8px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
   if(!pv){
@@ -826,7 +831,10 @@ function renderAddModal(){
   const rawLastC=(()=>{try{return localStorage.getItem("inv_lastC")||"";}catch(e){return "";}})();
   const lastC=lastB&&S.items.some(x=>x.b===lastB&&x.c===rawLastC)?rawLastC:"";
   let selB=lastB,selC="";const box=h("div",{className:"modal-box"});
-  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},"➕ 新增商品"),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:()=>{S.modal=null;render();}},"✕")));
+  // Filled in after the field inputs are constructed so closeAdd can ask "discard unsaved?" without forward-reference TDZ issues.
+  let isAddDirty=null;
+  const closeAdd=()=>{if(isAddDirty&&isAddDirty()&&!confirm("有未送出的內容，確定關閉？"))return;S.modal=null;render();};
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},"➕ 新增商品"),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:closeAdd},"✕")));
   const zS=h("select",{className:"ipt"},h("option",{value:"店內"},"店內"),h("option",{value:"倉庫"},"倉庫"));if(S.tab==="warehouse")zS.value="倉庫";
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"區域"),zS));
   const brands=[...brandsSet].sort();
@@ -859,12 +867,22 @@ function renderAddModal(){
   // Description
   const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"60px",resize:"vertical",fontFamily:"inherit"}});
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
+  // Dirty check: any actively-typed input counts. Brand auto-pre-select from localStorage doesn't (avoids prompting on empty-form close).
+  isAddDirty=()=>{
+    if(nI.value.trim())return true;
+    if(dscI.value.trim())return true;
+    if(imgI.value.trim())return true;
+    const q=parseInt(qI.value);if(!isNaN(q)&&q!==0)return true;
+    if(ccI.value.trim())return true;
+    if(bcI.value.trim())return true;
+    return false;
+  };
   const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;const initQ=Math.max(0,parseInt(qI.value)||0);doAdd({z:zS.value,b:brand,c:cat,n,q:initQ,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
   // Auto-focus name input so the user can start typing immediately (especially after the "再加一個" continuation flow)
   setTimeout(()=>{const el=document.getElementById("addNameInput");if(el)el.focus();},50);
-  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeAdd}),box);
 }
 
 function renderDetailModal(){
@@ -1768,10 +1786,15 @@ function renderMain(){
     const mDel=monthLogs.filter(l=>(l.a||"").includes("🗑")).length;
     const sumCard=h("div",{className:"card",style:{marginBottom:"14px",padding:"16px"}});
     sumCard.appendChild(h("div",{style:{fontSize:"15px",fontWeight:700,marginBottom:"12px"}},"📊 "+(now.getMonth()+1)+"月 統計"));
+    // Daily average so far this month — early-month numbers tend to look small without context, daily-avg shows the actual pace.
+    const daysSoFar=Math.max(1,now.getDate());
+    const avgIn=(mIn.length/daysSoFar).toFixed(1);
+    const avgOut=(mOut.length/daysSoFar).toFixed(1);
+    const avgTotal=(monthLogs.length/daysSoFar).toFixed(1);
     sumCard.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px",marginBottom:"8px"}},
-      h("div",{style:{textAlign:"center",padding:"10px",background:"#f0fdf4",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"進貨筆數"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--green)"}},String(mIn.length))),
-      h("div",{style:{textAlign:"center",padding:"10px",background:"#fef2f2",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"出貨筆數"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--red)"}},String(mOut.length))),
-      h("div",{style:{textAlign:"center",padding:"10px",background:"var(--blue-light)",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"總異動"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--blue)"}},String(monthLogs.length)))
+      h("div",{style:{textAlign:"center",padding:"10px",background:"#f0fdf4",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"進貨筆數"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--green)"}},String(mIn.length)),h("div",{style:{fontSize:"9px",color:"var(--sub)",marginTop:"2px"}},"日均 "+avgIn)),
+      h("div",{style:{textAlign:"center",padding:"10px",background:"#fef2f2",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"出貨筆數"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--red)"}},String(mOut.length)),h("div",{style:{fontSize:"9px",color:"var(--sub)",marginTop:"2px"}},"日均 "+avgOut)),
+      h("div",{style:{textAlign:"center",padding:"10px",background:"var(--blue-light)",borderRadius:"10px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},"總異動"),h("div",{style:{fontSize:"22px",fontWeight:800,color:"var(--blue)"}},String(monthLogs.length)),h("div",{style:{fontSize:"9px",color:"var(--sub)",marginTop:"2px"}},"日均 "+avgTotal))
     ));
     if(mAudit||mEdit||mAdd||mDel)sumCard.appendChild(h("div",{style:{display:"flex",gap:"4px",justifyContent:"space-around",fontSize:"11px",color:"var(--sub)",padding:"6px 0 0",borderTop:"1px dashed #f1f5f9"}},
       mAudit?h("span",{},"📋 盤 "+mAudit):null,
