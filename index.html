@@ -87,9 +87,18 @@ firebase.initializeApp({apiKey:"AIzaSyBxYfM4VPFg7DNrk1rmZHD_neJl2YVHaGk",authDom
 // keeps working. Once Console is set up + rules tightened to `.write: auth != null`, this resolves.
 const authReady=firebase.auth().signInAnonymously().then(()=>true).catch(err=>{
   console.warn("anon auth failed:",err);
+  // Build the banner via DOM APIs (not innerHTML) so err.message can't inject markup. Firebase auth errors are normally tame strings but treat external input as hostile by default.
   const b=document.createElement("div");
   b.style.cssText="position:fixed;bottom:0;left:0;right:0;background:#fef3c7;border-top:1px solid #f59e0b;padding:8px 12px;font-size:12px;text-align:center;z-index:9999;color:#78350f;font-family:'Noto Sans TC',sans-serif";
-  b.innerHTML='⚠ Firebase 匿名登入失敗：'+(err&&err.message||err)+' — <a href="https://console.firebase.google.com/project/order-system-dddca/authentication/providers" target="_blank" style="color:#1d4ed8;font-weight:600">啟用 Anonymous Auth</a> 後重新整理';
+  const msg=(err&&err.message)||String(err||"unknown");
+  b.appendChild(document.createTextNode("⚠ Firebase 匿名登入失敗："+msg+" — "));
+  const a=document.createElement("a");
+  a.href="https://console.firebase.google.com/project/order-system-dddca/authentication/providers";
+  a.target="_blank";a.rel="noopener";
+  a.style.cssText="color:#1d4ed8;font-weight:600";
+  a.textContent="啟用 Anonymous Auth";
+  b.appendChild(a);
+  b.appendChild(document.createTextNode(" 後重新整理"));
   document.body.appendChild(b);
   return false;
 });
@@ -386,7 +395,8 @@ async function doAction(type,it,qty,note){
   // Undo flag prevents recursive undo (the "(撤銷)" action shouldn't itself offer another undo).
   const undoOpts=(!note||note.indexOf("(撤銷)")<0)&&(type==="in"||type==="out")?{
     label:"↶ 撤銷",
-    fn:()=>{const opp=type==="in"?"out":"in";const cur=S.items.find(x=>x.id===it.id);if(!cur){showToast("⚠ 此品項已被刪除");return;}doAction(opp,cur,oa,"(撤銷)");}
+    // If the user logged out while the toast was still on screen, S.items is null and a naive .find throws TypeError — bail out cleanly.
+    fn:()=>{if(!S.items){showToast("⚠ 已登出，無法撤銷");return;}const opp=type==="in"?"out":"in";const cur=S.items.find(x=>x.id===it.id);if(!cur){showToast("⚠ 此品項已被刪除");return;}doAction(opp,cur,oa,"(撤銷)");}
   }:null;
   showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+optNq+diffStr,undoOpts);
   render();
@@ -1310,7 +1320,8 @@ function renderExportModal(){
     const zoneItems=S.items.filter(x=>(x.z||"店內")===expZone);
     const rows=[["品牌","分類","商品名","數量","區域","圖片","敘述"]];
     zoneItems.forEach(it=>rows.push([it.b,it.c,it.n,it.q,it.z||"店內",it.img||"",(it.dsc||"").replace(/\n/g," ")]));
-    const esc=v=>{const s=String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+    // CSV formula injection: Excel/Sheets execute cells beginning with = + - @ \t \r when opened. Prefix with apostrophe to force text interpretation.
+    const esc=v=>{let s=String(v);if(/^[=+\-@\t\r]/.test(s))s="'"+s;return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
     const csv="\ufeff"+rows.map(r=>r.map(esc).join(",")).join("\r\n");
     downloadBlob(csv,expZone+"庫存_"+d.replace(/\//g,"-")+".csv","text/csv;charset=utf-8");
     showToast("📊 CSV 已下載");
@@ -1614,7 +1625,8 @@ function renderMain(){
         // Use the same matchedItem/logBrand lookups so deleted items still get a sensible brand/zone.
         const rows=[["時間","動作","品牌","商品","區域","備註","變化前","變化後","使用者"]];
         filteredLogs.forEach(l=>{const mi=matchedItem(l);rows.push([l.t||"",l.a||"",logBrand(l)||"",l.n||"",mi?(mi.z||"店內"):"",l.d||"",l.pq||0,l.nq||0,l.u||""]);});
-        const esc=v=>{const s=String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+        // CSV formula injection: Excel/Sheets execute cells beginning with = + - @ \t \r when opened. Prefix with apostrophe to force text interpretation.
+    const esc=v=>{let s=String(v);if(/^[=+\-@\t\r]/.test(s))s="'"+s;return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
         const csv="﻿"+rows.map(r=>r.map(esc).join(",")).join("\r\n");
         const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
         const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;
