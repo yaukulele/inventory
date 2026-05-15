@@ -886,17 +886,21 @@ function renderActionModal(){
 
 function renderAddModal(){
   if(!S.modal||S.modal.t!=="add")return null;
+  // dup carries brand/cat/zone/name/img/dsc from a "🔁 複製" click in a detail modal. Falls back to last-used brand/cat from localStorage when absent.
+  const dup=S.modal.dup||null;
   const brandsSet=new Set(S.items.map(x=>x.b));
   const rawLastB=(()=>{try{return localStorage.getItem("inv_lastB")||"";}catch(e){return "";}})();
-  const lastB=brandsSet.has(rawLastB)?rawLastB:"";
+  const lastB=dup?(brandsSet.has(dup.b)?dup.b:""):(brandsSet.has(rawLastB)?rawLastB:"");
   const rawLastC=(()=>{try{return localStorage.getItem("inv_lastC")||"";}catch(e){return "";}})();
-  const lastC=lastB&&S.items.some(x=>x.b===lastB&&x.c===rawLastC)?rawLastC:"";
+  const lastC=dup?(lastB&&S.items.some(x=>x.b===lastB&&x.c===dup.c)?dup.c:""):(lastB&&S.items.some(x=>x.b===lastB&&x.c===rawLastC)?rawLastC:"");
   let selB=lastB,selC="";const box=h("div",{className:"modal-box"});
   // Filled in after the field inputs are constructed so closeAdd can ask "discard unsaved?" without forward-reference TDZ issues.
   let isAddDirty=null;
   const closeAdd=()=>{if(isAddDirty&&isAddDirty()&&!confirm("有未送出的內容，確定關閉？"))return;S.modal=null;render();};
-  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},"➕ 新增商品"),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:closeAdd},"✕")));
-  const zS=h("select",{className:"ipt"},h("option",{value:"店內"},"店內"),h("option",{value:"倉庫"},"倉庫"));if(S.tab==="warehouse")zS.value="倉庫";
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},dup?"🔁 複製商品":"➕ 新增商品"),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:closeAdd},"✕")));
+  const zS=h("select",{className:"ipt"},h("option",{value:"店內"},"店內"),h("option",{value:"倉庫"},"倉庫"));
+  if(dup&&dup.z)zS.value=dup.z;
+  else if(S.tab==="warehouse")zS.value="倉庫";
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"區域"),zS));
   const brands=[...brandsSet].sort();
   const cS=h("select",{className:"ipt",onChange:e=>{selC=e.target.value;}});cS.appendChild(h("option",{value:""},"-- 選擇分類 --"));
@@ -928,6 +932,13 @@ function renderAddModal(){
   // Description
   const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"60px",resize:"vertical",fontFamily:"inherit"}});
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
+  // Pre-fill from "🔁 複製" source. Initial qty stays 0 — duplicating quantity from another item is rarely what you want.
+  if(dup){
+    nI.value=dup.n||"";
+    if(dup.img){imgI.value=dup.img;imgI.dispatchEvent(new Event("input"));}
+    if(dup.dsc)dscI.value=dup.dsc;
+    setTimeout(()=>{const el=document.getElementById("addNameInput");if(el){el.focus();el.select();}},80);
+  }
   // Dirty check: any actively-typed input counts. Brand auto-pre-select from localStorage doesn't (avoids prompting on empty-form close).
   isAddDirty=()=>{
     if(nI.value.trim())return true;
@@ -1077,7 +1088,11 @@ function renderDetailModal(){
       actRow.appendChild(h("button",{style:{padding:"11px 0",borderRadius:"10px",border:"none",background:"#f0f9ff",color:"var(--blue)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"audit",it,back:detailBack};render();}},"📋 盤點"));
       actRow.appendChild(h("button",{style:{padding:"11px 0",borderRadius:"10px",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"del-confirm",id:it.id,back:detailBack};render();}},"🗑 刪除"));
       box.appendChild(actRow);
-      box.appendChild(h("button",{style:{width:"100%",padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--text)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,edit:true,back};render();}},"✏️ 編輯資料"));
+      box.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"2fr 1fr",gap:"6px"}},
+        h("button",{style:{padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--text)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,edit:true,back};render();}},"✏️ 編輯資料"),
+        // Duplicate creates a new item pre-filled with this one's brand/cat/zone/img/dsc — fast way to add variants (different color/size).
+        h("button",{style:{padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"#7c3aed",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"add",dup:{b:it.b,c:it.c,z:it.z||"店內",n:it.n+" (複製)",img:it.img||"",dsc:it.dsc||""}};render();},title:"以此商品為範本新增"},"🔁 複製")
+      ));
     }
   }else{
     const nI=h("input",{className:"ipt",value:it.n});
