@@ -599,10 +599,15 @@ async function doSync(){
   _syncing=true;
   showToast("同步中…");
   const before=S.lastSyncAt;
+  // Snapshot olderLogs so a failed sync doesn't silently throw away history the user explicitly fetched.
+  // Previously this was wiped unconditionally — if sync timed out, user lost their loaded 300 older entries.
+  const savedOlder=S.olderLogs;
   S.olderLogs=[];
   try{await fbLoad();}finally{_syncing=false;}
-  if(S.lastSyncAt===before)showToast("⚠ 同步失敗，檢查連線");
-  else showToast("已同步");
+  if(S.lastSyncAt===before){
+    S.olderLogs=savedOlder;
+    showToast("⚠ 同步失敗，檢查連線");
+  }else showToast("已同步");
   render();
 }
 // Fetch logs older than the cached 200 (up to full 500). Stored separately so the listener's 200-window doesn't overwrite them.
@@ -1652,7 +1657,11 @@ function renderMain(){
       const dlC=dayLogs.filter(l=>(l.a||"").includes("🗑")).length;
       const extra=(adC?" 新"+adC:"")+(edC?" 編"+edC:"")+(dlC?" 刪"+dlC:"");
       logCard.appendChild(h("div",{className:"day-header"},h("span",{},date),h("span",{style:{fontWeight:500,fontSize:"11px"}},"進"+inC+" 出"+outC+(auC?" 盤"+auC:"")+extra+" 共"+dayLogs.length+"筆")));
-      dayLogs.forEach((l,i)=>{const matched=matchedItem(l);const lbBrand=logBrand(l);const brandCol=lbBrand?gc(lbBrand):"#cbd5e1";const nameEl=matched?h("b",{style:{color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},l.n):h("b",{style:{color:"var(--sub)"},title:"品項已刪除"},l.n);logCard.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"8px 14px 8px 10px",fontSize:"12px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9",borderLeft:"3px solid "+brandCol}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},nameEl,l.d?h("span",{style:{color:"var(--sub)",marginLeft:"4px",fontSize:"11px"}},l.d):null),h("span",{style:{fontSize:"11px",color:(l.nq||0)>(l.pq||0)?"var(--green)":(l.nq||0)<(l.pq||0)?"var(--red)":"var(--sub)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)"}},l.u)));});
+      dayLogs.forEach((l,i)=>{const matched=matchedItem(l);const lbBrand=logBrand(l);const brandCol=lbBrand?gc(lbBrand):"#cbd5e1";
+        // Reuse the store-tab highlight helper so the same yellow background marks matched terms inside the log name and detail.
+        const nameNodes=highlightText(l.n||"",S.logSearch||"");
+        const detailNodes=l.d?highlightText(l.d,S.logSearch||""):null;
+        const nameEl=matched?h("b",{style:{color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},nameNodes):h("b",{style:{color:"var(--sub)"},title:"品項已刪除"},nameNodes);logCard.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"8px 14px 8px 10px",fontSize:"12px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9",borderLeft:"3px solid "+brandCol}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},nameEl,detailNodes?h("span",{style:{color:"var(--sub)",marginLeft:"4px",fontSize:"11px"}},detailNodes):null),h("span",{style:{fontSize:"11px",color:(l.nq||0)>(l.pq||0)?"var(--green)":(l.nq||0)<(l.pq||0)?"var(--red)":"var(--sub)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)"}},l.u)));});
     });
     if(!filteredLogs.length)logCard.appendChild(h("div",{style:{padding:"30px",textAlign:"center",color:"var(--sub)"}},hasFilter?"沒有符合的紀錄":"尚無紀錄"));
     content.appendChild(logCard);
@@ -1734,6 +1743,25 @@ function renderMain(){
       mAdd?h("span",{},"➕ 新增 "+mAdd):null,
       mDel?h("span",{},"🗑 刪除 "+mDel):null
     ));
+    // Last-month comparison strip — useful for spotting trends ("出貨比上月多 30 筆") at a glance.
+    // Only meaningful if we have enough history; if user is on 200-log window and last month is partially clipped, the comparison is misleading. Mark with note if so.
+    const lastMonth=new Date(now.getFullYear(),now.getMonth()-1,1);
+    const lmYm=lastMonth.getFullYear()+"/"+String(lastMonth.getMonth()+1).padStart(2,"0");
+    const lmLogs=allLogs.filter(l=>(l.t||"").startsWith(lmYm));
+    if(lmLogs.length){
+      const lmIn=lmLogs.filter(l=>(l.a||"").includes("進")).length;
+      const lmOut=lmLogs.filter(l=>(l.a||"").includes("出")).length;
+      const lmTotal=lmLogs.length;
+      const diffSpan=(cur,prev,label)=>{const d=cur-prev;const col=d>0?"var(--green)":d<0?"var(--red)":"var(--sub)";const sign=d>0?"+":"";return h("span",{style:{display:"inline-flex",alignItems:"center",gap:"3px"}},h("span",{style:{color:"var(--sub)"}},label),h("b",{},String(prev)),d!==0?h("span",{style:{color:col,fontWeight:700}},"("+sign+d+")"):null);};
+      const partial=!S.olderLogs.length&&S.logs.length>=200;
+      sumCard.appendChild(h("div",{style:{display:"flex",gap:"10px",justifyContent:"space-around",fontSize:"11px",color:"var(--sub)",padding:"8px 4px 0",borderTop:"1px dashed #f1f5f9",flexWrap:"wrap",alignItems:"center",marginTop:"4px"}},
+        h("span",{style:{color:"var(--sub)",fontWeight:700,whiteSpace:"nowrap"}},"vs 上月："),
+        diffSpan(mIn.length,lmIn,"進"),
+        diffSpan(mOut.length,lmOut,"出"),
+        diffSpan(monthLogs.length,lmTotal,"總"),
+        partial?h("span",{style:{fontSize:"9px",color:"#b45309"},title:"上月資料可能未完整載入"},"⚠"):null
+      ));
+    }
     content.appendChild(sumCard);
     // Build id→item map. Aggregate logs by iid where possible; legacy logs (no iid) get re-keyed via current name match
     // so a rename + a few legacy entries don't fragment a single item across multiple top-rank slots.
