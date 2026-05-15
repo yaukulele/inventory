@@ -184,7 +184,7 @@ const dateOnly=t=>(t||"").split(" ")[0]||"";
 const _savedUser=(()=>{try{const u=localStorage.getItem("inv_user");return u&&US.includes(u)?u:US[0];}catch(e){return US[0];}})();
 // Read fresh each time renderLogin runs — after logout we clear inv_pass and the next login render must reflect that
 const getSavedPass=()=>{try{return localStorage.getItem("inv_pass")||"";}catch(e){return "";}};
-let S={items:null,logs:[],olderLogs:[],loadingOlder:false,user:_savedUser,role:"preview",phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",stockFilter:null,brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100,users:null,activityLog:[]};
+let S={items:null,logs:[],olderLogs:[],loadingOlder:false,user:_savedUser,role:"preview",phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100,users:null,activityLog:[]};
 
 const EXPECTED_COUNT=mkInit().length;
 const RESET_VER="v20260413d";
@@ -316,6 +316,8 @@ let _isDragging=false;
 // Throttled render for listener-triggered updates — coalesces multi-user broadcasts within 50ms window
 let _listenerRenderTimer=null;
 function listenerRender(){if(_listenerRenderTimer)return;_listenerRenderTimer=setTimeout(()=>{_listenerRenderTimer=null;render();},50);}
+// Module-level debounce timers for search inputs. Previously each renderMain call recreated a closure-local `searchTimer`, so a listener-triggered re-render would orphan the previous timer — it would fire afterward and write a stale value back into S.search, flickering whatever the user had typed in between. Hoisting them makes clearTimeout actually catch the previous timer.
+let _searchTimer=null,_logSearchTimer=null;
 
 // Real-time sync: listen for changes from other users
 let fbListening=false;
@@ -1033,8 +1035,21 @@ function renderDetailModal(){
     const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"80px",resize:"vertical",fontFamily:"inherit"}});
     dscI.value=it.dsc||"";
     box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述"),dscI));
+    // Track initial values so 取消 can warn before discarding unsaved edits. Without this an accidental tap on 取消 silently throws away description rewrites — particularly painful since the modal is wide and the button is close to the right edge.
+    const _initN=it.n,_initB=it.b,_initC=it.c,_initZ=origZ,_initImg=it.img||"",_initDsc=it.dsc||"";
+    const isDirty=()=>{
+      if(nI.value.trim()!==_initN)return true;
+      const curB=bSel.value==="__newB"?bcInp.value.trim():(bSel.value||_initB);
+      if(curB!==_initB)return true;
+      const curC=cSel.value==="__new"?ccInp.value.trim():cSel.value;
+      if(curC&&curC!==_initC)return true;
+      if(zS.value!==_initZ)return true;
+      if(imgI.value.trim()!==_initImg)return true;
+      if(dscI.value.trim()!==_initDsc)return true;
+      return false;
+    };
     const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
-    btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,back};render();}},"取消"));
+    btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(isDirty()&&!confirm("有未儲存的變更，確定放棄？"))return;S.modal={t:"detail",id:it.id,back};render();}},"取消"));
     const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim()});if(ok){const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
     btnRow.appendChild(saveBtn);
     box.appendChild(btnRow);
@@ -1400,7 +1415,16 @@ function renderMain(){
       h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
       (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{id:"syncLabel",style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
       h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account"};render();},title:"帳號設定"},"🔐"),
-      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{if(!isPreview())logActivity("登出");S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";try{localStorage.removeItem("inv_pass");}catch(e){}render();}},"登出"))
+      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{
+        if(!isPreview())logActivity("登出");
+        S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;
+        // Reset module-level optimistic-state singletons so any in-flight tx callbacks from this session can't pollute the next user's view (e.g. listener falling through to "show local pending" when S.items is null for the next login).
+        _pendingItems.clear();_pendingDeletes.clear();_pendingLogs.clear();
+        // Cancel pending debounce so a previously-typed search term doesn't fire after logout and re-set S.search.
+        clearTimeout(_searchTimer);clearTimeout(_logSearchTimer);_searchTimer=_logSearchTimer=null;
+        try{localStorage.removeItem("inv_pass");}catch(e){}
+        render();
+      }},"登出"))
   ));
   // Stats
   const statsDiv=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",padding:"12px 16px"}});
@@ -1422,8 +1446,7 @@ function renderMain(){
     const searchInp=h("input",{className:"ipt",placeholder:"搜尋品名、品牌、分類、敘述…",style:{paddingLeft:"32px",paddingRight:"32px"},id:"searchBox"});
     searchInp.value=S.search||"";
     const clearBtn=h("button",{style:{position:"absolute",right:"8px",top:"8px",background:"none",border:"none",fontSize:"16px",color:"var(--sub)",cursor:"pointer",display:S.search?"block":"none",padding:"2px"},onClick:()=>{S.search="";render();const el=document.getElementById("searchBox");if(el){el.value="";el.focus();}}},"✕");
-    let searchTimer=null;
-    searchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;clearTimeout(searchTimer);const v=this.value;clearBtn.style.display=v?"block":"none";searchTimer=setTimeout(()=>{S.search=v;render();/* focus 由 _render 自動還原 */},120);});
+    searchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;clearTimeout(_searchTimer);const v=this.value;clearBtn.style.display=v?"block":"none";_searchTimer=setTimeout(()=>{S.search=v;render();/* focus 由 _render 自動還原 */},120);});
     searchInp.addEventListener("compositionstart",function(){this.dataset.composing="true";});
     searchInp.addEventListener("compositionend",function(){this.dataset.composing="false";S.search=this.value;clearBtn.style.display=this.value?"block":"none";setTimeout(()=>{render();const el2=document.getElementById("searchBox");if(el2)el2.focus();},50);});
     sw.appendChild(searchInp);sw.appendChild(clearBtn);sr.appendChild(sw);
@@ -1560,8 +1583,7 @@ function renderMain(){
     logSearchInp.value=S.logSearch||"";
     logSw.appendChild(h("span",{style:{position:"absolute",left:"10px",top:"10px",fontSize:"14px"}},"🔍"));
     if(hasFilter){logSw.appendChild(h("button",{style:{position:"absolute",right:"6px",top:"6px",width:"28px",height:"28px",borderRadius:"50%",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"14px",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";render();}},"✕"));}
-    let logSearchTimer=null;
-    logSearchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;const v=this.value;clearTimeout(logSearchTimer);logSearchTimer=setTimeout(()=>{S.logSearch=v;render();/* focus 由 _render 自動還原 */},120);});
+    logSearchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;const v=this.value;clearTimeout(_logSearchTimer);_logSearchTimer=setTimeout(()=>{S.logSearch=v;render();/* focus 由 _render 自動還原 */},120);});
     logSearchInp.addEventListener("compositionstart",function(){this.dataset.composing="true";});
     logSearchInp.addEventListener("compositionend",function(){this.dataset.composing="false";S.logSearch=this.value;setTimeout(()=>{render();const el=document.getElementById("logSearch");if(el)el.focus();},50);});
     logSw.appendChild(logSearchInp);content.appendChild(logSw);
