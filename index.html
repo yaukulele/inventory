@@ -1681,7 +1681,8 @@ function renderMain(){
     // Items. Preview mode is read-only — disable drag/reorder so it can't mutate Firebase via moveItems / fbSetOrdKey.
     const pvMode=isPreview();
     grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.search?true:S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
-      const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:!pvMode});
+      // No drag in select mode — taps inside select mode should only toggle selection. Otherwise dragging a brand header would compete with the row click handlers.
+      const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:!pvMode&&!S._selectMode});
       bCard.addEventListener("dragstart",e=>{clearDrag();dragBrand=bi;_isDragging=true;e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
       bCard.addEventListener("dragend",()=>{clearDrag();_isDragging=false;bCard.style.opacity="1";});
       bCard.addEventListener("dragover",e=>{e.preventDefault();
@@ -1712,7 +1713,7 @@ function renderMain(){
         h("span",{style:{marginLeft:"auto",fontSize:"12px",color:"var(--sub)",fontWeight:500}},bC+"項 / "+bT)));
       if(bo){
         cats.forEach(({c,its},ci)=>{const ck=bk+"|"+c;const co=S.search?true:S.cOpen[ck];const cT=its.reduce((s,x)=>s+x.q,0);
-        const catEl=h("div",{className:"cat-hdr",draggable:!pvMode});
+        const catEl=h("div",{className:"cat-hdr",draggable:!pvMode&&!S._selectMode});
         catEl.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragCatBi=bi;dragCatName=c;_isDragging=true;e.dataTransfer.effectAllowed="move";catEl.style.opacity="0.5";});
         catEl.addEventListener("dragend",()=>{clearDrag();_isDragging=false;catEl.style.opacity="1";});
         catEl.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();
@@ -1744,6 +1745,8 @@ function renderMain(){
         bCard.appendChild(catEl);
         if(co)its.forEach((it,ii)=>{
           const row=renderRow(it);
+          // Disable drag listeners entirely in select mode — renderRow's select-mode branch handles row.onclick for toggling, so adding drag handlers on top would race and could trigger spurious cross-cat moves.
+          if(S._selectMode){bCard.appendChild(row);return;}
           row.draggable=!pvMode;
           row.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragItemId=it.id;dragItemSrcBrand=b;dragItemSrcCat=c;_isDragging=true;e.dataTransfer.effectAllowed="move";row.style.opacity="0.5";});
           row.addEventListener("dragend",()=>{clearDrag();_isDragging=false;row.style.opacity="1";});
