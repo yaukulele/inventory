@@ -1158,6 +1158,9 @@ function renderAccountModal(){
         if(!name||!pw){addMsg.textContent="⚠ 請填完使用者名稱與密碼";return;}
         if(S.users[name]){addMsg.textContent="⚠ 帳號已存在";return;}
         if(name==="快速預覽"){addMsg.textContent="⚠ 不能用「快速預覽」當帳號名稱";return;}
+        // Firebase Realtime DB key restriction: . $ # [ ] / are invalid path characters and dbU.child(name).set() will throw.
+        if(/[.$#\[\]\/]/.test(name)){addMsg.textContent="⚠ 名稱不可含 . $ # [ ] / 等字元";return;}
+        if(name.length>40){addMsg.textContent="⚠ 名稱過長（最多 40 字）";return;}
         this.disabled=true;this.textContent="建立中…";
         const ok=await fbSetUserField(name,{pass:pw,role,createdAt:Date.now()});
         if(!ok){addMsg.textContent="⚠ 建立失敗";this.disabled=false;this.textContent="建立帳號";return;}
@@ -1201,7 +1204,7 @@ function renderAccountEditModal(){
     h("h3",{style:{fontSize:"16px",fontWeight:700}},"✏️ 修改密碼 — "+target),
     h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:back},"✕")
   ));
-  const newI=h("input",{type:"text",className:"ipt",placeholder:"新密碼",style:{marginBottom:"8px"}});
+  const newI=h("input",{type:"text",className:"ipt",placeholder:"新密碼（留空不變）",style:{marginBottom:"8px"}});
   const roleSel=h("select",{className:"ipt",style:{marginBottom:"8px"}},h("option",{value:"user"},"一般使用者"),h("option",{value:"admin"},"管理員"));
   if(S.users&&S.users[target])roleSel.value=S.users[target].role||"user";
   const msg=h("div",{style:{fontSize:"12px",color:"var(--red)",minHeight:"16px",marginBottom:"8px",fontWeight:500}});
@@ -1211,21 +1214,32 @@ function renderAccountEditModal(){
     if(this.disabled)return;
     msg.textContent="";
     const np=newI.value;
-    if(!np){msg.textContent="⚠ 密碼不可空";return;}
+    const oldRec=S.users&&S.users[target]||{};
+    const pwChanged=np.length>0&&(oldRec.pass||"")!==np;
+    const roleChanged=(oldRec.role||"user")!==roleSel.value;
+    // Previously required password every time even when admin only wanted to flip the role — forced admins to look up the current pass before demoting. Allow empty newI to mean "keep password unchanged".
+    if(!pwChanged&&!roleChanged){msg.textContent="⚠ 沒有變更";return;}
     // Last-admin guard: don't allow demoting if this would leave 0 admins
-    if(S.users&&S.users[target]&&S.users[target].role==="admin"&&roleSel.value!=="admin"){
-      const adminCount=Object.values(S.users).filter(u=>u.role==="admin").length;
+    if(oldRec.role==="admin"&&roleSel.value!=="admin"){
+      const adminCount=Object.values(S.users||{}).filter(u=>u.role==="admin").length;
       if(adminCount<=1){msg.textContent="⚠ 系統至少要有一個管理員";return;}
     }
     this.disabled=true;this.textContent="儲存中…";
-    const ok=await fbSetUserField(target,{pass:np,role:roleSel.value});
+    const patch={role:roleSel.value};
+    if(pwChanged)patch.pass=np;
+    const ok=await fbSetUserField(target,patch);
     if(!ok){msg.textContent="⚠ 儲存失敗";this.disabled=false;this.textContent="💾 儲存";return;}
     if(target===S.user){
-      try{localStorage.setItem("inv_pass",np);}catch(e){}
+      if(pwChanged){try{localStorage.setItem("inv_pass",np);}catch(e){}}
       // Self role change must propagate locally too — admin demoting themselves shouldn't keep admin UI
       S.role=roleSel.value;
     }
-    logActivity("改別人密碼","目標 "+target);
+    // Differentiate audit-log entries so the activity log shows what actually changed instead of always "改別人密碼".
+    let actLog="";
+    if(pwChanged&&roleChanged)actLog="改別人密碼+權限";
+    else if(pwChanged)actLog="改別人密碼";
+    else if(roleChanged)actLog="改別人權限 "+(oldRec.role||"user")+"→"+roleSel.value;
+    if(actLog)logActivity(actLog,"目標 "+target);
     back();
   };
   box.appendChild(saveBtn);
@@ -1872,7 +1886,9 @@ function renderMain(){
           reconCard.appendChild(allFixBtn);
         }
         const list=h("div",{style:{maxHeight:"200px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"8px"}});
-        mismatches.slice(0,20).forEach(m=>{
+        // Sort by largest discrepancy first so the most impactful mismatches are visible when clipped to 20.
+        const sortedMisses=mismatches.slice().sort((a,b)=>Math.abs(b.expected-b.actual)-Math.abs(a.expected-a.actual));
+        sortedMisses.slice(0,20).forEach(m=>{
           const rowEl=h("div",{style:{padding:"8px 10px",fontSize:"12px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"6px"}});
           rowEl.appendChild(h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",color:"var(--blue)"},onClick:()=>{S.modal={t:"detail",id:m.it.id};render();}},m.it.b+" / "+m.it.n));
           rowEl.appendChild(h("span",{style:{fontSize:"11px",color:"var(--red)",fontWeight:700,flexShrink:0}},"日誌 "+m.expected+" ≠ 庫存 "+m.actual));
@@ -1899,6 +1915,50 @@ function renderMain(){
       }
     }
     content.appendChild(reconCard);
+    // Stale items: items with q>0 that haven't been physically audited (📋) in over STALE_DAYS. Quick way to surface "what's been sitting on the shelf untouched" without scanning detail modals one by one.
+    // Limited to non-zero stock because zero-stock items don't need a recount until restocked.
+    const STALE_DAYS=60;
+    const staleCutoff=Date.now()-STALE_DAYS*86400000;
+    const lastAuditMs={};
+    allLogs.forEach(l=>{
+      if(!(l.a||"").includes("盤"))return;
+      const t=l.t;if(!t)return;
+      const iso=t.replace(/\//g,"-").replace(" ","T");
+      const d=new Date(iso);if(isNaN(d))return;
+      const ms=d.getTime();
+      // allLogs is newest-first, so first occurrence wins (= most recent audit for that key)
+      if(l.iid){if(!(l.iid in lastAuditMs))lastAuditMs[l.iid]=ms;}
+      else if(l.n){const k="n:"+l.n;if(!(k in lastAuditMs))lastAuditMs[k]=ms;}
+    });
+    const getLastAudit=it=>lastAuditMs[it.id]||lastAuditMs["n:"+it.n]||null;
+    const staleItems=S.items.filter(it=>{if((it.q||0)<=0)return false;const last=getLastAudit(it);return !last||last<staleCutoff;});
+    if(staleItems.length){
+      const staleCard=h("div",{className:"card",style:{padding:"14px",marginTop:"14px"}});
+      staleCard.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}},
+        h("span",{style:{fontSize:"14px",fontWeight:700}},"⏳ 需盤點清單"),
+        h("span",{style:{fontSize:"11px",color:"var(--sub)",fontWeight:500}},STALE_DAYS+" 天未盤點 · "+staleItems.length+" 項")
+      ));
+      if(!S.olderLogs.length&&S.logs.length>=200){
+        staleCard.appendChild(h("div",{style:{fontSize:"11px",color:"#b45309",padding:"6px 10px",background:"#fef3c7",borderRadius:"6px",marginBottom:"6px"}},"⚠ 僅基於最新 200 筆紀錄，可能誤報"));
+      }
+      const sortedStale=staleItems.slice().sort((a,b)=>{const la=getLastAudit(a)||0;const lb=getLastAudit(b)||0;return la-lb;});
+      const list=h("div",{style:{maxHeight:"220px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"8px"}});
+      sortedStale.slice(0,30).forEach(it=>{
+        const last=getLastAudit(it);
+        const daysAgo=last?Math.round((Date.now()-last)/86400000)+" 天前":"從未盤點";
+        const row=h("div",{style:{padding:"7px 12px",fontSize:"12px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"6px",cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
+        row.appendChild(h("span",{style:{width:"4px",height:"20px",borderRadius:"2px",background:gc(it.b),flexShrink:0}}));
+        row.appendChild(h("div",{style:{flex:1,minWidth:0}},
+          h("div",{style:{fontWeight:600,color:"var(--blue)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+          h("div",{style:{fontSize:"10px",color:"var(--sub)"}},it.b+" / "+it.c+" · 庫存 "+(it.q||0))
+        ));
+        row.appendChild(h("span",{style:{fontSize:"10px",color:!last?"var(--red)":"var(--orange)",fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}},daysAgo));
+        list.appendChild(row);
+      });
+      staleCard.appendChild(list);
+      if(staleItems.length>30)staleCard.appendChild(h("div",{style:{fontSize:"10px",color:"var(--sub)",textAlign:"center",marginTop:"6px"}},"還有 "+(staleItems.length-30)+" 項未顯示"));
+      content.appendChild(staleCard);
+    }
   }
   root.appendChild(content);
   const am=renderActionModal();if(am)root.appendChild(am);
