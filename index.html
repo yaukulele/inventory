@@ -574,6 +574,38 @@ async function doDelNoConfirm(it){
   appendLog(logEntry);
 }
 function doDel(it){S.modal={t:"del-confirm",id:it.id};render();}
+// Bulk delete the selected ids in a single dbI transaction so the listener sees one consistent update instead of N partial states.
+// Single summary log entry (a:"🗑批次") records the action; restore would mean recreating N items which is significantly more complex than the single-item undo flow, so we skip undo here and require confirm.
+async function bulkDeleteSelection(ids){
+  if(!ids||!ids.size)return;
+  if(!confirm("確定刪除選取的 "+ids.size+" 個品項？\n此動作無法復原（不支援批次撤銷），會寫入單筆 🗑批次 日誌。"))return;
+  if(!S.items)return;
+  const snapshots=S.items.filter(x=>x&&ids.has(x.id));
+  if(!snapshots.length){showToast("⚠ 沒有可刪除的品項");return;}
+  ids.forEach(id=>_pendingDeletes.add(id));
+  S.items=S.items.filter(x=>x&&!ids.has(x.id));
+  S._sel=null;S._selectMode=false;
+  render();
+  const tx=await new Promise(resolve=>{
+    dbI.transaction(cur=>{
+      const arr=arrFromVal(cur);
+      if(!arr)return cur;
+      return arr.filter(x=>x&&!ids.has(x.id));
+    },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());resolve({committed:!err&&committed,arr:a});},false);
+  });
+  ids.forEach(id=>_pendingDeletes.delete(id));
+  if(!S.items)return;  // Logged out mid-tx.
+  if(!tx.committed){
+    S.items=[...S.items,...snapshots];saveCache();showToast("⚠ 批次刪除失敗，已還原");render();return;
+  }
+  const totalQ=snapshots.reduce((s,x)=>s+(x.q||0),0);
+  const sampleNames=snapshots.slice(0,3).map(x=>x.n).join("、");
+  const summaryName=snapshots.length<=3?sampleNames:(sampleNames+" 等 "+snapshots.length+" 項");
+  const logEntry={id:uid(),iid:snapshots[0].id,u:S.user,a:"🗑批次",n:summaryName,b:snapshots[0].b||"",d:"批次刪除 "+snapshots.length+" 項",pq:totalQ,nq:0,t:ts()};
+  pushLogLocal(logEntry);appendLog(logEntry);
+  saveCache();
+  showToast("🗑 已批次刪除 "+snapshots.length+" 項");
+}
 // Toast lives in body, outside #app — survives renders without triggering them
 let _toastEl=null,_toastTimer=null;
 // Optional undo: pass {label, fn} as second arg. Toast stays for 8s and shows a clickable button.
@@ -742,7 +774,22 @@ function renderRow(it){
   const q=it.q,qColor=q===0?"var(--red)":q<=2?"var(--orange)":"var(--text)";
   const qBg=q===0?"#fef2f2":q<=2?"#fff7ed":"#f0f9ff";
   const pv=isPreview();
+  const selMode=!!S._selectMode&&!pv;
+  const checked=selMode&&S._sel&&S._sel.has(it.id);
   const row=h("div",{className:"row"});
+  if(selMode){
+    // In select mode the whole row toggles selection; per-row action buttons and detail clicks are suppressed.
+    if(checked)row.style.background="var(--blue-light)";
+    row.style.cursor="pointer";
+    row.onclick=()=>{if(!S._sel)S._sel=new Set();if(S._sel.has(it.id))S._sel.delete(it.id);else S._sel.add(it.id);render();};
+    row.appendChild(h("div",{style:{width:"22px",height:"22px",borderRadius:"4px",border:"2px solid var(--blue)",background:checked?"var(--blue)":"#fff",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"14px",fontWeight:700,flexShrink:0}},checked?"✓":""));
+    row.appendChild(h("div",{style:{flex:1,minWidth:0,overflow:"hidden"}},
+      h("div",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+      h("div",{style:{fontSize:"10px",color:"var(--sub)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.b+" / "+it.c)
+    ));
+    row.appendChild(h("span",{style:{minWidth:"36px",padding:"2px 8px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
+    return row;
+  }
   // Thumbnail or placeholder
   const thumb=h("div",{style:{width:"32px",height:"32px",borderRadius:"8px",overflow:"hidden",flexShrink:0,background:"#f1f5f9",border:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",color:"#cbd5e1",cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
   if(it.img){const img=h("img",{src:it.img,style:{width:"100%",height:"100%",objectFit:"cover",display:"block"},loading:"lazy"});img.onerror=()=>{thumb.innerHTML="";thumb.appendChild(h("span",{style:{fontSize:"14px"}},"⚠"));};thumb.appendChild(img);}
@@ -1453,7 +1500,7 @@ function renderMain(){
       h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account"};render();},title:"帳號設定"},"🔐"),
       h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{
         if(!isPreview())logActivity("登出");
-        S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;
+        S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
         // Reset module-level optimistic-state singletons so any in-flight tx callbacks from this session can't pollute the next user's view (e.g. listener falling through to "show local pending" when S.items is null for the next login).
         _pendingItems.clear();_pendingDeletes.clear();_pendingLogs.clear();
         // Cancel pending debounce so a previously-typed search term doesn't fire after logout and re-set S.search.
@@ -1491,6 +1538,11 @@ function renderMain(){
     const zonePrefix=S.tab==="store"?"S":"W";
     const anyOpenInZone=sortedBrands.some(b=>S.bOpen[zonePrefix+b]);
     sr.appendChild(h("button",{title:anyOpenInZone?"全部收合":"全部展開",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"12px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{sortedBrands.forEach(b=>{S.bOpen[zonePrefix+b]=!anyOpenInZone;});render();}},anyOpenInZone?"🔼 收合":"🔽 展開"));
+    // Select-mode toggle — enables batch delete. Hidden in preview mode (no write capability).
+    if(!isPreview()){
+      const inSel=!!S._selectMode;
+      sr.appendChild(h("button",{title:inSel?"取消選取模式":"進入批次選取",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid "+(inSel?"var(--blue)":"var(--border)"),background:inSel?"var(--blue-light)":"#fff",color:inSel?"var(--blue)":"var(--sub)",fontSize:"12px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{S._selectMode=!inSel;if(!S._selectMode)S._sel=null;render();}},inSel?"✓ 選取中":"☐ 選取"));
+    }
     content.appendChild(sr);
     if(S.search){content.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"8px",padding:"4px 8px",fontWeight:500}},"🔍 找到 "+fil.length+" 項符合「"+S.search+"」"));}
     // Drag state — single active drag at a time across brands/cats/items
@@ -2125,6 +2177,34 @@ function renderMain(){
         ));});
     });
     root.appendChild(h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box));
+  }
+  // Bulk-select action bar — only on inventory tabs (store/warehouse). Cancel button exits select mode; other actions operate on S._sel.
+  if(S._selectMode&&!isPreview()&&(S.tab==="store"||S.tab==="warehouse")){
+    const selSize=S._sel?S._sel.size:0;
+    // "全選" toggles all currently filtered/visible items in this zone — respects search + showZero so user can search "EG弦", 全選, delete.
+    const visibleIds=fil.map(x=>x.id);
+    const allVisibleSelected=visibleIds.length>0&&S._sel&&visibleIds.every(id=>S._sel.has(id));
+    const bar=h("div",{style:{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:"2px solid var(--blue)",padding:"10px 12px",display:"flex",gap:"6px",alignItems:"center",zIndex:50,boxShadow:"0 -4px 12px rgba(0,0,0,.08)"}});
+    // iOS home-bar safe area — without this the action bar tucks behind the home indicator on notch phones.
+    bar.style.paddingBottom="calc(10px + env(safe-area-inset-bottom,0))";
+    bar.appendChild(h("span",{style:{fontSize:"13px",fontWeight:700,color:"var(--blue)",marginRight:"4px",whiteSpace:"nowrap"}},"已選 "+selSize));
+    bar.appendChild(h("button",{style:{padding:"7px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{
+      if(!S._sel)S._sel=new Set();
+      if(allVisibleSelected)visibleIds.forEach(id=>S._sel.delete(id));
+      else visibleIds.forEach(id=>S._sel.add(id));
+      render();
+    }},allVisibleSelected?"☐ 取消":"✓ 全選"));
+    if(selSize>0){
+      bar.appendChild(h("button",{style:{padding:"7px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{S._sel=null;render();}},"清除"));
+    }
+    bar.appendChild(h("div",{style:{flex:1}}));
+    if(selSize>0){
+      bar.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"8px",border:"none",background:"var(--red)",color:"#fff",fontSize:"12px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"},onClick:()=>{if(S._sel)bulkDeleteSelection(new Set(S._sel));}},"🗑 刪除 "+selSize));
+    }
+    bar.appendChild(h("button",{style:{padding:"7px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{S._selectMode=false;S._sel=null;render();}},"退出"));
+    root.appendChild(bar);
+    // Ensure the bottom rows aren't covered by the fixed bar.
+    content.style.paddingBottom="80px";
   }
   return root;
 }
