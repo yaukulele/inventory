@@ -582,6 +582,9 @@ async function bulkDeleteSelection(ids){
   if(!S.items)return;
   const snapshots=S.items.filter(x=>x&&ids.has(x.id));
   if(!snapshots.length){showToast("⚠ 沒有可刪除的品項");return;}
+  // Snapshot UI state too so a tx failure restores user back to where they started — without this, a failed bulk delete drops them out of select mode and they have to re-pick everything.
+  const prevSel=S._sel?new Set(S._sel):null;
+  const prevSelMode=S._selectMode;
   ids.forEach(id=>_pendingDeletes.add(id));
   S.items=S.items.filter(x=>x&&!ids.has(x.id));
   S._sel=null;S._selectMode=false;
@@ -596,7 +599,9 @@ async function bulkDeleteSelection(ids){
   ids.forEach(id=>_pendingDeletes.delete(id));
   if(!S.items)return;  // Logged out mid-tx.
   if(!tx.committed){
-    S.items=[...S.items,...snapshots];saveCache();showToast("⚠ 批次刪除失敗，已還原");render();return;
+    S.items=[...S.items,...snapshots];
+    S._sel=prevSel;S._selectMode=prevSelMode;
+    saveCache();showToast("⚠ 批次刪除失敗，已還原");render();return;
   }
   const totalQ=snapshots.reduce((s,x)=>s+(x.q||0),0);
   const sampleNames=snapshots.slice(0,3).map(x=>x.n).join("、");
