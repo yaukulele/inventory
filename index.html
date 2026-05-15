@@ -18,6 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <style>
 :root{--bg:#f8fafc;--card:#fff;--border:#e2e8f0;--text:#1e293b;--sub:#64748b;--blue:#2563eb;--blue-light:#eff6ff;--green:#16a34a;--orange:#ea580c;--red:#dc2626;--shadow:0 1px 3px rgba(0,0,0,.06)}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -78,6 +79,20 @@ header{padding-top:max(10px,env(safe-area-inset-top)) !important}
 <div id="app"></div>
 <script>
 firebase.initializeApp({apiKey:"AIzaSyBxYfM4VPFg7DNrk1rmZHD_neJl2YVHaGk",authDomain:"order-system-dddca.firebaseapp.com",databaseURL:"https://order-system-dddca-default-rtdb.firebaseio.com",projectId:"order-system-dddca"});
+// Anon auth so Firebase rules can require `auth != null` for writes — blocks random external
+// HTTP writes without the SDK. Reads stay public so backup.py keeps working. Kicked off
+// eagerly at page load; fbLoad/fbLoadUsers/startRealtimeSync await this before touching DB.
+// Best-effort: if anon auth fails (e.g. Anonymous provider not yet enabled in Console), don't
+// block the UI — show a non-blocking banner. Rules currently allow public read+write so the app
+// keeps working. Once Console is set up + rules tightened to `.write: auth != null`, this resolves.
+const authReady=firebase.auth().signInAnonymously().then(()=>true).catch(err=>{
+  console.warn("anon auth failed:",err);
+  const b=document.createElement("div");
+  b.style.cssText="position:fixed;bottom:0;left:0;right:0;background:#fef3c7;border-top:1px solid #f59e0b;padding:8px 12px;font-size:12px;text-align:center;z-index:9999;color:#78350f;font-family:'Noto Sans TC',sans-serif";
+  b.innerHTML='⚠ Firebase 匿名登入失敗：'+(err&&err.message||err)+' — <a href="https://console.firebase.google.com/project/order-system-dddca/authentication/providers" target="_blank" style="color:#1d4ed8;font-weight:600">啟用 Anonymous Auth</a> 後重新整理';
+  document.body.appendChild(b);
+  return false;
+});
 const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order"),dbU=db.ref("inventory/users"),dbA=db.ref("inventory/activityLog");
 
 const D=[
@@ -187,7 +202,7 @@ function mergeWithPending(remote){
   if(_pendingDeletes.size)merged=merged.filter(x=>x&&!_pendingDeletes.has(x.id));
   return merged;
 }
-async function fbLoad(){try{const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);const i=arrFromVal(a.val());const l=arrFromVal(b.val());const o=c.val();
+async function fbLoad(){try{await authReady;const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);const i=arrFromVal(a.val());const l=arrFromVal(b.val());const o=c.val();
   const ver=(o&&o.__ver)||"";
   const mergePending=mergeWithPending;
   if(i&&i.length>0){
@@ -256,6 +271,7 @@ function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(c
 // User accounts. Plaintext passwords (admin needs to see them per user requirement). Seeded on first load if /inventory/users is empty.
 async function fbLoadUsers(){
   try{
+    await authReady;
     // Without a timeout, dbU.once hangs forever on a flaky connection — leaves the user stuck on the "驗證中…" login button with no way to escape.
     const tm=ms=>new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms));
     const snap=await Promise.race([dbU.once("value"),tm(8000)]);
@@ -294,8 +310,9 @@ function listenerRender(){if(_listenerRenderTimer)return;_listenerRenderTimer=se
 
 // Real-time sync: listen for changes from other users
 let fbListening=false;
-function startRealtimeSync(){
+async function startRealtimeSync(){
   if(fbListening)return;fbListening=true;
+  await authReady;
   // Connection status — writes only reach Firebase when online
   // Toast on disconnect/reconnect — but skip the first ~3s of subscriber events so the initial connection handshake doesn't fire spurious notifications
   const _connStart=Date.now();
