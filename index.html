@@ -2318,7 +2318,7 @@ function renderMain(){
       if(allVisibleSelected)visibleIds.forEach(id=>S._sel.delete(id));
       else visibleIds.forEach(id=>S._sel.add(id));
       render();
-    }},allVisibleSelected?"☐ 取消":"✓ 全選"));
+    }},allVisibleSelected?"☐ 取消全選":"✓ 全選"));
     if(selSize>0){
       bar.appendChild(h("button",{style:{padding:"7px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{S._sel=null;render();}},"清除"));
     }
