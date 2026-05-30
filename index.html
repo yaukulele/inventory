@@ -1105,8 +1105,8 @@ function renderAddModal(){
   const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}if(isReservedKey(brand)||isReservedKey(cat)||isReservedKey(n)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;const initQ=Math.max(0,parseInt(qI.value)||0);doAdd({z:zS.value,b:brand,c:cat,n,q:initQ,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&e.target.tagName!=="BUTTON"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
-  // Auto-focus name input so the user can start typing immediately (especially after the "再加一個" continuation flow)
-  setTimeout(()=>{const el=document.getElementById("addNameInput");if(el)el.focus();},50);
+  // Auto-focus name input so the user can start typing immediately (especially after the "再加一個" continuation flow). Skipped in dup mode — the dup branch above sets its own focus+select timer at 80ms (selecting the cloned name for easy replacement).
+  if(!dup)setTimeout(()=>{const el=document.getElementById("addNameInput");if(el)el.focus();},50);
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeAdd}),box);
 }
 
