@@ -1820,8 +1820,8 @@ function renderMain(){
   root.appendChild(tabBar);
   const content=h("div",{style:{padding:"12px 16px",paddingBottom:"32px"}});
   if(S.tab==="store"||S.tab==="warehouse"){
-    // Search
-    const sr=h("div",{style:{display:"flex",gap:"8px",marginBottom:"10px",alignItems:"center"}});
+    // Search — flex-wrap so on narrow screens the toolbar buttons drop below the input instead of squishing the search box into 80px wide.
+    const sr=h("div",{style:{display:"flex",gap:"8px",marginBottom:"10px",alignItems:"center",flexWrap:"wrap"}});
     const sw=h("div",{style:{flex:1,position:"relative"}});sw.appendChild(h("span",{style:{position:"absolute",left:"10px",top:"10px",fontSize:"14px"}},"🔍"));
     const searchInp=h("input",{className:"ipt",placeholder:"搜尋品名、品牌、分類、敘述…",style:{paddingLeft:"32px",paddingRight:"32px"},id:"searchBox"});
     searchInp.value=S.search||"";
