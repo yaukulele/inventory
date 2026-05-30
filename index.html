@@ -305,6 +305,13 @@ function appendLog(entry){return fbAppendLogTx(entry).catch(e=>{console.error("a
 // catOrd: atomically set one key so concurrent drags from different users don't clobber each other
 function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(err){console.error("fbSetOrdKey failed:",key,err);showToast("⚠ 排序儲存失敗");}else if(snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
 
+// Cache the users-load Promise so renderLogin can speculatively kick it off and the click handler reuses the same flight (no extra round trip).
+let _usersPromise=null;
+function fbLoadUsersCached(){if(_usersPromise)return _usersPromise;_usersPromise=fbLoadUsers().then(u=>u,e=>{_usersPromise=null;throw e;});return _usersPromise;}
+// Same idea for the initial inventory load: chip pick / password type all overlap with the network round-trip. Cache the promise across the renderLogin → postLogin handoff so postLogin's await fbLoad reuses the chip-pick prefetch instead of issuing a duplicate round trip.
+let _initialFbLoadPromise=null;
+function fbLoadInitial(){if(_initialFbLoadPromise)return _initialFbLoadPromise;_initialFbLoadPromise=fbLoad();return _initialFbLoadPromise;}
+function resetLoginPrefetch(){_usersPromise=null;_initialFbLoadPromise=null;}
 // User accounts. Plaintext passwords (admin needs to see them per user requirement). Seeded on first load if /inventory/users is empty.
 async function fbLoadUsers(){
   try{
@@ -716,8 +723,9 @@ async function postLogin(){
   // lastSyncAt is only bumped on successful fbLoad; comparing before/after lets us surface a silent timeout that would otherwise leave the user staring at stale cached data with no clue why everything looks frozen.
   const beforeSync=S.lastSyncAt;
   render();
+  // Reuse the chip-pick prefetch if available — saves an entire round trip when the user has been typing their password during the load.
   if(cached){
-    fbLoad().then(()=>{
+    fbLoadInitial().then(()=>{
       // If user logged out while background fbLoad was running, don't yank them back to ready.
       if(S.phase==="login")return;
       if(S.lastSyncAt===beforeSync)showToast("⚠ 同步失敗，目前顯示本地快取");
@@ -725,7 +733,7 @@ async function postLogin(){
     });
   }
   else{
-    await fbLoad();
+    await fbLoadInitial();
     if(S.phase==="login")return;  // Same guard for non-cached path
     if(S.lastSyncAt===beforeSync)showToast("⚠ 同步失敗，使用預設清單");
     S.phase="ready";render();startRealtimeSync();
@@ -733,6 +741,8 @@ async function postLogin(){
 }
 
 function renderLogin(){
+  // Speculative prefetch: as soon as the login screen renders, start loading the users record AND the inventory data in parallel. By the time the user types their password and clicks login, both round trips are already done. Cached promises so the click handler reuses the same flights.
+  if(S.user&&S.user!=="快速預覽"){fbLoadUsersCached().catch(()=>{});fbLoadInitial().catch(()=>{});}
   const wrap=h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"20px",background:"linear-gradient(135deg,#eff6ff 0%,#f8fafc 60%,#fef3c7 100%)"}});
   const box=h("div",{style:{background:"#fff",borderRadius:"24px",padding:"36px 28px",width:"100%",maxWidth:"360px",boxShadow:"0 10px 40px rgba(15,23,42,.10),0 2px 6px rgba(15,23,42,.04)",textAlign:"center"}});
   box.appendChild(h("div",{style:{display:"inline-flex",alignItems:"center",justifyContent:"center",width:"68px",height:"68px",borderRadius:"22px",background:"linear-gradient(135deg,#dbeafe,#eff6ff)",marginBottom:"14px",fontSize:"34px",boxShadow:"0 4px 10px rgba(37,99,235,.15)"}},"📦"));
@@ -763,6 +773,8 @@ function renderLogin(){
       S.user=u;
       passWrap.style.display=isPv?"none":"block";
       errorEl.textContent="";
+      // Speculative prefetch: as soon as user picks a chip, kick off both Firebase round trips in parallel with whatever they type next. By the time they click 進入系統, both responses are already cached.
+      if(!isPv){fbLoadUsersCached().catch(()=>{});fbLoadInitial().catch(()=>{});}
       // Restyle all chips
       Object.entries(chipRefs).forEach(([name,el])=>{
         const isNowCur=name===u;
@@ -795,9 +807,9 @@ function renderLogin(){
       await postLogin();
       return;
     }
-    // Authenticated login: validate password against Firebase
+    // Authenticated login: validate password against Firebase. Uses cached promise from renderLogin speculative prefetch when available.
     this.disabled=true;this.style.opacity="0.6";this.textContent="驗證中…";
-    const users=await fbLoadUsers();
+    const users=await fbLoadUsersCached().catch(()=>null);
     const reset=()=>{this.disabled=false;this.style.opacity="";this.textContent="進入系統 →";};
     if(!users){errorEl.textContent="⚠ 連線失敗，請重試";reset();return;}
     const userRecord=users[pickedUser];
@@ -1741,6 +1753,8 @@ function renderMain(){
         S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
         // Reset module-level optimistic-state singletons so any in-flight tx callbacks from this session can't pollute the next user's view (e.g. listener falling through to "show local pending" when S.items is null for the next login).
         _pendingItems.clear();_pendingDeletes.clear();_pendingLogs.clear();
+        // Reset the login prefetch promises so a re-login under a different account refetches fresh data instead of reusing the previous session's cached promises (which would skip fbLoad entirely if the cached promise was already resolved).
+        resetLoginPrefetch();
         // Cancel pending debounce so a previously-typed search term doesn't fire after logout and re-set S.search.
         clearTimeout(_searchTimer);clearTimeout(_logSearchTimer);_searchTimer=_logSearchTimer=null;
         try{localStorage.removeItem("inv_pass");}catch(e){}
