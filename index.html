@@ -1862,7 +1862,14 @@ function renderMain(){
     // Expand-all/collapse-all toggle for the brand cards. Useful when user has 10+ brands and wants to see everything.
     const zonePrefix=S.tab==="store"?"S":"W";
     const anyOpenInZone=sortedBrands.some(b=>S.bOpen[zonePrefix+b]);
-    sr.appendChild(h("button",{title:anyOpenInZone?"全部收合":"全部展開",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"12px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{sortedBrands.forEach(b=>{S.bOpen[zonePrefix+b]=!anyOpenInZone;});render();}},anyOpenInZone?"🔼 收合":"🔽 展開"));
+    sr.appendChild(h("button",{title:anyOpenInZone?"全部收合":"全部展開（含分類）",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"12px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{
+      // Expand-all should reveal everything in one tap — both brand cards AND their categories. Previously this only toggled brand-level so users still had to tap each cat header to actually see items.
+      grouped.forEach(({b,cats})=>{
+        S.bOpen[zonePrefix+b]=!anyOpenInZone;
+        cats.forEach(({c})=>{S.cOpen[zonePrefix+b+"|"+c]=!anyOpenInZone;});
+      });
+      render();
+    }},anyOpenInZone?"🔼 收合":"🔽 展開"));
     // Select-mode toggle — enables batch delete. Hidden in preview mode (no write capability).
     if(!isPreview()){
       const inSel=!!S._selectMode;
