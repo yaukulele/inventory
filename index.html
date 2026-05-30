@@ -608,6 +608,7 @@ async function doUpdateMeta(id,patch){
   return true;
 }
 async function doDelNoConfirm(it){
+  if(!S.items)return;  // Mid-flight logout guard — S.items.filter would throw.
   // Optimistic remove
   _pendingDeletes.add(it.id);
   S.items=S.items.filter(x=>x.id!==it.id);
