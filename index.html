@@ -33,6 +33,10 @@ select option{background:#fff;color:#1e293b}input::placeholder{color:#94a3b8}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @keyframes pulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
 @keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
+@keyframes modalIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes overlayIn{from{opacity:0}to{opacity:1}}
+.modal-box{animation:modalIn .18s cubic-bezier(.2,.8,.3,1)}
+.modal-overlay{animation:overlayIn .15s ease-out}
 .spinner{width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
 .skeleton{background:linear-gradient(90deg,#f1f5f9 0px,#e2e8f0 80px,#f1f5f9 160px);background-size:200px 100%;animation:shimmer 1.4s linear infinite;border-radius:8px}
 .ipt{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text);font-size:14px;outline:none;font-family:inherit}
