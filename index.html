@@ -1385,7 +1385,7 @@ function renderAccountModal(){
             if(udata.role==="admin"&&adminCount<=1){showToast("⚠ 系統至少要有一個管理員，無法刪除");return;}
             if(!confirm("確定刪除帳號「"+uname+"」？"))return;
             const ok=await fbDeleteUser(uname);
-            if(ok){logActivity("刪除帳號","刪除 "+uname);render();}
+            if(ok){logActivity("刪除帳號","刪除 "+uname);showToast("🗑 已刪除帳號 "+uname);render();}
           }},"刪除"));
         }
         userList.appendChild(row);
@@ -1414,6 +1414,7 @@ function renderAccountModal(){
         if(!ok){addMsg.textContent="⚠ 建立失敗";this.disabled=false;this.textContent="建立帳號";return;}
         logActivity("新增帳號","新增 "+name+"("+role+")");
         addNI.value="";addPI.value="";
+        showToast("✅ 已新增帳號 "+name);
         render();
       };
       addWrap.appendChild(addNI);addWrap.appendChild(addPI);addWrap.appendChild(addRoleSel);addWrap.appendChild(addMsg);addWrap.appendChild(addBtn);
