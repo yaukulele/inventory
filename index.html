@@ -536,7 +536,9 @@ function normalizeImgUrl(url){
   if(imgurMatch)return "https://i.imgur.com/"+imgurMatch[1]+".jpg";
   return url;
 }
-async function doAdd(f){const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
+async function doAdd(f){
+  if(!S.items)return;  // Same logout guard as doAction — if S.items is null we'd crash on the optimistic spread below.
+  const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   if(f.img)ni.img=normalizeImgUrl(f.img);if(f.dsc)ni.dsc=f.dsc;
   // Optimistic add
   _pendingItems.bump(ni.id);
