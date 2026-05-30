@@ -2666,7 +2666,7 @@ document.addEventListener("keydown",e=>{
   if(S.phase!=="ready"||S.modal)return;
   if(e.key==="/"){const sb=document.getElementById("searchBox")||document.getElementById("logSearch");if(sb){e.preventDefault();sb.focus();sb.select();}}
   else if((e.key==="n"||e.key==="N")&&!isPreview()){e.preventDefault();S.modal={t:"add"};render();}
-  else if(e.key==="?"||(e.key==="/"&&e.shiftKey)){e.preventDefault();S.modal={t:"shortcuts"};render();}
+  else if(e.key==="?"){e.preventDefault();S.modal={t:"shortcuts"};render();}
   else if(e.key>="1"&&e.key<="4"){const tabs=["store","warehouse","log","stats"];const t=tabs[parseInt(e.key)-1];if(t&&S.tab!==t){e.preventDefault();S.tab=t;S._skipScrollRestore=true;render();}}
 });
 // Refresh sync label without rebuilding DOM — full render every minute thrashes input focus, scrolling state, etc.
