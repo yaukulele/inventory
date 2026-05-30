@@ -30,6 +30,11 @@ body{background:var(--bg);font-family:'Noto Sans TC',system-ui,sans-serif;color:
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:9px}
 select option{background:#fff;color:#1e293b}input::placeholder{color:#94a3b8}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
+@keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
+.spinner{width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+.skeleton{background:linear-gradient(90deg,#f1f5f9 0px,#e2e8f0 80px,#f1f5f9 160px);background-size:200px 100%;animation:shimmer 1.4s linear infinite;border-radius:8px}
 .ipt{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text);font-size:14px;outline:none;font-family:inherit}
 .ipt:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
 .card{background:var(--card);border-radius:14px;border:1px solid var(--border);box-shadow:var(--shadow);overflow:hidden}
@@ -794,7 +799,16 @@ function renderLogin(){
   return wrap;
 }
 
-function renderLoading(){return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"16px"}},h("div",{style:{fontSize:"48px"}},"📦"),h("div",{style:{color:"var(--blue)",fontSize:"16px",fontWeight:600}},"連線 Firebase 中..."),h("div",{style:{color:"var(--sub)",fontSize:"13px"}},"首次載入可能需要幾秒"));}
+function renderLoading(){
+  return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"20px",background:"linear-gradient(135deg,#eff6ff 0%,#f8fafc 100%)"}},
+    h("div",{style:{position:"relative",width:"72px",height:"72px",display:"flex",alignItems:"center",justifyContent:"center"}},
+      h("div",{className:"spinner",style:{position:"absolute",inset:"0",width:"72px",height:"72px",borderWidth:"4px"}}),
+      h("div",{style:{fontSize:"32px",animation:"pulse 1.4s ease-in-out infinite"}},"📦")
+    ),
+    h("div",{style:{color:"var(--blue)",fontSize:"15px",fontWeight:700}},"連線 Firebase 中"),
+    h("div",{style:{color:"var(--sub)",fontSize:"12px"}},"首次載入需要幾秒")
+  );
+}
 
 function highlightText(text,search){
   if(!search||!text)return [document.createTextNode(text||"")];
@@ -1694,7 +1708,7 @@ function renderMain(){
   const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>!x.q).length,l:items.filter(x=>x.q>0&&x.q<=2).length,m:items.filter(x=>!x.img||!x.dsc).length};
   const root=h("div",{style:{minHeight:"100vh"}});
   // Header
-  root.appendChild(h("header",{style:{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)",background:"#fff",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}},
+  root.appendChild(h("header",{style:{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)",background:"rgba(255,255,255,.94)",backdropFilter:"saturate(160%) blur(10px)","-webkit-backdrop-filter":"saturate(160%) blur(10px)",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(15,23,42,.05)"}},
     h("div",{style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"},title:"回到頂部",onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:isPreview()?"#94a3b8":isAdmin()?"#16a34a":"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600},title:isPreview()?"預覽模式":isAdmin()?"管理員":"一般使用者"},isPreview()?"👁 預覽模式":S.user+(isAdmin()?" ⭐":"")),!S.online?h("span",{style:{fontSize:"10px",color:"#fff",background:"var(--red)",padding:"2px 8px",borderRadius:"10px",fontWeight:600,animation:"toastIn .3s ease"},title:"連線中斷，修改會排隊等回線"},"⚠ 離線"):null),
     h("div",{style:{display:"flex",gap:"6px"}},
       h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
@@ -1711,12 +1725,14 @@ function renderMain(){
         render();
       }},"登出"))
   ));
-  // Stats
+  // Stats — accent strip on top to make actionable cards visually distinct, plus a small hint icon when card is clickable
   const statsDiv=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",padding:"12px 16px"}});
-  [{l:"商品",v:st.c,c:"var(--blue)"},{l:"總庫存",v:st.q,c:"var(--green)"},{l:"零庫存",v:st.o,c:st.o?"var(--red)":"var(--sub)",click:"zero"},{l:"低庫存",v:st.l,c:st.l?"var(--orange)":"var(--sub)",click:"low"},{l:"缺資料",v:st.m,c:st.m?"#d97706":"var(--sub)",click:"missing"}].forEach(s=>{
-    statsDiv.appendChild(h("div",{className:"stat-card",style:{cursor:s.click?"pointer":"default"},onClick:s.click?()=>{S.modal={t:s.click};render();}:null},
-      h("div",{style:{fontSize:"10px",color:"var(--sub)",fontWeight:600}},s.l),
-      h("div",{className:"val",style:{fontSize:"20px",fontWeight:800,color:s.c}},s.v.toLocaleString())));});
+  [{l:"商品",v:st.c,c:"var(--blue)"},{l:"總庫存",v:st.q,c:"var(--green)"},{l:"零庫存",v:st.o,c:st.o?"var(--red)":"var(--sub)",click:"zero",alert:st.o>0},{l:"低庫存",v:st.l,c:st.l?"var(--orange)":"var(--sub)",click:"low",alert:st.l>0},{l:"缺資料",v:st.m,c:st.m?"#d97706":"var(--sub)",click:"missing",alert:st.m>0}].forEach(s=>{
+    const card=h("div",{className:"stat-card",style:{cursor:s.click?"pointer":"default",position:"relative",borderTop:s.alert?"3px solid "+s.c:"3px solid transparent",paddingTop:s.alert?"9px":"12px"},onClick:s.click?()=>{S.modal={t:s.click};render();}:null});
+    card.appendChild(h("div",{style:{fontSize:"10px",color:"var(--sub)",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"}},s.l,s.click&&s.alert?h("span",{style:{fontSize:"8px",color:s.c}},"›"):null));
+    card.appendChild(h("div",{className:"val",style:{fontSize:"20px",fontWeight:800,color:s.c,lineHeight:1.1}},s.v.toLocaleString()));
+    statsDiv.appendChild(card);
+  });
   root.appendChild(statsDiv);
   // Tabs
   const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 16px",borderBottom:"1px solid var(--border)",background:"#fff"}});
@@ -1874,7 +1890,17 @@ function renderMain(){
       });}
       content.appendChild(bCard);
     });
-    if(!grouped.length)content.appendChild(h("div",{style:{textAlign:"center",padding:"40px",color:"var(--sub)",fontSize:"14px"}},"無符合商品"));
+    if(!grouped.length){
+      const empty=h("div",{style:{textAlign:"center",padding:"60px 20px",color:"var(--sub)"}});
+      empty.appendChild(h("div",{style:{fontSize:"48px",marginBottom:"12px",opacity:.4}},S.search?"🔍":"📦"));
+      empty.appendChild(h("div",{style:{fontSize:"15px",fontWeight:700,color:"var(--text)",marginBottom:"4px"}},S.search?"找不到符合的商品":"這個分區還沒有商品"));
+      empty.appendChild(h("div",{style:{fontSize:"12px",lineHeight:1.6}},S.search?("試試其他關鍵字 — 已搜尋「"+S.search+"」"):(S.tab==="warehouse"?"切到店內看商品，或點上面 ＋新增":"點右上 ＋新增 開始建立")));
+      if(S.search){
+        const clearBtn=h("button",{style:{marginTop:"16px",padding:"8px 20px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.search="";render();}},"✕ 清除搜尋");
+        empty.appendChild(clearBtn);
+      }
+      content.appendChild(empty);
+    }
   }else if(S.tab==="log"){
     // Search bar (row 1)
     const hasFilter=S.logSearch||S.logDateFrom||S.logDateTo||S.logBrand||S.logAction;
@@ -2003,7 +2029,13 @@ function renderMain(){
         const detailNodes=l.d?highlightText(l.d,S.logSearch||""):null;
         const nameEl=matched?h("b",{style:{color:"var(--blue)",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"},onClick:()=>{S.modal={t:"detail",id:matched.id};render();}},nameNodes):h("b",{style:{color:"var(--sub)"},title:"品項已刪除"},nameNodes);logCard.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"8px 14px 8px 10px",fontSize:"12px",background:i%2?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9",borderLeft:"3px solid "+brandCol}},h("span",{},(l.a||"").slice(0,2)),h("div",{style:{flex:1,minWidth:0}},nameEl,detailNodes?h("span",{style:{color:"var(--sub)",marginLeft:"4px",fontSize:"11px"}},detailNodes):null),h("span",{style:{fontSize:"11px",color:(l.nq||0)>(l.pq||0)?"var(--green)":(l.nq||0)<(l.pq||0)?"var(--red)":"var(--sub)",fontWeight:600}},l.pq+"→"+l.nq),h("span",{style:{fontSize:"10px",color:"var(--sub)"}},l.u)));});
     });
-    if(!filteredLogs.length)logCard.appendChild(h("div",{style:{padding:"30px",textAlign:"center",color:"var(--sub)"}},hasFilter?"沒有符合的紀錄":"尚無紀錄"));
+    if(!filteredLogs.length){
+      const empty=h("div",{style:{padding:"50px 20px",textAlign:"center",color:"var(--sub)"}});
+      empty.appendChild(h("div",{style:{fontSize:"40px",marginBottom:"10px",opacity:.4}},hasFilter?"🔍":"📜"));
+      empty.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,color:"var(--text)",marginBottom:"4px"}},hasFilter?"沒有符合的紀錄":"還沒有任何活動紀錄"));
+      empty.appendChild(h("div",{style:{fontSize:"12px"}},hasFilter?"換個關鍵字或日期試試":"做進貨、出貨、盤點後會自動寫入"));
+      logCard.appendChild(empty);
+    }
     content.appendChild(logCard);
     if(totalFiltered>shown.length){
       content.appendChild(h("button",{style:{width:"100%",marginTop:"10px",padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.logLimit+=100;S._skipScrollRestore=false;render();}},"載入更多（剩 "+(totalFiltered-shown.length)+" 筆）"));
@@ -2200,7 +2232,13 @@ function renderMain(){
         topInCard.appendChild(row);});
       content.appendChild(topInCard);
     }
-    if(!monthLogs.length)content.appendChild(h("div",{style:{textAlign:"center",padding:"40px",color:"var(--sub)"}},"本月尚無紀錄"));
+    if(!monthLogs.length){
+      const empty=h("div",{style:{textAlign:"center",padding:"40px 20px",color:"var(--sub)"}});
+      empty.appendChild(h("div",{style:{fontSize:"40px",marginBottom:"10px",opacity:.4}},"📊"));
+      empty.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,color:"var(--text)",marginBottom:"4px"}},"本月還沒有活動"));
+      empty.appendChild(h("div",{style:{fontSize:"12px"}},"做進出貨後這裡會出現排行與趨勢圖"));
+      content.appendChild(empty);
+    }
     // Reconciliation check — compare each item's q against the latest q-modifying log; mismatches usually mean a transaction was lost mid-write or a manual Firebase edit happened.
     // Only meaningful when full log history is loaded; otherwise the "latest" might just be beyond the cached window.
     const reconCard=h("div",{className:"card",style:{padding:"14px"}});
@@ -2403,7 +2441,7 @@ function renderMain(){
     const visibleIds=fil.map(x=>x.id);
     const allVisibleSelected=visibleIds.length>0&&S._sel&&visibleIds.every(id=>S._sel.has(id));
     // flex-wrap so action buttons drop to a second row on narrow phones instead of overflowing the viewport horizontally.
-    const bar=h("div",{style:{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:"2px solid var(--blue)",padding:"10px 12px",display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap",zIndex:50,boxShadow:"0 -4px 12px rgba(0,0,0,.08)"}});
+    const bar=h("div",{style:{position:"fixed",bottom:0,left:0,right:0,background:"rgba(255,255,255,.96)",backdropFilter:"blur(8px)","-webkit-backdrop-filter":"blur(8px)",borderTop:"2px solid var(--blue)",padding:"10px 12px",display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap",zIndex:50,boxShadow:"0 -6px 18px rgba(15,23,42,.10)"}});
     // iOS home-bar safe area — without this the action bar tucks behind the home indicator on notch phones.
     bar.style.paddingBottom="calc(10px + env(safe-area-inset-bottom,0))";
     bar.appendChild(h("span",{style:{fontSize:"13px",fontWeight:700,color:"var(--blue)",marginRight:"4px",whiteSpace:"nowrap"}},"已選 "+selSize));
