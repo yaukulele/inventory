@@ -754,17 +754,26 @@ function h(t,p,...c){const e=document.createElement(t);if(p)Object.entries(p).fo
 // After successful login (or preview entry), kick off the inventory data load and switch to ready phase.
 async function postLogin(){
   const cached=hydrateFromCache();
-  S.phase=cached?"ready":"loading";
+  // Three start states:
+  //  1. cached (localStorage hit) — show ready immediately, freshen in background
+  //  2. no cache but prefetch already populated S.items (Login speculative prefetch resolved during password typing) — skip loading spinner, jump to ready
+  //  3. cold start (no cache, prefetch still pending) — loading spinner until first fbLoad returns
+  const prefetched=!cached&&Array.isArray(S.items)&&S.items.length>0;
+  S.phase=(cached||prefetched)?"ready":"loading";
   // lastSyncAt is only bumped on successful fbLoad; comparing before/after lets us surface a silent timeout that would otherwise leave the user staring at stale cached data with no clue why everything looks frozen.
   const beforeSync=S.lastSyncAt;
   render();
   // Reuse the chip-pick prefetch if available — saves an entire round trip when the user has been typing their password during the load.
-  if(cached){
+  if(cached||prefetched){
+    // Listener subscription is safe to start now; either we have items from cache or from the prefetch.
+    if(prefetched)startRealtimeSync();
     fbLoadInitial().then(()=>{
       // If user logged out while background fbLoad was running, don't yank them back to ready.
       if(S.phase==="login")return;
-      if(S.lastSyncAt===beforeSync)showToast("⚠ 同步失敗，目前顯示本地快取");
-      startRealtimeSync();S.phase="ready";render();
+      if(S.lastSyncAt===beforeSync&&!prefetched)showToast("⚠ 同步失敗，目前顯示本地快取");
+      // cached path: listener wasn't subscribed yet, do it now after first sync confirms data flow.
+      if(cached)startRealtimeSync();
+      S.phase="ready";render();
     });
   }
   else{
