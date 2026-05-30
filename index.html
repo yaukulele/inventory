@@ -478,7 +478,8 @@ async function doAction(type,it,qty,note){
   // Optimistic: update locally, close modal, show toast — instant UI feedback
   _pendingItems.bump(it.id);
   S.items=[...S.items.slice(0,idx),{...orig,q:optNq},...S.items.slice(idx+1)];
-  const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+optNq);
+  // Audit-with-note (e.g. 撤銷盤點) used to drop the transition info; preserve "X→Y" so the log row still shows what changed.
+  const det=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+oa:type==="audit"?" "+rq+"→"+optNq:"")):(type==="in"?"+"+amt:type==="out"?"-"+oa:"盤點 "+rq+"→"+optNq);
   const logEntry={id:uid(),iid:it.id,u:S.user,t:ts(),a:type==="in"?"📥進貨":type==="out"?"📤出貨":"📋盤點",n:it.n,b:it.b,d:det,pq:rq,nq:optNq};
   pushLogLocal(logEntry);
   S.modal=back;
@@ -534,7 +535,7 @@ async function doAction(type,it,qty,note){
     const lIdx=S.logs.findIndex(l=>l.id===logEntry.id);
     if(lIdx>=0){
       const fixedOa=type==="out"?Math.min(serverRq,amt):oa;
-      const fixedDet=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:"")):(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:"盤點 "+serverRq+"→"+serverNq);
+      const fixedDet=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:type==="audit"?" "+serverRq+"→"+serverNq:"")):(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:"盤點 "+serverRq+"→"+serverNq);
       S.logs[lIdx]={...logEntry,pq:serverRq,nq:serverNq,d:fixedDet};
       saveCache();
     }
