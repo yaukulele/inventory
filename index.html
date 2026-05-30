@@ -733,43 +733,59 @@ async function postLogin(){
 }
 
 function renderLogin(){
-  const wrap=h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#eff6ff 0%,#f8fafc 100%)"}});
-  const box=h("div",{style:{background:"#fff",borderRadius:"24px",padding:"40px 32px",width:"340px",boxShadow:"0 8px 30px rgba(0,0,0,.08)",textAlign:"center"}});
-  box.appendChild(h("div",{style:{fontSize:"48px",marginBottom:"8px"}},"📦"));
-  box.appendChild(h("h1",{style:{fontSize:"22px",fontWeight:800,marginBottom:"4px",color:"var(--text)"}},"庫存管理系統"));
-  box.appendChild(h("p",{style:{color:"var(--sub)",fontSize:"13px",marginBottom:"24px"}},"多人協作 · Firebase 即時同步"));
-  // User selector
-  box.appendChild(h("div",{style:{textAlign:"left",marginBottom:"4px"}},h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"選擇使用者")));
-  const userSel=h("select",{className:"ipt",style:{marginBottom:"12px"}});
-  US.forEach(u=>{const o=h("option",{value:u},u);if(u===S.user)o.selected=true;userSel.appendChild(o);});
-  box.appendChild(userSel);
-  // Password field — hidden for 快速預覽 (read-only mode, no password)
+  const wrap=h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"20px",background:"linear-gradient(135deg,#eff6ff 0%,#f8fafc 60%,#fef3c7 100%)"}});
+  const box=h("div",{style:{background:"#fff",borderRadius:"24px",padding:"36px 28px",width:"100%",maxWidth:"360px",boxShadow:"0 10px 40px rgba(15,23,42,.10),0 2px 6px rgba(15,23,42,.04)",textAlign:"center"}});
+  box.appendChild(h("div",{style:{display:"inline-flex",alignItems:"center",justifyContent:"center",width:"68px",height:"68px",borderRadius:"22px",background:"linear-gradient(135deg,#dbeafe,#eff6ff)",marginBottom:"14px",fontSize:"34px",boxShadow:"0 4px 10px rgba(37,99,235,.15)"}},"📦"));
+  box.appendChild(h("h1",{style:{fontSize:"22px",fontWeight:800,marginBottom:"4px",color:"var(--text)",letterSpacing:".3px"}},"庫存管理系統"));
+  box.appendChild(h("p",{style:{color:"var(--sub)",fontSize:"12px",marginBottom:"20px"}},"多人協作 · Firebase 即時同步"));
+  // User selector — chip layout: faster taps than a dropdown, and shows who's available at a glance.
+  // 快速預覽 gets a dashed-border treatment so it visibly reads as "no auth needed" rather than equivalent to an account.
+  box.appendChild(h("div",{style:{textAlign:"left",marginBottom:"8px"}},h("label",{style:{fontSize:"11px",color:"var(--sub)",fontWeight:700,letterSpacing:".5px"}},"選擇使用者")));
+  const userChips=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:"6px",marginBottom:"14px"}});
+  const chipRefs={};
+  const _initialUser=S.user;
+  // Password field — needs to be referenced inside chip onClicks so we declare its DOM up front.
   const passWrap=h("div",{style:{textAlign:"left",marginBottom:"4px",display:S.user==="快速預覽"?"none":"block"}});
-  passWrap.appendChild(h("label",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"密碼"));
-  const passInp=h("input",{type:"password",className:"ipt",id:"loginPass",style:{marginBottom:"12px"},placeholder:"輸入密碼",autocomplete:"current-password"});
+  passWrap.appendChild(h("label",{style:{fontSize:"11px",color:"var(--sub)",fontWeight:700,letterSpacing:".5px"}},"密碼"));
+  const passInp=h("input",{type:"password",className:"ipt",id:"loginPass",style:{marginBottom:"10px",marginTop:"4px"},placeholder:"輸入密碼",autocomplete:"current-password"});
   passInp.value=getSavedPass();
   passWrap.appendChild(passInp);
-  box.appendChild(passWrap);
   // Error message slot
-  const errorEl=h("div",{style:{color:"var(--red)",fontSize:"13px",marginBottom:"12px",minHeight:"18px",fontWeight:500}});
-  box.appendChild(errorEl);
-  // Toggle password field visibility when user picks 快速預覽.
-  // Also clear the prefilled password when switching to a different user — shared devices would otherwise leak the previous user's saved password into the new user's password field.
-  // We only keep the prefill when the dropdown selection matches the saved user (i.e. they're the same person returning).
-  const _initialUser=S.user;
-  userSel.addEventListener("change",e=>{
-    S.user=e.target.value;
-    passWrap.style.display=e.target.value==="快速預覽"?"none":"block";
-    errorEl.textContent="";
-    // Clear password input on user change (only retain prefill if returning to initially-selected user)
-    if(e.target.value!==_initialUser)passInp.value="";
-    else passInp.value=getSavedPass();
-    if(e.target.value!=="快速預覽")setTimeout(()=>passInp.focus(),50);
+  const errorEl=h("div",{style:{color:"var(--red)",fontSize:"12px",marginBottom:"10px",minHeight:"16px",fontWeight:600}});
+  US.forEach(u=>{
+    const isCur=u===S.user;
+    const isPv=u==="快速預覽";
+    const chip=h("button",{type:"button",style:{padding:"11px 8px",borderRadius:"12px",border:isCur?"1.5px solid var(--blue)":(isPv?"1.5px dashed var(--border)":"1.5px solid var(--border)"),background:isCur?"var(--blue-light)":"#fff",color:isCur?"var(--blue)":(isPv?"var(--sub)":"var(--text)"),fontSize:"13px",fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:"4px",transition:"all .12s"}},
+      h("span",{style:{fontSize:"14px"}},isPv?"👁":"👤"),
+      h("span",{},u)
+    );
+    chip.onclick=()=>{
+      S.user=u;
+      passWrap.style.display=isPv?"none":"block";
+      errorEl.textContent="";
+      // Restyle all chips
+      Object.entries(chipRefs).forEach(([name,el])=>{
+        const isNowCur=name===u;
+        const isThisPv=name==="快速預覽";
+        el.style.border=isNowCur?"1.5px solid var(--blue)":(isThisPv?"1.5px dashed var(--border)":"1.5px solid var(--border)");
+        el.style.background=isNowCur?"var(--blue-light)":"#fff";
+        el.style.color=isNowCur?"var(--blue)":(isThisPv?"var(--sub)":"var(--text)");
+      });
+      // Clear password on user change (only retain prefill if returning to initially-selected user)
+      if(u!==_initialUser)passInp.value="";
+      else passInp.value=getSavedPass();
+      if(!isPv)setTimeout(()=>passInp.focus(),50);
+    };
+    chipRefs[u]=chip;
+    userChips.appendChild(chip);
   });
-  const loginBtn=h("button",{id:"loginBtn",style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"16px",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px rgba(37,99,235,.3)"}},"進入系統");
+  box.appendChild(userChips);
+  box.appendChild(passWrap);
+  box.appendChild(errorEl);
+  const loginBtn=h("button",{id:"loginBtn",style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",boxShadow:"0 4px 12px rgba(37,99,235,.30)",letterSpacing:".5px"}},"進入系統 →");
   loginBtn.onclick=async function(){
     if(this.disabled)return;
-    const pickedUser=userSel.value;
+    const pickedUser=S.user;
     const enteredPass=passInp.value;
     errorEl.textContent="";
     if(pickedUser==="快速預覽"){
@@ -782,7 +798,7 @@ function renderLogin(){
     // Authenticated login: validate password against Firebase
     this.disabled=true;this.style.opacity="0.6";this.textContent="驗證中…";
     const users=await fbLoadUsers();
-    const reset=()=>{this.disabled=false;this.style.opacity="";this.textContent="進入系統";};
+    const reset=()=>{this.disabled=false;this.style.opacity="";this.textContent="進入系統 →";};
     if(!users){errorEl.textContent="⚠ 連線失敗，請重試";reset();return;}
     const userRecord=users[pickedUser];
     if(!userRecord){errorEl.textContent="⚠ 帳號不存在";reset();return;}
@@ -797,7 +813,7 @@ function renderLogin(){
     await postLogin();
   };
   box.appendChild(loginBtn);
-  // Auto-focus the right field — password if user known, else dropdown stays
+  // Auto-focus the password field on load for non-preview users — chips are tap targets so they don't need focus.
   if(S.user!=="快速預覽")setTimeout(()=>{const el=document.getElementById("loginPass");if(el)el.focus();},50);
   wrap.appendChild(box);
   return wrap;
