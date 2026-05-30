@@ -454,6 +454,8 @@ async function startRealtimeSync(){
 
 
 async function doAction(type,it,qty,note){
+  // Mid-flight logout (or any path that null'd S.items) would crash on findIndex below — bail out instead.
+  if(!S.items)return {ok:false};
   const back=S.modal&&S.modal.back||null;
   const amt=Math.max(type==="audit"?0:1,qty);
   const idx=S.items.findIndex(x=>x.id===it.id);
