@@ -2123,6 +2123,8 @@ function renderMain(){
       content.appendChild(h("div",{style:{marginTop:"8px",padding:"10px",textAlign:"center",fontSize:"11px",color:"var(--sub)",background:"#f8fafc",borderRadius:"8px"}},"已載入全部 "+(S.logs.length+S.olderLogs.length)+" 筆紀錄"));
     }
   }else if(S.tab==="stats"){
+    // Auto-fetch older logs the first time user opens stats — reconciliation, leaderboards, monthly comparison all want full history. loadOlderLogs has its own re-entrance guard so spamming the tab won't trigger multiple fetches.
+    if(!S.olderLogs.length&&S.logs.length>=200&&!S.loadingOlder)setTimeout(loadOlderLogs,50);
     // Use combined logs if older have been loaded — gives more accurate monthly stats when activity is high
     const allLogs=(()=>{if(!S.olderLogs.length)return S.logs;const cIds=new Set(S.logs.map(l=>l.id));return [...S.logs,...S.olderLogs.filter(l=>!cIds.has(l.id))];})();
     if(!S.olderLogs.length&&S.logs.length>=200){
