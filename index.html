@@ -733,7 +733,8 @@ async function doSync(){
   render();
 }
 // Fetch logs older than the cached 200 (up to full 500). Stored separately so the listener's 200-window doesn't overwrite them.
-async function loadOlderLogs(){
+// silent=true suppresses the success toast — used by the stats-tab auto-load path so users don't get a pop on every cold stats visit.
+async function loadOlderLogs(silent){
   if(S.loadingOlder||S.olderLogs.length)return;
   S.loadingOlder=true;render();
   try{
@@ -743,8 +744,8 @@ async function loadOlderLogs(){
     const all=(arrFromVal(snap.val())||[]).filter(x=>x);
     const currentIds=new Set(S.logs.map(l=>l.id));
     S.olderLogs=all.filter(l=>l&&!currentIds.has(l.id));
-    showToast(S.olderLogs.length?"✅ 已載入 "+S.olderLogs.length+" 筆舊紀錄":"已載入全部紀錄");
-  }catch(e){console.error(e);showToast("⚠ 載入舊紀錄失敗");}
+    if(!silent)showToast(S.olderLogs.length?"✅ 已載入 "+S.olderLogs.length+" 筆舊紀錄":"已載入全部紀錄");
+  }catch(e){console.error(e);if(!silent)showToast("⚠ 載入舊紀錄失敗");}
   S.loadingOlder=false;render();
 }
 
@@ -2135,8 +2136,8 @@ function renderMain(){
       content.appendChild(h("div",{style:{marginTop:"8px",padding:"10px",textAlign:"center",fontSize:"11px",color:"var(--sub)",background:"#f8fafc",borderRadius:"8px"}},"已載入全部 "+(S.logs.length+S.olderLogs.length)+" 筆紀錄"));
     }
   }else if(S.tab==="stats"){
-    // Auto-fetch older logs the first time user opens stats — reconciliation, leaderboards, monthly comparison all want full history. loadOlderLogs has its own re-entrance guard so spamming the tab won't trigger multiple fetches.
-    if(!S.olderLogs.length&&S.logs.length>=200&&!S.loadingOlder)setTimeout(loadOlderLogs,50);
+    // Auto-fetch older logs the first time user opens stats — reconciliation, leaderboards, monthly comparison all want full history. silent=true so users don't see a "已載入 N 筆" toast they didn't ask for. loadOlderLogs has its own re-entrance guard so spamming the tab won't trigger multiple fetches.
+    if(!S.olderLogs.length&&S.logs.length>=200&&!S.loadingOlder)setTimeout(()=>loadOlderLogs(true),50);
     // Use combined logs if older have been loaded — gives more accurate monthly stats when activity is high
     const allLogs=(()=>{if(!S.olderLogs.length)return S.logs;const cIds=new Set(S.logs.map(l=>l.id));return [...S.logs,...S.olderLogs.filter(l=>!cIds.has(l.id))];})();
     if(!S.olderLogs.length&&S.logs.length>=200){
