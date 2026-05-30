@@ -1531,8 +1531,9 @@ function renderBulkDelConfirmModal(){
   box.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",textAlign:"center",marginBottom:"12px"}},"此動作無法撤銷，將寫入 1 筆 🗑批次 日誌"));
   // Preview list — capped to first 6 so a 50-item bulk doesn't push the action buttons off-screen.
   const previewWrap=h("div",{style:{maxHeight:"180px",overflowY:"auto",background:"#f8fafc",borderRadius:"8px",border:"1px solid var(--border)",marginBottom:"12px"}});
-  items.slice(0,6).forEach(it=>{
-    previewWrap.appendChild(h("div",{style:{padding:"7px 12px",fontSize:"12px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",gap:"8px"}},
+  items.slice(0,6).forEach((it,i)=>{
+    const isLast=i===Math.min(items.length,6)-1&&items.length<=6;
+    previewWrap.appendChild(h("div",{style:{padding:"7px 12px",fontSize:"12px",borderBottom:isLast?"none":"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",gap:"8px"}},
       h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.b+" / "+it.n),
       h("span",{style:{color:(it.q||0)>0?"var(--red)":"var(--sub)",fontWeight:600,flexShrink:0}},"×"+(it.q||0))
     ));
