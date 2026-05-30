@@ -170,7 +170,7 @@ const WH=[
 
 function mkInit(){const o=[];D.forEach((r,i)=>o.push({id:"s"+i,b:r[0],c:r[1],n:r[2],q:r[3],z:"店內"}));WH.forEach((r,i)=>o.push({id:"w"+i,b:r[0],c:r[1],n:r[2],q:r[3],z:"倉庫"}));return o;}
 const BC={"aNueNue":"#ea580c","D'Addario":"#0d9488",NUX:"#2563eb",Singer:"#db2777",Veelah:"#16a34a",Yamaha:"#7c3aed",Roland:"#dc2626",Elixir:"#ca8a04","其他音箱":"#0891b2"};
-const _brandColorCache={};
+const _brandColorCache=Object.create(null);
 function hslToHex(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12;const a=s*Math.min(l,1-l);const f=n=>{const v=l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return Math.round(v*255).toString(16).padStart(2,"0");};return "#"+f(0)+f(8)+f(4);}
 // Reject brand/category names that would clash with Object.prototype keys — a brand literally named "__proto__" would corrupt the grouping objects used by renderMain / genExport / stats.
 // Cheaper to gatekeep at input than to rewrite every {} to Object.create(null) across the codebase.
@@ -1642,17 +1642,17 @@ function genExportText(zone,selDate){
       const bi=zoneItems.filter(x=>x.b===b);
       if(!bi.length)return;
       all+=dlabel+" "+b+" 倉庫庫存更新\n==================\n";
-      const cg={};bi.forEach(x=>{if(!cg[x.c])cg[x.c]=[];cg[x.c].push(x);});
+      const cg=Object.create(null);bi.forEach(x=>{if(!cg[x.c])cg[x.c]=[];cg[x.c].push(x);});
       Object.keys(cg).forEach(c=>{all+=c+"\n";cg[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});
       all+="\n";
     });
   }else{
     const tpls=[{t:"aNN 庫存更新",b:"aNueNue"},{t:"Veelah/Singer 庫存更新",b:["Veelah","Singer"]},{t:"D'a XS庫存更新",b:"D'Addario"},{t:"Elixir庫存更新",b:"Elixir"},{t:"NUX 庫存更新",b:"NUX"},{t:"音箱庫存更新",b:"其他音箱"},{t:"Yamaha 庫存更新",b:"Yamaha"}];
     const coveredBrands=new Set();tpls.forEach(tpl=>{const bs=Array.isArray(tpl.b)?tpl.b:[tpl.b];bs.forEach(b=>coveredBrands.add(b));});
-    tpls.forEach(tpl=>{const bs=Array.isArray(tpl.b)?tpl.b:[tpl.b];const fi=zoneItems.filter(x=>bs.includes(x.b));if(!fi.length)return;all+=dlabel+" "+tpl.t+"\n==================\n";const g={};fi.forEach(x=>{if(!g[x.c])g[x.c]=[];g[x.c].push(x);});Object.keys(g).forEach(c=>{all+=c+"\n";g[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});all+="\n";});
+    tpls.forEach(tpl=>{const bs=Array.isArray(tpl.b)?tpl.b:[tpl.b];const fi=zoneItems.filter(x=>bs.includes(x.b));if(!fi.length)return;all+=dlabel+" "+tpl.t+"\n==================\n";const g=Object.create(null);fi.forEach(x=>{if(!g[x.c])g[x.c]=[];g[x.c].push(x);});Object.keys(g).forEach(c=>{all+=c+"\n";g[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});all+="\n";});
     // Fallback: any brand not covered by tpls
     const otherBrands=[...new Set(zoneItems.map(x=>x.b).filter(b=>!coveredBrands.has(b)))].sort();
-    otherBrands.forEach(b=>{const fi=zoneItems.filter(x=>x.b===b);if(!fi.length)return;all+=dlabel+" "+b+" 庫存更新\n==================\n";const g={};fi.forEach(x=>{if(!g[x.c])g[x.c]=[];g[x.c].push(x);});Object.keys(g).forEach(c=>{all+=c+"\n";g[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});all+="\n";});
+    otherBrands.forEach(b=>{const fi=zoneItems.filter(x=>x.b===b);if(!fi.length)return;all+=dlabel+" "+b+" 庫存更新\n==================\n";const g=Object.create(null);fi.forEach(x=>{if(!g[x.c])g[x.c]=[];g[x.c].push(x);});Object.keys(g).forEach(c=>{all+=c+"\n";g[c].forEach(x=>all+=x.n+" x"+x.q+"\n");all+="——————————\n";});all+="\n";});
   }
   return all.trim();
 }
@@ -1694,11 +1694,11 @@ function renderExportModal(){
   };
   const mdDownload=()=>{
     const zoneItems=S.items.filter(x=>(x.z||"店內")===expZone);
-    const byBrand={};zoneItems.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
+    const byBrand=Object.create(null);zoneItems.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
     let md="# "+(expZone==="倉庫"?"🏭 倉庫":"🏪 店內")+"庫存報表\n\n> 匯出時間："+d+"\n> 總品項："+zoneItems.length+"　總庫存："+zoneItems.reduce((s,x)=>s+x.q,0)+"\n\n";
     Object.keys(byBrand).sort().forEach(b=>{
       md+="## "+b+"\n\n";
-      const cg={};byBrand[b].forEach(x=>{if(!cg[x.c])cg[x.c]=[];cg[x.c].push(x);});
+      const cg=Object.create(null);byBrand[b].forEach(x=>{if(!cg[x.c])cg[x.c]=[];cg[x.c].push(x);});
       Object.keys(cg).sort().forEach(c=>{
         md+="### "+c+"\n\n| 商品名 | 數量 |\n| --- | ---: |\n";
         cg[c].forEach(x=>{md+="| "+x.n.replace(/\|/g,"\\|")+" | "+x.q+" |\n";});
@@ -1992,8 +1992,9 @@ function renderMain(){
     content.appendChild(brandSel);
 
     // Build lookup maps. Match by iid first (survives renames + duplicate names) and fall back to name for legacy logs.
-    const nameToItem={};S.items.forEach(x=>{nameToItem[x.n]=x;});
-    const idToItem={};S.items.forEach(x=>{idToItem[x.id]=x;});
+    // Object.create(null) so a malicious / legacy item name like "__proto__" can't poison the lookup chain.
+    const nameToItem=Object.create(null);S.items.forEach(x=>{nameToItem[x.n]=x;});
+    const idToItem=Object.create(null);S.items.forEach(x=>{idToItem[x.id]=x;});
     const matchedItem=l=>l.iid?idToItem[l.iid]:nameToItem[l.n];
     const logBrand=l=>{const m=matchedItem(l);return m?m.b:(l.b||"");};
 
@@ -2178,7 +2179,8 @@ function renderMain(){
     content.appendChild(sumCard);
     // 7-day user activity leaderboard — quick "who's been working" view without leaving stats. Uses allLogs so loaded older history feeds in too.
     const wkStart=Date.now()-7*86400000;
-    const byUser={};
+    // Object.create(null) — username comes from log entries, could include "__proto__" or "constructor" from legacy/malicious data.
+    const byUser=Object.create(null);
     allLogs.forEach(l=>{
       const t=l.t;if(!t)return;
       const iso=t.replace(/\//g,"-").replace(" ","T");
@@ -2218,10 +2220,11 @@ function renderMain(){
     }
     // Build id→item map. Aggregate logs by iid where possible; legacy logs (no iid) get re-keyed via current name match
     // so a rename + a few legacy entries don't fragment a single item across multiple top-rank slots.
-    const idItemMap={};S.items.forEach(x=>{idItemMap[x.id]=x;});
-    const nameItemMap={};S.items.forEach(x=>{nameItemMap[x.n]=x;});
+    // Object.create(null) for the name-keyed map — user-controlled string can't poison Object.prototype.
+    const idItemMap=Object.create(null);S.items.forEach(x=>{idItemMap[x.id]=x;});
+    const nameItemMap=Object.create(null);S.items.forEach(x=>{nameItemMap[x.n]=x;});
     const aggregate=logs=>{
-      const map={};
+      const map=Object.create(null);
       logs.forEach(l=>{
         const qty=Math.abs((l.nq||0)-(l.pq||0));if(!qty)return;
         let key,iid="";
@@ -2285,12 +2288,13 @@ function renderMain(){
     }else{
       const mismatches=[];let noLog=0;
       // Pre-bucket name → items so we can decide if a legacy (no-iid) log unambiguously refers to this item
-      const nameItems={};S.items.forEach(x=>{(nameItems[x.n]=nameItems[x.n]||[]).push(x);});
+      const nameItems=Object.create(null);S.items.forEach(x=>{(nameItems[x.n]=nameItems[x.n]||[]).push(x);});
       const skipQ=l=>{const a=l.a||"";return a.includes("✏️")||a.includes("🗑");};
       // Pre-index logs by iid (first match = latest, because logs are stored newest-first).
       // Avoids O(items * logs) — was ~250k ops on 500 items × 500 logs, now O(items + logs).
-      const latestByIid={};
-      const legacyByName={};
+      // Object.create(null) on both — log iid is generated (safe) but log.n is user-controlled.
+      const latestByIid=Object.create(null);
+      const legacyByName=Object.create(null);
       allLogs.forEach(l=>{
         if(skipQ(l))return;
         if(l.iid){if(!(l.iid in latestByIid))latestByIid[l.iid]=l;}
@@ -2364,7 +2368,7 @@ function renderMain(){
     // Limited to non-zero stock because zero-stock items don't need a recount until restocked.
     const STALE_DAYS=60;
     const staleCutoff=Date.now()-STALE_DAYS*86400000;
-    const lastAuditMs={};
+    const lastAuditMs=Object.create(null);
     allLogs.forEach(l=>{
       if(!(l.a||"").includes("盤"))return;
       const t=l.t;if(!t)return;
@@ -2421,7 +2425,7 @@ function renderMain(){
     const filter=S.modal.filter||"all";
     const baseList=(S.items||[]).filter(x=>!x.img||!x.dsc);
     const list=filter==="img"?baseList.filter(x=>!x.img):filter==="dsc"?baseList.filter(x=>!x.dsc):baseList;
-    const byBrand={};list.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
+    const byBrand=Object.create(null);list.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
     const box=h("div",{className:"modal-box",style:{maxWidth:"520px"}});
     box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},
       h("h3",{style:{fontSize:"16px",fontWeight:700}},"🟡 缺資料清單"),
@@ -2452,7 +2456,7 @@ function renderMain(){
   if(S.modal&&(S.modal.t==="zero"||S.modal.t==="low")){
     const isZero=S.modal.t==="zero";const title=isZero?"🔴 零庫存清單（需補貨）":"🟠 低庫存清單（庫存≤2）";
     const list=(S.items||[]).filter(x=>x.z!=="倉庫"&&(isZero?x.q===0:(x.q>0&&x.q<=2)));
-    const byBrand={};list.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
+    const byBrand=Object.create(null);list.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
     const box=h("div",{className:"modal-box",style:{maxWidth:"500px"}});
     box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},
       h("h3",{style:{fontSize:"16px",fontWeight:700}},title),
