@@ -2391,16 +2391,17 @@ function renderMain(){
             S._batchFixing=true;
             let ok=0,fail=0,crashed=false;
             try{
-              for(const m of mismatches){
-                const r=await doAction("audit",m.it,m.expected,"對帳批次修正");
-                if(r&&r.ok)ok++;else fail++;
+              // Parallelize: each mismatch is a different item id, so Firebase transactions can run concurrently without contention. Promise.allSettled wraps everything so one rejection doesn't abort the batch. Drops total wall time from ~N×RTT (sequential await) to ~1×RTT.
+              const results=await Promise.allSettled(mismatches.map(m=>doAction("audit",m.it,m.expected,"對帳批次修正")));
+              for(const r of results){
+                if(r.status==="fulfilled"&&r.value&&r.value.ok)ok++;
+                else fail++;
               }
             }catch(e){
               console.error("batch fix crashed:",e);
               crashed=true;
             }finally{
               S._batchFixing=false;render();
-              // Toast moved inside finally so the user always gets a result message, even if doAction threw an unexpected error.
               if(crashed)showToast("⚠ 批次修正中斷："+ok+" 筆已完成，失敗 "+fail+" 筆");
               else showToast("✅ 完成 "+ok+" 筆"+(fail?"，失敗 "+fail+" 筆":""));
             }
