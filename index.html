@@ -737,9 +737,11 @@ async function doSync(){
   render();
 }
 // Fetch logs older than the cached 200 (up to full 500). Stored separately so the listener's 200-window doesn't overwrite them.
-// silent=true suppresses the success toast — used by the stats-tab auto-load path so users don't get a pop on every cold stats visit.
+// silent=true suppresses the success toast AND latches `_silentAutoLoadFailed` on failure so the stats-tab auto-trigger doesn't keep retrying every render.
+let _silentAutoLoadFailed=false;
 async function loadOlderLogs(silent){
   if(S.loadingOlder||S.olderLogs.length)return;
+  if(silent&&_silentAutoLoadFailed)return;
   S.loadingOlder=true;render();
   try{
     // Timeout guard — same reasoning as fbLoadUsers / fbLoad: dbL.once hangs on flaky connection, leaves S.loadingOlder=true forever and button stays disabled.
@@ -749,7 +751,7 @@ async function loadOlderLogs(silent){
     const currentIds=new Set(S.logs.map(l=>l.id));
     S.olderLogs=all.filter(l=>l&&!currentIds.has(l.id));
     if(!silent)showToast(S.olderLogs.length?"✅ 已載入 "+S.olderLogs.length+" 筆舊紀錄":"已載入全部紀錄");
-  }catch(e){console.error(e);if(!silent)showToast("⚠ 載入舊紀錄失敗");}
+  }catch(e){console.error(e);if(silent)_silentAutoLoadFailed=true;else showToast("⚠ 載入舊紀錄失敗");}
   S.loadingOlder=false;render();
 }
 
