@@ -485,11 +485,18 @@ async function doAction(type,it,qty,note){
   const diff=optNq-rq;const diffStr=type==="audit"?(diff===0?"":" ("+(diff>0?"+":"")+diff+")"):"";
   try{navigator.vibrate&&navigator.vibrate(30);}catch(e){}
   // Undo only for in/out (where reverse action is unambiguous server-relative). Audit absolute-set has no clean inverse.
-  // Undo flag prevents recursive undo (the "(撤銷)" action shouldn't itself offer another undo).
-  const undoOpts=(!note||note.indexOf("(撤銷)")<0)&&(type==="in"||type==="out")?{
+  // Undo flag prevents recursive undo — any note containing 撤銷 (with or without parens) is treated as an undo action and gets no further undo button.
+  // Audit now supports undo too — sets q back to the original rq via another audit. Useful when user mistypes the count.
+  const undoOpts=(!note||note.indexOf("撤銷")<0)?{
     label:"↶ 撤銷",
     // If the user logged out while the toast was still on screen, S.items is null and a naive .find throws TypeError — bail out cleanly.
-    fn:()=>{if(!S.items){showToast("⚠ 已登出，無法撤銷");return;}const opp=type==="in"?"out":"in";const cur=S.items.find(x=>x.id===it.id);if(!cur){showToast("⚠ 此品項已被刪除");return;}doAction(opp,cur,oa,"(撤銷)");}
+    fn:()=>{
+      if(!S.items){showToast("⚠ 已登出，無法撤銷");return;}
+      const cur=S.items.find(x=>x.id===it.id);
+      if(!cur){showToast("⚠ 此品項已被刪除");return;}
+      if(type==="audit")doAction("audit",cur,rq,"(撤銷盤點)");
+      else{const opp=type==="in"?"out":"in";doAction(opp,cur,oa,"(撤銷)");}
+    }
   }:null;
   showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+optNq+diffStr,undoOpts);
   render();
