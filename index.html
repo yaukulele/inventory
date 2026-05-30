@@ -380,7 +380,8 @@ async function startRealtimeSync(){
     const online=!!snap.val();if(S.online===online)return;S.online=online;
     const stable=(Date.now()-_connStart)>3000;
     if(!online)_hadOffline=true;
-    if(stable){
+    // Skip toasts when not on the ready screen — login users don't need connection-status spam blocking their password field.
+    if(stable&&S.phase==="ready"){
       if(online&&_hadOffline){showToast("✅ 已重新連線，同步中…");_hadOffline=false;}
       else if(!online)showToast("⚠ 連線中斷，修改會排隊");
     }
@@ -428,8 +429,9 @@ async function startRealtimeSync(){
     const next=cleanRemote.length?cleanRemote[0].id:null;
     if(prev!==next||cleanRemote.length!==S.logs.length){S.logs=cleanRemote;saveCache();if(canRender())listenerRender();}
   });
-  // catOrd sync: when another user reorders, reflect it
+  // catOrd sync: when another user reorders, reflect it. Phase guard same as dbL — otherwise a listener firing post-logout could re-populate S.catOrd with stale state for the next user.
   dbO.on("value",snap=>{const remote=snap.val();if(!remote||typeof remote!=="object")return;
+    if(S.phase!=="ready"||!S.items)return;
     const prev=JSON.stringify(S.catOrd),next=JSON.stringify(remote);
     if(prev!==next){S.catOrd=remote;if(canRender())listenerRender();}
   });
