@@ -1857,6 +1857,9 @@ function renderMain(){
     // Items. Preview mode is read-only — disable drag/reorder so it can't mutate Firebase via moveItems / fbSetOrdKey.
     const pvMode=isPreview();
     grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.search?true:S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
+      // Surface attention items in the collapsed brand header so users don't have to expand every brand to find what needs restocking.
+      const bZero=cats.reduce((s,c)=>s+c.its.filter(x=>x.q===0).length,0);
+      const bLow=cats.reduce((s,c)=>s+c.its.filter(x=>x.q>0&&x.q<=2).length,0);
       // No drag in select mode — taps inside select mode should only toggle selection. Otherwise dragging a brand header would compete with the row click handlers.
       const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:!pvMode&&!S._selectMode});
       bCard.addEventListener("dragstart",e=>{clearDrag();dragBrand=bi;_isDragging=true;e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
@@ -1882,11 +1885,15 @@ function renderMain(){
           if(it){showToast("📦 移動商品：「"+it.n+"」→ "+b);moveItems(x=>x.id===id,{b},"搬商品「"+it.n+"」品牌：「"+it.b+"」→「"+b+"」");}
         }
       });
+      const bAlertChips=h("div",{style:{display:"flex",gap:"4px",marginLeft:"6px"}});
+      if(bZero>0)bAlertChips.appendChild(h("span",{style:{fontSize:"10px",padding:"1px 7px",borderRadius:"10px",background:"#fef2f2",color:"var(--red)",fontWeight:700},title:bZero+" 項零庫存"},"零 "+bZero));
+      if(bLow>0)bAlertChips.appendChild(h("span",{style:{fontSize:"10px",padding:"1px 7px",borderRadius:"10px",background:"#fff7ed",color:"var(--orange)",fontWeight:700},title:bLow+" 項低庫存"},"低 "+bLow));
       bCard.appendChild(h("div",{className:"brand-hdr",onClick:()=>{S.bOpen[bk]=!S.bOpen[bk];render();}},
         h("span",{style:{fontSize:"10px",color:col,transform:bo?"rotate(0)":"rotate(-90deg)",transition:"transform .15s",fontWeight:900,display:"inline-block"}},"▼"),
         h("span",{style:{width:"4px",height:"20px",borderRadius:"2px",background:col,flexShrink:0}}),
         h("span",{style:{fontSize:"15px",fontWeight:800,color:col}},b),
-        h("span",{style:{marginLeft:"auto",fontSize:"12px",color:"var(--sub)",fontWeight:500}},bC+"項 / "+bT)));
+        (bZero>0||bLow>0)?bAlertChips:null,
+        h("span",{style:{marginLeft:"auto",fontSize:"12px",color:"var(--sub)",fontWeight:500,flexShrink:0}},bC+"項 / "+bT)));
       if(bo){
         cats.forEach(({c,its},ci)=>{const ck=bk+"|"+c;const co=S.search?true:S.cOpen[ck];const cT=its.reduce((s,x)=>s+x.q,0);
         const catEl=h("div",{className:"cat-hdr",draggable:!pvMode&&!S._selectMode});
