@@ -1786,9 +1786,15 @@ function renderMain(){
     statsDiv.appendChild(card);
   });
   root.appendChild(statsDiv);
-  // Tabs
+  // Tabs — log tab shows a small today-count badge so users can see "12 things happened today" at a glance.
   const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 16px",borderBottom:"1px solid var(--border)",background:"#fff"}});
-  [{k:"store",l:"🏪 店內"},{k:"warehouse",l:"🏭 倉庫"},{k:"log",l:"📜 紀錄"},{k:"stats",l:"📊 統計"}].forEach(t=>{tabBar.appendChild(h("button",{className:"tab-btn"+(S.tab===t.k?" active":""),onClick:()=>{if(S.tab!==t.k){S.tab=t.k;S._skipScrollRestore=true;render();}}},t.l));});
+  const todayStr=(()=>{const d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0");})();
+  const todayLogCount=(S.logs||[]).filter(l=>dateOnly(l.t)===todayStr).length;
+  [{k:"store",l:"🏪 店內"},{k:"warehouse",l:"🏭 倉庫"},{k:"log",l:"📜 紀錄",badge:todayLogCount},{k:"stats",l:"📊 統計"}].forEach(t=>{
+    const btn=h("button",{className:"tab-btn"+(S.tab===t.k?" active":""),onClick:()=>{if(S.tab!==t.k){S.tab=t.k;S._skipScrollRestore=true;render();}}},t.l);
+    if(t.badge&&t.badge>0){btn.appendChild(h("span",{style:{display:"inline-block",marginLeft:"4px",padding:"1px 7px",borderRadius:"10px",background:S.tab===t.k?"var(--blue)":"#cbd5e1",color:"#fff",fontSize:"10px",fontWeight:700,verticalAlign:"middle",lineHeight:1.3}},String(t.badge>99?"99+":t.badge)));}
+    tabBar.appendChild(btn);
+  });
   tabBar.appendChild(h("div",{style:{flex:1}}));if(!isPreview())tabBar.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"none",background:"var(--green)",color:"#fff",fontSize:"12px",fontWeight:600,cursor:"pointer",margin:"6px 0"},onClick:()=>{S.modal={t:"add"};render();}},"＋ 新增"));
   root.appendChild(tabBar);
   const content=h("div",{style:{padding:"12px 16px",paddingBottom:"32px"}});
