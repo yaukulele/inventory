@@ -612,7 +612,6 @@ function doDel(it){S.modal={t:"del-confirm",id:it.id};render();}
 // Single summary log entry (a:"🗑批次") records the action; restore would mean recreating N items which is significantly more complex than the single-item undo flow, so we skip undo here and require confirm.
 async function bulkDeleteSelection(ids){
   if(!ids||!ids.size)return;
-  if(!confirm("確定刪除選取的 "+ids.size+" 個品項？\n此動作無法復原（不支援批次撤銷），會寫入單筆 🗑批次 日誌。"))return;
   if(!S.items)return;
   const snapshots=S.items.filter(x=>x&&ids.has(x.id));
   if(!snapshots.length){showToast("⚠ 沒有可刪除的品項");return;}
@@ -1398,6 +1397,39 @@ function renderAccountEditModal(){
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:back}),box);
 }
 
+function renderBulkDelConfirmModal(){
+  if(!S.modal||S.modal.t!=="bulk-del-confirm")return null;
+  const ids=new Set(S.modal.ids||[]);
+  const items=(S.items||[]).filter(x=>x&&ids.has(x.id));
+  const close=()=>{S.modal=null;render();};
+  if(!items.length){S.modal=null;showToast("⚠ 沒有選取項");return null;}
+  const totalQ=items.reduce((s,x)=>s+(x.q||0),0);
+  const box=h("div",{className:"modal-box",style:{maxWidth:"400px"}});
+  box.appendChild(h("div",{style:{fontSize:"36px",textAlign:"center",marginBottom:"8px"}},"🗑"));
+  box.appendChild(h("div",{style:{fontSize:"16px",fontWeight:700,textAlign:"center",marginBottom:"6px"}},"批次刪除 "+items.length+" 個品項？"));
+  box.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",textAlign:"center",marginBottom:"12px"}},"此動作無法撤銷，將寫入 1 筆 🗑批次 日誌"));
+  // Preview list — capped to first 6 so a 50-item bulk doesn't push the action buttons off-screen.
+  const previewWrap=h("div",{style:{maxHeight:"180px",overflowY:"auto",background:"#f8fafc",borderRadius:"8px",border:"1px solid var(--border)",marginBottom:"12px"}});
+  items.slice(0,6).forEach(it=>{
+    previewWrap.appendChild(h("div",{style:{padding:"7px 12px",fontSize:"12px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",gap:"8px"}},
+      h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.b+" / "+it.n),
+      h("span",{style:{color:(it.q||0)>0?"var(--red)":"var(--sub)",fontWeight:600,flexShrink:0}},"×"+(it.q||0))
+    ));
+  });
+  if(items.length>6){
+    previewWrap.appendChild(h("div",{style:{padding:"7px 12px",fontSize:"11px",color:"var(--sub)",textAlign:"center",background:"#f1f5f9"}},"… 還有 "+(items.length-6)+" 項"));
+  }
+  box.appendChild(previewWrap);
+  if(totalQ>0){
+    box.appendChild(h("div",{style:{fontSize:"12px",textAlign:"center",color:"var(--red)",marginBottom:"12px",padding:"8px",background:"#fef2f2",borderRadius:"8px",fontWeight:600}},"⚠ 這些品項共有 "+totalQ+" 件庫存"));
+  }
+  const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}});
+  btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:close},"取消"));
+  btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--red)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;this.disabled=true;S.modal=null;bulkDeleteSelection(ids);}},"確認刪除 "+items.length));
+  box.appendChild(btnRow);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
+}
+
 function renderDelConfirmModal(){
   if(!S.modal||S.modal.t!=="del-confirm")return null;
   const it=S.items.find(x=>x.id===S.modal.id);
@@ -1498,17 +1530,29 @@ function renderBulkMoveModal(){
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"區域"),zSel));
   const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
   btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:close},"取消"));
+  // Inline warning + 2-click pattern replaces native confirm() — same safety, no jarring browser dialog.
+  // First click validates inputs and shows a yellow warning bar describing the move; second click within the modal commits.
+  const warnBar=h("div",{style:{display:"none",marginBottom:"8px",padding:"10px 12px",background:"#fef3c7",borderRadius:"8px",fontSize:"12px",color:"#78350f",fontWeight:600,lineHeight:1.5}});
+  box.appendChild(warnBar);
+  let _bulkArmed=false;
   const confirmBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){
     if(this.disabled)return;
     let newB=bSel.value==="__newB"?bcInp.value.trim():bSel.value;
     let newC=cSel.value==="__new"?ccInp.value.trim():cSel.value;
-    if(bSel.value==="__newB"&&!newB){alert("請輸入新品牌名稱");return;}
-    if(cSel.value==="__new"&&!newC){alert("請輸入新分類名稱");return;}
+    if(bSel.value==="__newB"&&!newB){warnBar.style.display="block";warnBar.textContent="⚠ 請輸入新品牌名稱";_bulkArmed=false;return;}
+    if(cSel.value==="__new"&&!newC){warnBar.style.display="block";warnBar.textContent="⚠ 請輸入新分類名稱";_bulkArmed=false;return;}
     const newZ=zSel.value;
     const patch={};if(newB)patch.b=newB;if(newC)patch.c=newC;if(newZ)patch.z=newZ;
-    if(!Object.keys(patch).length){alert("沒有變更");return;}
+    if(!Object.keys(patch).length){warnBar.style.display="block";warnBar.textContent="⚠ 沒有變更，請選擇新品牌/分類/區域至少一項";_bulkArmed=false;return;}
     const desc=[newB?"品牌「"+newB+"」":"",newC?"分類「"+newC+"」":"",newZ?"區域「"+newZ+"」":""].filter(Boolean).join(" / ");
-    if(!confirm("把 "+items.length+" 個品項搬到 "+desc+"？"))return;
+    if(!_bulkArmed){
+      _bulkArmed=true;
+      warnBar.style.display="block";
+      warnBar.textContent="⚠ 即將把 "+items.length+" 個品項搬到 "+desc+"。再按一次確認執行。";
+      this.style.background="var(--red)";
+      this.textContent="🔥 再按一次執行搬移";
+      return;
+    }
     this.disabled=true;this.textContent="搬移中…";
     const ok=await bulkMoveItems(ids,patch,"批次搬到 "+desc);
     if(ok){
@@ -1516,7 +1560,8 @@ function renderBulkMoveModal(){
       showToast("📦 已批次搬移 "+items.length+" 項");
       render();
     } else {
-      this.disabled=false;this.textContent="📦 確認搬移";
+      this.disabled=false;this.style.background="var(--blue)";this.textContent="📦 確認搬移";
+      _bulkArmed=false;
     }
   }},"📦 確認搬移");
   btnRow.appendChild(confirmBtn);
@@ -2292,6 +2337,7 @@ function renderMain(){
   const em=renderExportModal();if(em)root.appendChild(em);
   const dm=renderDetailModal();if(dm)root.appendChild(dm);
   const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
+  const bdcm=renderBulkDelConfirmModal();if(bdcm)root.appendChild(bdcm);
   const lbm=renderLightboxModal();if(lbm)root.appendChild(lbm);
   const acm=renderAccountModal();if(acm)root.appendChild(acm);
   const aem=renderAccountEditModal();if(aem)root.appendChild(aem);
@@ -2373,7 +2419,7 @@ function renderMain(){
     bar.appendChild(h("div",{style:{flex:1}}));
     if(selSize>0){
       bar.appendChild(h("button",{style:{padding:"7px 12px",borderRadius:"8px",border:"1px solid var(--blue)",background:"#fff",color:"var(--blue)",fontSize:"12px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"},onClick:()=>{S.modal={t:"bulk-move",ids:[...S._sel]};render();}},"📦 搬到…"));
-      bar.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"8px",border:"none",background:"var(--red)",color:"#fff",fontSize:"12px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"},onClick:()=>{if(S._sel)bulkDeleteSelection(new Set(S._sel));}},"🗑 刪除 "+selSize));
+      bar.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"8px",border:"none",background:"var(--red)",color:"#fff",fontSize:"12px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"},onClick:()=>{if(S._sel&&S._sel.size)S.modal={t:"bulk-del-confirm",ids:[...S._sel]};render();}},"🗑 刪除 "+selSize));
     }
     bar.appendChild(h("button",{style:{padding:"7px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"},onClick:()=>{S._selectMode=false;S._sel=null;render();}},"退出"));
     root.appendChild(bar);
