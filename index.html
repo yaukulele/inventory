@@ -372,8 +372,11 @@ const _pendingItems=new Map();
 _pendingItems.bump=function(id){this.set(id,(this.get(id)||0)+1);};
 _pendingItems.drop=function(id){const n=(this.get(id)||0)-1;if(n<=0)this.delete(id);else this.set(id,n);};
 const _pendingDeletes=new Set();
-// True while user has a drag in progress — listenerRender skips so the row being dragged isn't yanked out from under the browser's drag image
-let _isDragging=false;
+// True while user has a drag in progress — listenerRender skips so the row being dragged isn't yanked out from under the browser's drag image.
+// _dragWatchdog auto-clears _isDragging after 30s if dragend never fires (browser killed drag mid-flight, e.g. tab/app switch). Without this, a stuck _isDragging would block all listener-driven renders for the rest of the session.
+let _isDragging=false,_dragWatchdog=null;
+function armDrag(){_isDragging=true;if(_dragWatchdog)clearTimeout(_dragWatchdog);_dragWatchdog=setTimeout(()=>{_isDragging=false;_dragWatchdog=null;},30000);}
+function disarmDrag(){_isDragging=false;if(_dragWatchdog){clearTimeout(_dragWatchdog);_dragWatchdog=null;}}
 
 // Throttled render for listener-triggered updates — coalesces multi-user broadcasts.
 // 50ms was too aggressive when 3 users were bulk-editing simultaneously (kept thrashing CPU). 180ms still feels live to a human eye but groups bursts.
@@ -1899,8 +1902,8 @@ function renderMain(){
       const bLow=cats.reduce((s,c)=>s+c.its.filter(x=>x.q>0&&x.q<=2).length,0);
       // No drag in select mode — taps inside select mode should only toggle selection. Otherwise dragging a brand header would compete with the row click handlers.
       const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:!pvMode&&!S._selectMode});
-      bCard.addEventListener("dragstart",e=>{clearDrag();dragBrand=bi;_isDragging=true;e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
-      bCard.addEventListener("dragend",()=>{clearDrag();_isDragging=false;bCard.style.opacity="1";});
+      bCard.addEventListener("dragstart",e=>{clearDrag();dragBrand=bi;armDrag();e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
+      bCard.addEventListener("dragend",()=>{clearDrag();disarmDrag();bCard.style.opacity="1";});
       bCard.addEventListener("dragover",e=>{e.preventDefault();
         const canDrop=(dragBrand!==null&&dragBrand!==bi)||(dragCatBi!==null&&dragCatBi!==bi)||(dragItemSrcBrand!==null&&dragItemSrcBrand!==b);
         if(canDrop)bCard.style.borderTop="3px solid var(--blue)";
@@ -1934,8 +1937,8 @@ function renderMain(){
       if(bo){
         cats.forEach(({c,its},ci)=>{const ck=bk+"|"+c;const co=S.search?true:S.cOpen[ck];const cT=its.reduce((s,x)=>s+x.q,0);
         const catEl=h("div",{className:"cat-hdr",draggable:!pvMode&&!S._selectMode});
-        catEl.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragCatBi=bi;dragCatName=c;_isDragging=true;e.dataTransfer.effectAllowed="move";catEl.style.opacity="0.5";});
-        catEl.addEventListener("dragend",()=>{clearDrag();_isDragging=false;catEl.style.opacity="1";});
+        catEl.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragCatBi=bi;dragCatName=c;armDrag();e.dataTransfer.effectAllowed="move";catEl.style.opacity="0.5";});
+        catEl.addEventListener("dragend",()=>{clearDrag();disarmDrag();catEl.style.opacity="1";});
         catEl.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();
           const canDrop=(dragCatBi===bi&&dragCatName!==c)||(dragCatBi!==null&&dragCatBi!==bi)||(dragItemId!==null&&(dragItemSrcBrand!==b||dragItemSrcCat!==c));
           if(canDrop)catEl.style.borderTop="3px solid "+col;
@@ -1968,8 +1971,8 @@ function renderMain(){
           // Disable drag listeners entirely in select mode — renderRow's select-mode branch handles row.onclick for toggling, so adding drag handlers on top would race and could trigger spurious cross-cat moves.
           if(S._selectMode){bCard.appendChild(row);return;}
           row.draggable=!pvMode;
-          row.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragItemId=it.id;dragItemSrcBrand=b;dragItemSrcCat=c;_isDragging=true;e.dataTransfer.effectAllowed="move";row.style.opacity="0.5";});
-          row.addEventListener("dragend",()=>{clearDrag();_isDragging=false;row.style.opacity="1";});
+          row.addEventListener("dragstart",e=>{e.stopPropagation();clearDrag();dragItemId=it.id;dragItemSrcBrand=b;dragItemSrcCat=c;armDrag();e.dataTransfer.effectAllowed="move";row.style.opacity="0.5";});
+          row.addEventListener("dragend",()=>{clearDrag();disarmDrag();row.style.opacity="1";});
           row.addEventListener("dragover",e=>{e.preventDefault();e.stopPropagation();
             if(dragItemId!==null&&dragItemSrcBrand===b&&dragItemSrcCat===c&&dragItemId!==it.id)row.style.borderTop="2px solid var(--blue)";
           });
