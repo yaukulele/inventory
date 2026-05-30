@@ -734,10 +734,11 @@ async function doSync(){
   // Snapshot olderLogs so a failed sync doesn't silently throw away history the user explicitly fetched.
   // Previously this was wiped unconditionally — if sync timed out, user lost their loaded 300 older entries.
   const savedOlder=S.olderLogs;
-  S.olderLogs=[];
+  const savedOlderLoaded=S._olderLoaded;
+  S.olderLogs=[];S._olderLoaded=false;
   try{await fbLoad();}finally{_syncing=false;}
   if(S.lastSyncAt===before){
-    S.olderLogs=savedOlder;
+    S.olderLogs=savedOlder;S._olderLoaded=savedOlderLoaded;
     showToast("⚠ 同步失敗，檢查連線");
   }else showToast("已同步");
   render();
@@ -746,7 +747,8 @@ async function doSync(){
 // silent=true suppresses the success toast AND latches `_silentAutoLoadFailed` on failure so the stats-tab auto-trigger doesn't keep retrying every render.
 let _silentAutoLoadFailed=false;
 async function loadOlderLogs(silent){
-  if(S.loadingOlder||S.olderLogs.length)return;
+  // S._olderLoaded latches a successful attempt even when the result is 0 additional logs — otherwise S.olderLogs.length=0 looks identical to "never tried" and the UI keeps showing the warning bar + auto-retries.
+  if(S.loadingOlder||S.olderLogs.length||S._olderLoaded)return;
   if(silent&&_silentAutoLoadFailed)return;
   S.loadingOlder=true;render();
   try{
@@ -756,6 +758,7 @@ async function loadOlderLogs(silent){
     const all=(arrFromVal(snap.val())||[]).filter(x=>x);
     const currentIds=new Set(S.logs.map(l=>l.id));
     S.olderLogs=all.filter(l=>l&&!currentIds.has(l.id));
+    S._olderLoaded=true;
     if(!silent)showToast(S.olderLogs.length?"✅ 已載入 "+S.olderLogs.length+" 筆舊紀錄":"已載入全部紀錄");
   }catch(e){console.error(e);if(silent)_silentAutoLoadFailed=true;else showToast("⚠ 載入舊紀錄失敗");}
   S.loadingOlder=false;render();
@@ -1213,8 +1216,8 @@ function renderDetailModal(){
         histBox.appendChild(h("button",{style:{width:"100%",padding:"8px",border:"none",background:"#f8fafc",color:"var(--blue)",fontSize:"11px",fontWeight:600,cursor:"pointer",borderTop:"1px solid var(--border)"},onClick:()=>{S.modal={...S.modal,showAllHist:!showAllHist};render();}},showAllHist?"▲ 收合":"▼ 顯示更多（最多 50 筆）"));
       }
       // Inline "load older" button — saves the user from having to leave the detail modal to fetch logs beyond the 200-entry listener window.
-      // Only show when there's clearly more history available (full window of recent logs and not yet loaded).
-      if(!S.olderLogs.length&&S.logs.length>=200){
+      // Only show when there's clearly more history available (full window of recent logs and not yet loaded, including the case where load returned 0 additional).
+      if(!S.olderLogs.length&&!S._olderLoaded&&S.logs.length>=200){
         histBox.appendChild(h("button",{disabled:S.loadingOlder,style:{width:"100%",padding:"8px",border:"none",background:"#f8fafc",color:S.loadingOlder?"var(--sub)":"#7c3aed",fontSize:"11px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer",borderTop:"1px solid var(--border)",opacity:S.loadingOlder?.6:1},onClick:loadOlderLogs},S.loadingOlder?"⏳ 載入中…":"📜 載入更舊紀錄"));
       }
       box.appendChild(histBox);
@@ -1812,7 +1815,7 @@ function renderMain(){
       h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account"};render();},title:"帳號設定"},"🔐"),
       h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{
         if(!isPreview())logActivity("登出");
-        S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
+        S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S._olderLoaded=false;S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
         // Reset module-level optimistic-state singletons so any in-flight tx callbacks from this session can't pollute the next user's view (e.g. listener falling through to "show local pending" when S.items is null for the next login).
         _pendingItems.clear();_pendingDeletes.clear();_pendingLogs.clear();
         // Reset the login prefetch promises so a re-login under a different account refetches fresh data instead of reusing the previous session's cached promises (which would skip fbLoad entirely if the cached promise was already resolved).
@@ -2168,17 +2171,17 @@ function renderMain(){
       content.appendChild(h("button",{style:{width:"100%",marginTop:"10px",padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.logLimit+=100;S._skipScrollRestore=false;render();}},"載入更多（剩 "+(totalFiltered-shown.length)+" 筆）"));
     }
     // Older logs button — fetch entries beyond the listener's 200-entry window (up to full 500)
-    if(!S.olderLogs.length&&S.logs.length>=200){
+    if(!S.olderLogs.length&&!S._olderLoaded&&S.logs.length>=200){
       content.appendChild(h("button",{disabled:S.loadingOlder,style:{width:"100%",marginTop:"8px",padding:"12px",borderRadius:"10px",border:"1px dashed var(--border)",background:"#f8fafc",color:S.loadingOlder?"var(--sub)":"#7c3aed",fontSize:"12px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer",opacity:S.loadingOlder?.6:1},onClick:loadOlderLogs},S.loadingOlder?"⏳ 載入中…":"📜 載入更舊紀錄（最舊 ~300 筆）"));
-    }else if(S.olderLogs.length){
+    }else if(S.olderLogs.length||S._olderLoaded){
       content.appendChild(h("div",{style:{marginTop:"8px",padding:"10px",textAlign:"center",fontSize:"11px",color:"var(--sub)",background:"#f8fafc",borderRadius:"8px"}},"已載入全部 "+(S.logs.length+S.olderLogs.length)+" 筆紀錄"));
     }
   }else if(S.tab==="stats"){
     // Auto-fetch older logs the first time user opens stats — reconciliation, leaderboards, monthly comparison all want full history. silent=true so users don't see a "已載入 N 筆" toast they didn't ask for. loadOlderLogs has its own re-entrance guard so spamming the tab won't trigger multiple fetches.
-    if(!S.olderLogs.length&&S.logs.length>=200&&!S.loadingOlder)setTimeout(()=>loadOlderLogs(true),50);
+    if(!S.olderLogs.length&&!S._olderLoaded&&S.logs.length>=200&&!S.loadingOlder)setTimeout(()=>loadOlderLogs(true),50);
     // Use combined logs if older have been loaded — gives more accurate monthly stats when activity is high
     const allLogs=(()=>{if(!S.olderLogs.length)return S.logs;const cIds=new Set(S.logs.map(l=>l.id));return [...S.logs,...S.olderLogs.filter(l=>!cIds.has(l.id))];})();
-    if(!S.olderLogs.length&&S.logs.length>=200){
+    if(!S.olderLogs.length&&!S._olderLoaded&&S.logs.length>=200){
       content.appendChild(h("div",{style:{padding:"10px 12px",margin:"0 0 12px 0",background:"#fef3c7",borderRadius:"8px",fontSize:"11px",color:"#b45309",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px"}},h("span",{},"📊 統計基於最新 200 筆紀錄"),h("button",{disabled:S.loadingOlder,style:{padding:"4px 10px",borderRadius:"6px",border:"none",background:S.loadingOlder?"#e2e8f0":"#7c3aed",color:"#fff",fontSize:"11px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer",flexShrink:0},onClick:loadOlderLogs},S.loadingOlder?"載入中…":"載入全部")));
     }
     // Monthly stats
@@ -2259,7 +2262,7 @@ function renderMain(){
       const lmOut=lmLogs.filter(l=>(l.a||"").includes("出")).length;
       const lmTotal=lmLogs.length;
       const diffSpan=(cur,prev,label)=>{const d=cur-prev;const col=d>0?"var(--green)":d<0?"var(--red)":"var(--sub)";const sign=d>0?"+":"";return h("span",{style:{display:"inline-flex",alignItems:"center",gap:"3px"}},h("span",{style:{color:"var(--sub)"}},label),h("b",{},String(prev)),d!==0?h("span",{style:{color:col,fontWeight:700}},"("+sign+d+")"):null);};
-      const partial=!S.olderLogs.length&&S.logs.length>=200;
+      const partial=!S.olderLogs.length&&!S._olderLoaded&&S.logs.length>=200;
       sumCard.appendChild(h("div",{style:{display:"flex",gap:"10px",justifyContent:"space-around",fontSize:"11px",color:"var(--sub)",padding:"8px 4px 0",borderTop:"1px dashed #f1f5f9",flexWrap:"wrap",alignItems:"center",marginTop:"4px"}},
         h("span",{style:{color:"var(--sub)",fontWeight:700,whiteSpace:"nowrap"}},"vs 上月："),
         diffSpan(mIn.length,lmIn,"進"),
@@ -2374,7 +2377,7 @@ function renderMain(){
     // Only meaningful when full log history is loaded; otherwise the "latest" might just be beyond the cached window.
     const reconCard=h("div",{className:"card",style:{padding:"14px"}});
     reconCard.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,marginBottom:"8px"}},"🔍 對帳檢查"));
-    if(!S.olderLogs.length&&S.logs.length>=200){
+    if(!S.olderLogs.length&&!S._olderLoaded&&S.logs.length>=200){
       reconCard.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",padding:"8px 10px",background:"#fef3c7",borderRadius:"8px",marginBottom:"6px"}},"⚠ 需要載入全部紀錄才能精確比對。"));
       reconCard.appendChild(h("button",{disabled:S.loadingOlder,style:{width:"100%",padding:"10px",borderRadius:"8px",border:"none",background:S.loadingOlder?"#e2e8f0":"#7c3aed",color:"#fff",fontSize:"13px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer"},onClick:loadOlderLogs},S.loadingOlder?"載入中…":"載入全部紀錄後比對"));
     }else{
@@ -2487,7 +2490,7 @@ function renderMain(){
         h("span",{style:{fontSize:"14px",fontWeight:700}},"⏳ 需盤點清單"),
         h("span",{style:{fontSize:"11px",color:"var(--sub)",fontWeight:500}},STALE_DAYS+" 天未盤點 · "+staleItems.length+" 項")
       ));
-      if(!S.olderLogs.length&&S.logs.length>=200){
+      if(!S.olderLogs.length&&!S._olderLoaded&&S.logs.length>=200){
         staleCard.appendChild(h("div",{style:{fontSize:"11px",color:"#b45309",padding:"6px 10px",background:"#fef3c7",borderRadius:"6px",marginBottom:"6px"}},"⚠ 僅基於最新 200 筆紀錄，可能誤報"));
       }
       const sortedStale=staleItems.slice().sort((a,b)=>{const la=getLastAudit(a)||0;const lb=getLastAudit(b)||0;return la-lb;});
