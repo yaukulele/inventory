@@ -1338,7 +1338,7 @@ function renderAccountModal(){
         if(!isMe){
           row.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:async()=>{
             const adminCount=Object.values(S.users).filter(u=>u.role==="admin").length;
-            if(udata.role==="admin"&&adminCount<=1){alert("⚠ 系統至少要有一個管理員，無法刪除");return;}
+            if(udata.role==="admin"&&adminCount<=1){showToast("⚠ 系統至少要有一個管理員，無法刪除");return;}
             if(!confirm("確定刪除帳號「"+uname+"」？"))return;
             const ok=await fbDeleteUser(uname);
             if(ok){logActivity("刪除帳號","刪除 "+uname);render();}
