@@ -30,7 +30,7 @@ body{background:var(--bg);font-family:'Noto Sans TC',system-ui,sans-serif;color:
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:9px}
 select option{background:#fff;color:#1e293b}input::placeholder{color:#94a3b8}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
-button{font-family:inherit}
+button{font-family:inherit;touch-action:manipulation}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @keyframes pulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
