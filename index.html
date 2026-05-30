@@ -216,7 +216,13 @@ const INJECT_ITEMS=[
 function hydrateFromCache(){try{const raw=localStorage.getItem("inv_cache");if(!raw)return false;const c=JSON.parse(raw);if(c&&Array.isArray(c.items)&&c.items.length>0){S.items=c.items.filter(x=>x&&x.id&&x.n);if(!S.items.length)return false;S.logs=(Array.isArray(c.logs)?c.logs:[]).filter(x=>x);S.catOrd=(c.catOrd&&typeof c.catOrd==="object")?c.catOrd:{};S.lastSyncAt=c.t||null;return true;}}catch(e){}return false;}
 function saveCache(){try{const payload={items:S.items||[],logs:(S.logs||[]).slice(0,200),catOrd:S.catOrd||{},t:S.lastSyncAt||Date.now()};localStorage.setItem("inv_cache",JSON.stringify(payload));}catch(e){}}
 // Firebase arrays may come back as either real arrays or objects with numeric keys (when sparse from many deletions). Normalize to array.
-function arrFromVal(v){return Array.isArray(v)?v:(v&&typeof v==="object"?Object.keys(v).sort((a,b)=>+a-+b).map(k=>v[k]):null);}
+// Guard against non-numeric keys: a corrupted node could include a stray string key which would sort to NaN and silently inject garbage values into the materialized array.
+function arrFromVal(v){
+  if(Array.isArray(v))return v;
+  if(!v||typeof v!=="object")return null;
+  const ks=Object.keys(v).filter(k=>/^\d+$/.test(k));
+  return ks.sort((a,b)=>+a-+b).map(k=>v[k]);
+}
 // Merge a fresh server items array with any in-flight optimistic state. Used by fbLoad, moveItems, doUpdateMeta — any path that wholesale-replaces S.items from a Firebase response.
 // Without this, a doAction still awaiting fbTxItem will briefly see its locally-bumped q flicker back to the server value, then jump to the post-tx value once the round-trip completes.
 function mergeWithPending(remote){
