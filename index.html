@@ -409,7 +409,13 @@ async function startRealtimeSync(){
   // Don't re-render if a modal is open, the user is typing, the tab is hidden, or a drag is mid-flight (rebuilding DOM aborts the browser's drag operation).
   // document.hidden skip cuts CPU/battery while the app sits backgrounded — on visibilitychange we kick a fresh render so the user sees the latest state immediately when they switch back.
   const canRender=()=>{const t=document.activeElement?.tagName;return !S.modal&&!_isDragging&&!document.hidden&&t!=="INPUT"&&t!=="TEXTAREA";};
-  document.addEventListener("visibilitychange",()=>{if(!document.hidden&&S.phase==="ready")listenerRender();});
+  document.addEventListener("visibilitychange",()=>{
+    if(document.hidden)return;
+    if(S.phase!=="ready")return;
+    // Tab regained focus — any in-flight drag-and-drop is definitely dead by now (browser cancels on hide), so clear the watchdog state immediately rather than waiting 30s. Otherwise listener-driven renders would stay blocked until the watchdog timer fires.
+    if(_isDragging)disarmDrag();
+    listenerRender();
+  });
   dbI.on("value",snap=>{const remote=arrFromVal(snap.val());if(!remote||!S.items)return;
     // Reconcile remote with optimistic state — preserve pending items, drop pending deletes
     let merged=remote.filter(x=>x).map(sanitizeItem);
