@@ -224,16 +224,16 @@ function arrFromVal(v){
   return ks.sort((a,b)=>+a-+b).map(k=>v[k]);
 }
 // Defensive coerce: if data corruption / external edit puts a non-number into x.q, downstream arithmetic (doAction's Math.max/Math.min, the stat aggregates, sort comparators) silently propagate NaN and the row becomes unactionable. Force a non-negative integer at every load boundary so the rest of the codebase can assume q is numeric.
-// Also coerce the string fields — a missing/non-string b/c/n would crash gc() (charCodeAt loop) or break grouping (m[undefined] sets "undefined" key globally).
+// Also coerce the string fields — a missing/non-string/empty b/c/n would crash gc() (charCodeAt loop) or break grouping (m[undefined] sets "undefined" key globally / m[""] groups orphans under empty-string brand).
 function sanitizeItem(x){
   if(!x||typeof x!=="object")return x;
   if(typeof x.q!=="number"||!isFinite(x.q)||x.q<0){
     const n=parseInt(x.q,10);
     x.q=isFinite(n)&&n>=0?n:0;
   }
-  if(typeof x.b!=="string")x.b=String(x.b||"其他");
-  if(typeof x.c!=="string")x.c=String(x.c||"?");
-  if(typeof x.n!=="string")x.n=String(x.n||"未命名");
+  if(typeof x.b!=="string"||!x.b)x.b=String(x.b||"其他");
+  if(typeof x.c!=="string"||!x.c)x.c=String(x.c||"?");
+  if(typeof x.n!=="string"||!x.n)x.n=String(x.n||"未命名");
   if(x.z&&typeof x.z!=="string")x.z=String(x.z);
   return x;
 }
