@@ -1498,6 +1498,7 @@ function renderAccountEditModal(){
     else if(pwChanged)actLog="改別人密碼";
     else if(roleChanged)actLog="改別人權限 "+(oldRec.role||"user")+"→"+roleSel.value;
     if(actLog)logActivity(actLog,"目標 "+target);
+    showToast("✅ "+target+" 已更新");
     back();
   };
   box.appendChild(saveBtn);
