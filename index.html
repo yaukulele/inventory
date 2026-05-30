@@ -29,6 +29,8 @@
 body{background:var(--bg);font-family:'Noto Sans TC',system-ui,sans-serif;color:var(--text);min-height:100vh;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:contain}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:9px}
 select option{background:#fff;color:#1e293b}input::placeholder{color:#94a3b8}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+button{font-family:inherit}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @keyframes pulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
@@ -745,8 +747,9 @@ async function postLogin(){
 }
 
 function renderLogin(){
-  // Speculative prefetch: as soon as the login screen renders, start loading the users record AND the inventory data in parallel. By the time the user types their password and clicks login, both round trips are already done. Cached promises so the click handler reuses the same flights.
-  if(S.user&&S.user!=="快速預覽"){fbLoadUsersCached().catch(()=>{});fbLoadInitial().catch(()=>{});}
+  // Speculative prefetch: as soon as the login screen renders, start loading inventory data in the background. 快速預覽 only needs items; everyone else also needs the users record. Cached promises so the click handler reuses the same flights and we save the equivalent of one full round trip in the typing-to-click gap.
+  fbLoadInitial().catch(()=>{});
+  if(S.user&&S.user!=="快速預覽")fbLoadUsersCached().catch(()=>{});
   const wrap=h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"20px",background:"linear-gradient(135deg,#eff6ff 0%,#f8fafc 60%,#fef3c7 100%)"}});
   const box=h("div",{style:{background:"#fff",borderRadius:"24px",padding:"36px 28px",width:"100%",maxWidth:"360px",boxShadow:"0 10px 40px rgba(15,23,42,.10),0 2px 6px rgba(15,23,42,.04)",textAlign:"center"}});
   box.appendChild(h("div",{style:{display:"inline-flex",alignItems:"center",justifyContent:"center",width:"68px",height:"68px",borderRadius:"22px",background:"linear-gradient(135deg,#dbeafe,#eff6ff)",marginBottom:"14px",fontSize:"34px",boxShadow:"0 4px 10px rgba(37,99,235,.15)"}},"📦"));
@@ -777,8 +780,9 @@ function renderLogin(){
       S.user=u;
       passWrap.style.display=isPv?"none":"block";
       errorEl.textContent="";
-      // Speculative prefetch: as soon as user picks a chip, kick off both Firebase round trips in parallel with whatever they type next. By the time they click 進入系統, both responses are already cached.
-      if(!isPv){fbLoadUsersCached().catch(()=>{});fbLoadInitial().catch(()=>{});}
+      // Speculative prefetch: kick off the inventory round trip on every chip pick (idempotent thanks to the promise cache); for non-preview users also kick off the users record.
+      fbLoadInitial().catch(()=>{});
+      if(!isPv)fbLoadUsersCached().catch(()=>{});
       // Restyle all chips
       Object.entries(chipRefs).forEach(([name,el])=>{
         const isNowCur=name===u;
