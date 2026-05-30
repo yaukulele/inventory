@@ -15,6 +15,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://order-system-dddca-default-rtdb.firebaseio.com" crossorigin>
+<link rel="preconnect" href="https://order-system-dddca-default-rtdb.asia-southeast1.firebasedatabase.app" crossorigin>
+<link rel="dns-prefetch" href="https://lh3.googleusercontent.com">
+<link rel="dns-prefetch" href="https://i.imgur.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
@@ -246,7 +250,22 @@ async function fbLoad(){try{await authReady;const tm=ms=>new Promise((_,r)=>setT
     }
     S.logs=remoteLogs;S.catOrd=(o&&typeof o==="object")?o:{};
   }
-  else{S.logs=[];dbL.set([]);const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);console.log("Logs cleared:",RESET_VER);}
+  else{
+    // RESET_VER mismatch path — historically used to wipe stale dev logs once.
+    // Safety guard: if the items snapshot was non-trivial (existing real data), don't blow away logs based on a missing __ver — that flag could be missing because catOrd got rebuilt by some other path, and wiping prod logs would be catastrophic.
+    // Original wipe behavior is preserved ONLY when items are empty too (truly first-ever load).
+    const itemsCount=(i||[]).filter(x=>x).length;
+    if(itemsCount<10){
+      S.logs=[];dbL.set([]);
+      const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);
+      console.log("Logs cleared (first-load, items <10):",RESET_VER);
+    }else{
+      // Production data present — keep logs, just stamp the version forward so future loads stop trying.
+      S.logs=Array.isArray(l)?l.filter(x=>x):[];
+      const newOrd=(o&&typeof o==="object")?{...o}:{};newOrd.__ver=RESET_VER;S.catOrd=newOrd;dbO.set(newOrd);
+      console.warn("Skipped log wipe — items present ("+itemsCount+"). Just stamped __ver.");
+    }
+  }
   // One-time migration: Yamaha 鼓配件/鼓音箱 → "配件專區（含音箱）" brand
   if(!S.catOrd.__brandMigYamahaAcc){
     const migOk=await new Promise(resolve=>{dbI.transaction(cur=>{
@@ -313,9 +332,10 @@ const _pendingDeletes=new Set();
 // True while user has a drag in progress — listenerRender skips so the row being dragged isn't yanked out from under the browser's drag image
 let _isDragging=false;
 
-// Throttled render for listener-triggered updates — coalesces multi-user broadcasts within 50ms window
+// Throttled render for listener-triggered updates — coalesces multi-user broadcasts.
+// 50ms was too aggressive when 3 users were bulk-editing simultaneously (kept thrashing CPU). 180ms still feels live to a human eye but groups bursts.
 let _listenerRenderTimer=null;
-function listenerRender(){if(_listenerRenderTimer)return;_listenerRenderTimer=setTimeout(()=>{_listenerRenderTimer=null;render();},50);}
+function listenerRender(){if(_listenerRenderTimer)return;_listenerRenderTimer=setTimeout(()=>{_listenerRenderTimer=null;render();},180);}
 // Module-level debounce timers for search inputs. Previously each renderMain call recreated a closure-local `searchTimer`, so a listener-triggered re-render would orphan the previous timer — it would fire afterward and write a stale value back into S.search, flickering whatever the user had typed in between. Hoisting them makes clearTimeout actually catch the previous timer.
 let _searchTimer=null,_logSearchTimer=null;
 
@@ -338,8 +358,10 @@ async function startRealtimeSync(){
     }
     if(S.phase==="ready"&&!S.modal&&document.activeElement?.tagName!=="INPUT"&&document.activeElement?.tagName!=="TEXTAREA")listenerRender();
   });
-  // Don't re-render if a modal is open, the user is typing, or a drag is mid-flight (rebuilding DOM aborts the browser's drag operation)
-  const canRender=()=>{const t=document.activeElement?.tagName;return !S.modal&&!_isDragging&&t!=="INPUT"&&t!=="TEXTAREA";};
+  // Don't re-render if a modal is open, the user is typing, the tab is hidden, or a drag is mid-flight (rebuilding DOM aborts the browser's drag operation).
+  // document.hidden skip cuts CPU/battery while the app sits backgrounded — on visibilitychange we kick a fresh render so the user sees the latest state immediately when they switch back.
+  const canRender=()=>{const t=document.activeElement?.tagName;return !S.modal&&!_isDragging&&!document.hidden&&t!=="INPUT"&&t!=="TEXTAREA";};
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden&&S.phase==="ready")listenerRender();});
   dbI.on("value",snap=>{const remote=arrFromVal(snap.val());if(!remote||!S.items)return;
     // Reconcile remote with optimistic state — preserve pending items, drop pending deletes
     let merged=remote.filter(x=>x);
@@ -365,6 +387,8 @@ async function startRealtimeSync(){
   });
   dbL.limitToFirst(200).on("value",snap=>{const remote=arrFromVal(snap.val());
     if(!remote)return;
+    // Phase guard: after logout the listener can still fire if the dbL subscription is alive — without this we'd repopulate S.logs while user is on the login screen and the next login would see stale state from the previous session for a frame.
+    if(S.phase!=="ready"||!S.items)return;
     let cleanRemote=remote.filter(x=>x);
     // Preserve any locally-added logs whose appendLog() hasn't yet committed — without this they briefly disappear from the UI between our local push and Firebase round-trip
     if(_pendingLogs.size){
@@ -2362,9 +2386,10 @@ function renderMain(){
 let _bodyLockY=0;
 function lockBody(){if(document.body.dataset.locked==="1")return;_bodyLockY=window.scrollY||document.documentElement.scrollTop||0;document.body.dataset.locked="1";document.body.style.position="fixed";document.body.style.top=(-_bodyLockY)+"px";document.body.style.width="100%";document.body.style.overflow="hidden";}
 function unlockBody(){if(document.body.dataset.locked!=="1")return;document.body.dataset.locked="";document.body.style.position="";document.body.style.top="";document.body.style.width="";document.body.style.overflow="";window.scrollTo(0,_bodyLockY);}
-// Coalesce multiple sync render() calls into one — saves redundant rebuilds when listeners fire together
+// Coalesce multiple sync render() calls into one — saves redundant rebuilds when listeners fire together.
+// Also clears any pending listenerRender timer — if user actions trigger render() directly, no need to redraw again 180ms later from the same update.
 let _renderQueued=false;
-function render(){if(_renderQueued)return;_renderQueued=true;queueMicrotask(()=>{_renderQueued=false;try{_render();}catch(e){console.error("render failed:",e);
+function render(){if(_renderQueued)return;_renderQueued=true;if(_listenerRenderTimer){clearTimeout(_listenerRenderTimer);_listenerRenderTimer=null;}queueMicrotask(()=>{_renderQueued=false;try{_render();}catch(e){console.error("render failed:",e);
     // If _render threw mid-flight, body may be left in fixed/locked state from a previous open modal, leaving the user unable to scroll until reload.
     try{unlockBody();}catch(e2){/* swallow */}
     showToast("⚠ 畫面更新失敗，請重新整理頁面");
