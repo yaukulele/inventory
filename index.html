@@ -983,7 +983,8 @@ function renderActionModal(){
   const lbl={in:"📥 進貨",out:"📤 出貨",audit:"📋 盤點"}[type];
   const tags=type==="in"?["廠商補貨","退貨入庫"]:type==="out"?["MOMO出貨","PC出貨","蝦皮出貨","酷澎出貨","店銷","調貨"]:[];
   // Remember last picked tag per action type so a 5-item MOMO batch doesn't re-tap the same chip every time. Audit has no tags so this is in/out only.
-  const _lastTagKey="inv_lastTag_"+type;
+  // Per-user-and-action key so a shared device (Allie vs 雨停 vs 阿淵) doesn't bleed each user's last MOMO/PChome/店銷 tag into the next person's session.
+  const _lastTagKey="inv_lastTag_"+(S.user||"_anon")+"_"+type;
   const lastTag=(()=>{try{return tags.length?(localStorage.getItem(_lastTagKey)||""):"";}catch(e){return "";}})();
   let selQ=type==="audit"?it.q:1,selN=tags.includes(lastTag)?lastTag:"",customT="";
   const box=h("div",{className:"modal-box"});
