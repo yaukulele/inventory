@@ -950,7 +950,7 @@ function renderRow(it){
   row.appendChild(thumb);
   // Name (clickable) + missing indicators
   const nameWrap=h("div",{style:{flex:1,minWidth:0,overflow:"hidden",cursor:"pointer",display:"flex",alignItems:"center",gap:"4px"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
-  nameWrap.appendChild(h("span",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}},...highlightText(it.n,S.search)));
+  nameWrap.appendChild(h("span",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1},title:it.n},...highlightText(it.n,S.search)));
   if(!it.img||!it.dsc){
     // Clicking the orange dot is a shortcut to "fill missing info" — opens straight into edit mode instead of detail-view-then-edit. Stop propagation so the parent nameWrap's plain-detail click doesn't fire.
     const dot=h("span",{style:{fontSize:"9px",color:"#f59e0b",flexShrink:0,cursor:pv?"default":"pointer"},title:(!it.img?"無圖 ":"")+(!it.dsc?"無敘述":"")+(pv?"":" — 點擊編輯")},"●");
