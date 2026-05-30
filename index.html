@@ -2028,12 +2028,25 @@ function renderMain(){
       content.appendChild(bCard);
     });
     if(!grouped.length){
+      // When the current zone has no match but the OTHER zone does, hint to the user that they're looking in the wrong tab. Avoids the confusing "search has no results" when the item actually exists in the warehouse / shop side.
+      let otherZoneMatches=0;
+      if(S.search){
+        const otherZone=zone==="店內"?"倉庫":"店內";
+        const terms=S.search.toLowerCase().split(/\s+/).filter(Boolean);
+        otherZoneMatches=items.filter(x=>(x.z||"店內")===otherZone).filter(x=>{const hay=(x.n+" "+x.b+" "+x.c+" "+(x.dsc||"")).toLowerCase();return terms.every(t=>hay.includes(t));}).length;
+      }
       const empty=h("div",{style:{textAlign:"center",padding:"60px 20px",color:"var(--sub)"}});
       empty.appendChild(h("div",{style:{fontSize:"48px",marginBottom:"12px",opacity:.4}},S.search?"🔍":"📦"));
       empty.appendChild(h("div",{style:{fontSize:"15px",fontWeight:700,color:"var(--text)",marginBottom:"4px"}},S.search?"找不到符合的商品":"這個分區還沒有商品"));
       empty.appendChild(h("div",{style:{fontSize:"12px",lineHeight:1.6}},S.search?("試試其他關鍵字 — 已搜尋「"+S.search+"」"):(S.tab==="warehouse"?"切到店內看商品，或點上面 ＋新增":"點右上 ＋新增 開始建立")));
+      if(S.search&&otherZoneMatches>0){
+        const otherZone=zone==="店內"?"倉庫":"店內";
+        const otherTab=zone==="店內"?"warehouse":"store";
+        const otherIcon=zone==="店內"?"🏭":"🏪";
+        empty.appendChild(h("button",{style:{marginTop:"14px",padding:"10px 18px",borderRadius:"10px",border:"1.5px solid var(--blue)",background:"var(--blue-light)",color:"var(--blue)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.tab=otherTab;S._skipScrollRestore=true;render();}},otherIcon+" "+otherZone+"有 "+otherZoneMatches+" 項 → 切過去看"));
+      }
       if(S.search){
-        const clearBtn=h("button",{style:{marginTop:"16px",padding:"8px 20px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(_searchTimer){clearTimeout(_searchTimer);_searchTimer=null;}S.search="";render();}},"✕ 清除搜尋");
+        const clearBtn=h("button",{style:{marginTop:"8px",padding:"8px 20px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(_searchTimer){clearTimeout(_searchTimer);_searchTimer=null;}S.search="";render();}},"✕ 清除搜尋");
         empty.appendChild(clearBtn);
       }
       content.appendChild(empty);
