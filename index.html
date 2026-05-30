@@ -172,6 +172,10 @@ function mkInit(){const o=[];D.forEach((r,i)=>o.push({id:"s"+i,b:r[0],c:r[1],n:r
 const BC={"aNueNue":"#ea580c","D'Addario":"#0d9488",NUX:"#2563eb",Singer:"#db2777",Veelah:"#16a34a",Yamaha:"#7c3aed",Roland:"#dc2626",Elixir:"#ca8a04","其他音箱":"#0891b2"};
 const _brandColorCache={};
 function hslToHex(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12;const a=s*Math.min(l,1-l);const f=n=>{const v=l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return Math.round(v*255).toString(16).padStart(2,"0");};return "#"+f(0)+f(8)+f(4);}
+// Reject brand/category names that would clash with Object.prototype keys — a brand literally named "__proto__" would corrupt the grouping objects used by renderMain / genExport / stats.
+// Cheaper to gatekeep at input than to rewrite every {} to Object.create(null) across the codebase.
+const RESERVED_KEYS=["__proto__","prototype","constructor","hasOwnProperty","toString","valueOf","isPrototypeOf"];
+function isReservedKey(s){return RESERVED_KEYS.indexOf((s||"").trim())>=0;}
 function gc(b){if(BC[b])return BC[b];if(_brandColorCache[b])return _brandColorCache[b];if(!b)return "#64748b";let h=0;for(let i=0;i<b.length;i++){h=((h<<5)-h+b.charCodeAt(i))|0;}const color=hslToHex(Math.abs(h)%360,55,42);_brandColorCache[b]=color;return color;}
 // Login dropdown options. 快速預覽 = read-only no-password mode; the other three require password authentication.
 // Role lookup happens at login time against Firebase /inventory/users.
@@ -996,7 +1000,7 @@ function renderAddModal(){
     if(bcI.value.trim())return true;
     return false;
   };
-  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;const initQ=Math.max(0,parseInt(qI.value)||0);doAdd({z:zS.value,b:brand,c:cat,n,q:initQ,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
+  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}if(isReservedKey(brand)||isReservedKey(cat)||isReservedKey(n)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;const initQ=Math.max(0,parseInt(qI.value)||0);doAdd({z:zS.value,b:brand,c:cat,n,q:initQ,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
   // Auto-focus name input so the user can start typing immediately (especially after the "再加一個" continuation flow)
@@ -1191,7 +1195,7 @@ function renderDetailModal(){
     };
     const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
     btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(isDirty()&&!confirm("有未儲存的變更，確定放棄？"))return;S.modal={t:"detail",id:it.id,back};render();}},"取消"));
-    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim()});if(ok){const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
+    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(isReservedKey(newB)||isReservedKey(newC)||isReservedKey(newN)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim()});if(ok){const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
     btnRow.appendChild(saveBtn);
     box.appendChild(btnRow);
     box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&!saveBtn.disabled){e.preventDefault();saveBtn.click();}});
@@ -1555,6 +1559,7 @@ function renderBulkMoveModal(){
     let newC=cSel.value==="__new"?ccInp.value.trim():cSel.value;
     if(bSel.value==="__newB"&&!newB){warnBar.style.display="block";warnBar.textContent="⚠ 請輸入新品牌名稱";_bulkArmed=false;return;}
     if(cSel.value==="__new"&&!newC){warnBar.style.display="block";warnBar.textContent="⚠ 請輸入新分類名稱";_bulkArmed=false;return;}
+    if(isReservedKey(newB)||isReservedKey(newC)){warnBar.style.display="block";warnBar.textContent="⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）";_bulkArmed=false;return;}
     const newZ=zSel.value;
     const patch={};if(newB)patch.b=newB;if(newC)patch.c=newC;if(newZ)patch.z=newZ;
     if(!Object.keys(patch).length){warnBar.style.display="block";warnBar.textContent="⚠ 沒有變更，請選擇新品牌/分類/區域至少一項";_bulkArmed=false;return;}
@@ -1697,7 +1702,8 @@ function renderMain(){
   let fil=items.filter(x=>(x.z||"店內")===zone);
   if(!S.showZero)fil=fil.filter(x=>x.q>0);
   if(S.search){const terms=S.search.toLowerCase().split(/\s+/).filter(Boolean);fil=fil.filter(x=>{const hay=(x.n+" "+x.b+" "+x.c+" "+(x.dsc||"")).toLowerCase();return terms.every(t=>hay.includes(t));});}
-  const m={};fil.forEach(it=>{const b=it.b||"其他";if(!m[b])m[b]={};const c=it.c||"?";if(!m[b][c])m[b][c]=[];m[b][c].push(it);});
+  // Object.create(null) so that user-controlled brand/cat strings like "__proto__" can't poison the prototype chain — defense in depth even though isReservedKey blocks at input.
+  const m=Object.create(null);fil.forEach(it=>{const b=it.b||"其他";if(!m[b])m[b]=Object.create(null);const c=it.c||"?";if(!m[b][c])m[b][c]=[];m[b][c].push(it);});
   // catOrd values stored in Firebase as arrays may come back as numeric-keyed objects after enough mutations — normalize before using
   const allBrands=Object.keys(m);const brandOrd=arrFromVal(S.catOrd[zone+"|__brands"])||[];
   const sortedBrands=[...brandOrd.filter(b=>allBrands.includes(b)),...allBrands.filter(b=>!brandOrd.includes(b))];
