@@ -2551,7 +2551,7 @@ function renderMain(){
       h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")
     ));
     const kbd=k=>h("kbd",{style:{display:"inline-block",padding:"3px 9px",borderRadius:"6px",border:"1px solid var(--border)",background:"#f8fafc",fontFamily:"ui-monospace,monospace",fontSize:"12px",fontWeight:700,color:"var(--text)",boxShadow:"0 1px 0 rgba(15,23,42,.08)"}},k);
-    const rowKb=(keys,label)=>h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 4px",borderBottom:"1px solid #f1f5f9"}},
+    const rowKb=(keys,label)=>h("div",{className:"kb-row",style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 4px",borderBottom:"1px solid #f1f5f9"}},
       h("span",{style:{fontSize:"13px",color:"var(--text)"}},label),
       h("span",{style:{display:"flex",gap:"4px"}},...keys.map(kbd))
     );
@@ -2561,6 +2561,8 @@ function renderMain(){
     if(!isPreview())listBox.appendChild(rowKb(["n"],"新增商品"));
     listBox.appendChild(rowKb(["Esc"],"關閉 modal"));
     listBox.appendChild(rowKb(["?"],"顯示這個小視窗"));
+    // Strip the trailing border on the last visible row so the list ends cleanly inside the rounded container.
+    const lastRow=listBox.lastChild;if(lastRow)lastRow.style.borderBottom="none";
     box.appendChild(listBox);
     box.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginTop:"10px",textAlign:"center"}},"也可以滑鼠/觸控操作。捷徑只在沒打字時生效。"));
     root.appendChild(h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box));
