@@ -1815,6 +1815,12 @@ function renderMain(){
         resetLoginPrefetch();
         // Cancel pending debounce so a previously-typed search term doesn't fire after logout and re-set S.search.
         clearTimeout(_searchTimer);clearTimeout(_logSearchTimer);_searchTimer=_logSearchTimer=null;
+        // Also cancel any pending listener-driven render so a delayed remote-data render doesn't try to redraw the inventory under the new user's nose.
+        if(_listenerRenderTimer){clearTimeout(_listenerRenderTimer);_listenerRenderTimer=null;}
+        // Clear the silent-load failure latch so the next session's stats tab can retry on its own.
+        _silentAutoLoadFailed=false;
+        // Drop any stuck drag state so a dragged-but-never-dropped row on this session doesn't leave the next session's listener locked out.
+        disarmDrag();
         try{localStorage.removeItem("inv_pass");}catch(e){}
         render();
       }},"登出"))
