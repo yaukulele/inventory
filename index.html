@@ -1017,7 +1017,7 @@ function renderActionModal(){
   const customInp=h("input",{className:"ipt",placeholder:"調貨對象",style:{marginTop:"8px",display:"none"},onInput:e=>{customT=e.target.value;}});
   if(tags.length){
     const tw=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"6px"}});
-    tags.forEach(t=>{tw.appendChild(h("button",{className:"tag-btn"+(t===selN?" active":""),onClick:function(){if(selN===t){selN="";this.className="tag-btn";}else{selN=t;tw.querySelectorAll("button").forEach(b=>b.className="tag-btn");this.className="tag-btn active";try{localStorage.setItem(_lastTagKey,t);}catch(e){}}customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display=selN?"none":"block";confirmBtn.disabled=!selN;confirmBtn.style.opacity=selN?1:.4;}},t));});
+    tags.forEach(t=>{tw.appendChild(h("button",{className:"tag-btn"+(t===selN?" active":""),onClick:function(){if(selN===t){selN="";this.className="tag-btn";try{localStorage.removeItem(_lastTagKey);}catch(e){}}else{selN=t;tw.querySelectorAll("button").forEach(b=>b.className="tag-btn");this.className="tag-btn active";try{localStorage.setItem(_lastTagKey,t);}catch(e){}}customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display=selN?"none":"block";confirmBtn.disabled=!selN;confirmBtn.style.opacity=selN?1:.4;}},t));});
     nDiv.appendChild(tw);nDiv.appendChild(customInp);nDiv.appendChild(warnEl);
     // Reflect the pre-selected tag in initial UI state — without this 調貨 wouldn't show customInp until re-tap, and the * 必選 warning would mislead.
     if(selN){customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display="none";}
