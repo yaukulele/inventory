@@ -1393,10 +1393,10 @@ function renderAccountModal(){
           h("div",{style:{fontSize:"11px",color:"var(--sub)",fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:udata.pass||""},"密碼：",h("b",{style:{color:"var(--orange)"}},udata.pass||"(未設定)"))
         ));
         // Edit pass button
-        row.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account-edit",target:uname,back:S.modal};render();}},"改密"));
+        row.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,flexShrink:0},onClick:()=>{S.modal={t:"account-edit",target:uname,back:S.modal};render();}},"改密"));
         // Delete button (not for self, not for the last admin)
         if(!isMe){
-          row.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:async()=>{
+          row.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"11px",cursor:"pointer",fontWeight:600,flexShrink:0},onClick:async()=>{
             const adminCount=Object.values(S.users).filter(u=>u.role==="admin").length;
             if(udata.role==="admin"&&adminCount<=1){showToast("⚠ 系統至少要有一個管理員，無法刪除");return;}
             if(!confirm("確定刪除帳號「"+uname+"」？"))return;
