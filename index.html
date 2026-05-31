@@ -1842,6 +1842,8 @@ function renderMain(){
         _silentAutoLoadFailed=false;
         // Drop any stuck drag state so a dragged-but-never-dropped row on this session doesn't leave the next session's listener locked out.
         disarmDrag();
+        // Clear sync mutex too — if fbLoad hung mid-doSync without firing timeout, _syncing stays true forever and the next session's 🔄 button silently no-ops.
+        _syncing=false;
         try{localStorage.removeItem("inv_pass");}catch(e){}
         render();
       }},"登出"))
