@@ -1034,7 +1034,8 @@ function renderActionModal(){
   // Skip TEXTAREA (newlines) and BUTTON (let focused button handle its own Enter — otherwise pressing Enter while focused on a num/tag button would submit confirm instead of selecting that option).
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&e.target.tagName!=="BUTTON"&&!confirmBtn.disabled){e.preventDefault();confirmBtn.click();}});
   // Auto-focus the confirm button when it's already actionable (in/out without tag-required, or in/out with pre-selected last tag). Without focus, the box-level Enter handler never fires because the event originates outside the modal. Skipped for audit since it always starts disabled until user picks a different qty.
-  if(canInit&&type!=="audit")setTimeout(()=>{if(!confirmBtn.disabled)confirmBtn.focus();},80);
+  // Skip the steal if the user has already focused another element inside the modal (e.g. clicked 「其他」 to type a custom qty) — don't yank their focus mid-flow.
+  if(canInit&&type!=="audit")setTimeout(()=>{if(!confirmBtn.disabled&&(!document.activeElement||document.activeElement===document.body||!box.contains(document.activeElement)))confirmBtn.focus();},80);
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeAction}),box);
 }
 
