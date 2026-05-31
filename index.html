@@ -990,7 +990,7 @@ function renderActionModal(){
   const lastTag=(()=>{try{return tags.length?(localStorage.getItem(_lastTagKey)||""):"";}catch(e){return "";}})();
   let selQ=type==="audit"?it.q:1,selN=tags.includes(lastTag)?lastTag:"",customT="";
   const box=h("div",{className:"modal-box"});
-  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px"},onClick:closeAction},"✕")));
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px",gap:"8px"}},h("h3",{style:{fontSize:"18px",fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:it.n},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px",flexShrink:0},onClick:closeAction},"✕")));
   box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--sub)",marginBottom:"12px",padding:"8px 12px",background:"#f8fafc",borderRadius:"8px"}},(type==="audit"?"系統庫存":"目前庫存")+"：",h("b",{style:{color:col,fontSize:"16px"}},String(it.q))));
   if(type==="out"&&it.q===0)box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--red)",fontWeight:700,marginBottom:"8px",padding:"8px 12px",background:"#fef2f2",borderRadius:"8px"}},"⚠ 庫存為 0，無法出貨"));
   // Qty
