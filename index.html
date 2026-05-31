@@ -1389,8 +1389,8 @@ function renderAccountModal(){
         const isMe=uname===S.user;
         const row=h("div",{style:{padding:"10px 12px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px",fontSize:"13px"}});
         row.appendChild(h("div",{style:{flex:1,minWidth:0}},
-          h("div",{style:{fontWeight:700}},uname,h("span",{style:{marginLeft:"6px",fontSize:"10px",padding:"1px 6px",borderRadius:"6px",background:udata.role==="admin"?"#dcfce7":"#f1f5f9",color:udata.role==="admin"?"#15803d":"var(--sub)",fontWeight:600}},udata.role==="admin"?"管理員":"使用者")),
-          h("div",{style:{fontSize:"11px",color:"var(--sub)",fontFamily:"monospace"}},"密碼：",h("b",{style:{color:"var(--orange)"}},udata.pass||"(未設定)"))
+          h("div",{style:{fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:uname},uname,h("span",{style:{marginLeft:"6px",fontSize:"10px",padding:"1px 6px",borderRadius:"6px",background:udata.role==="admin"?"#dcfce7":"#f1f5f9",color:udata.role==="admin"?"#15803d":"var(--sub)",fontWeight:600}},udata.role==="admin"?"管理員":"使用者")),
+          h("div",{style:{fontSize:"11px",color:"var(--sub)",fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:udata.pass||""},"密碼：",h("b",{style:{color:"var(--orange)"}},udata.pass||"(未設定)"))
         ));
         // Edit pass button
         row.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account-edit",target:uname,back:S.modal};render();}},"改密"));
