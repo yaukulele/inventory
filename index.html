@@ -953,7 +953,8 @@ function renderRow(it){
   nameWrap.appendChild(h("span",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1},title:it.n},...highlightText(it.n,S.search)));
   if(!it.img||!it.dsc){
     // Clicking the orange dot is a shortcut to "fill missing info" — opens straight into edit mode instead of detail-view-then-edit. Stop propagation so the parent nameWrap's plain-detail click doesn't fire.
-    const dot=h("span",{style:{fontSize:"9px",color:"#f59e0b",flexShrink:0,cursor:pv?"default":"pointer"},title:(!it.img?"無圖 ":"")+(!it.dsc?"無敘述":"")+(pv?"":" — 點擊編輯")},"●");
+    // Extra padding around the dot widens the hit area to ~22px so a thumb can actually land on it. Visual dot stays small.
+    const dot=h("span",{style:{fontSize:"9px",color:"#f59e0b",flexShrink:0,cursor:pv?"default":"pointer",padding:"6px 4px",margin:"-6px -4px",lineHeight:"10px"},title:(!it.img?"無圖 ":"")+(!it.dsc?"無敘述":"")+(pv?"":" — 點擊編輯")},"●");
     if(!pv)dot.onclick=e=>{e.stopPropagation();S.modal={t:"detail",id:it.id,edit:true};render();};
     nameWrap.appendChild(dot);
   }
