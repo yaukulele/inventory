@@ -1127,7 +1127,7 @@ function renderDetailModal(){
   const box=h("div",{className:"modal-box",style:{maxWidth:"460px"}});
   box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},
     back?h("button",{style:{background:"none",border:"none",color:"var(--blue)",cursor:"pointer",fontSize:"13px",padding:"4px 8px",flexShrink:0,fontWeight:600},onClick:closeDetail},"‹ 返回"):null,
-    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:it.n},it.n),
     h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px",flexShrink:0},onClick:closeDetail},"✕")));
   const col=gc(it.b);
   box.appendChild(h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"12px",alignItems:"center"}},
