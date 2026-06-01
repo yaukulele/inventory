@@ -185,11 +185,12 @@ function isReservedKey(s){return RESERVED_KEYS.indexOf((s||"").trim())>=0;}
 function gc(b){if(BC[b])return BC[b];if(_brandColorCache[b])return _brandColorCache[b];if(!b)return "#64748b";let h=0;for(let i=0;i<b.length;i++){h=((h<<5)-h+b.charCodeAt(i))|0;}const color=hslToHex(Math.abs(h)%360,55,42);_brandColorCache[b]=color;return color;}
 // Login dropdown options. 快速預覽 = read-only no-password mode; the other three require password authentication.
 // Role lookup happens at login time against Firebase /inventory/users.
-const US=["快速預覽","Allie","阿淵","雨停"];
+const US=["快速預覽","Allie","阿淵","雨停","建杰"];
 const SEED_USERS={
   "Allie":{pass:"Allie",role:"admin"},
   "阿淵":{pass:"阿淵",role:"admin"},
-  "雨停":{pass:"雨停",role:"user"}
+  "雨停":{pass:"雨停",role:"user"},
+  "建杰":{pass:"0000",role:"user"}
 };
 const isPreview=()=>S.user==="快速預覽";
 const isAdmin=()=>S.role==="admin";
