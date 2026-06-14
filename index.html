@@ -19,7 +19,8 @@
 <link rel="preconnect" href="https://order-system-dddca-default-rtdb.asia-southeast1.firebasedatabase.app" crossorigin>
 <link rel="dns-prefetch" href="https://lh3.googleusercontent.com">
 <link rel="dns-prefetch" href="https://i.imgur.com">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;800&display=swap"></noscript>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -44,7 +45,7 @@ button{font-family:inherit;touch-action:manipulation}
 .ipt{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text);font-size:14px;outline:none;font-family:inherit}
 .ipt:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
 .card{background:var(--card);border-radius:14px;border:1px solid var(--border);box-shadow:var(--shadow);overflow:hidden}
-.row{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid #f1f5f9;transition:background .1s;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.row{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid #f1f5f9;transition:background .1s;touch-action:manipulation;user-select:none;-webkit-user-select:none;content-visibility:auto;contain-intrinsic-size:auto 56px}
 .row:last-child{border-bottom:none}
 .row:active{background:#f8fafc}
 .circle-btn{width:36px;height:36px;border-radius:50%;border:none;font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;touch-action:manipulation}
@@ -946,7 +947,7 @@ function renderRow(it){
   }
   // Thumbnail or placeholder
   const thumb=h("div",{style:{width:"32px",height:"32px",borderRadius:"8px",overflow:"hidden",flexShrink:0,background:"#f1f5f9",border:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",color:"#cbd5e1",cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
-  if(it.img){const img=h("img",{src:it.img,style:{width:"100%",height:"100%",objectFit:"cover",display:"block"},loading:"lazy"});img.onerror=()=>{thumb.innerHTML="";thumb.appendChild(h("span",{style:{fontSize:"14px"}},"⚠"));};thumb.appendChild(img);}
+  if(it.img){const img=h("img",{src:it.img,style:{width:"100%",height:"100%",objectFit:"cover",display:"block"},loading:"lazy",decoding:"async"});img.onerror=()=>{thumb.innerHTML="";thumb.appendChild(h("span",{style:{fontSize:"14px"}},"⚠"));};thumb.appendChild(img);}
   else thumb.appendChild(h("span",{},"📷"));
   row.appendChild(thumb);
   // Name (clickable) + missing indicators
@@ -2731,6 +2732,10 @@ setInterval(()=>{
   el.style.color=diffSec>3600?"var(--orange)":"var(--sub)";
 },30000);
 render();
+// Service worker: instant repeat loads (cached app shell + Firebase SDK + fonts + product images),
+// offline-capable. Registered after load so it never delays first paint. Firebase realtime/auth
+// traffic is explicitly bypassed inside sw.js so live sync is untouched.
+if("serviceWorker" in navigator){window.addEventListener("load",()=>{navigator.serviceWorker.register("sw.js").catch(()=>{});});}
 // Global error nets so unhandled rejections / sync errors don't go silent — they show in the console with stack and surface to the user as a non-blocking toast (only when on the ready screen, to avoid spam during the login flow's known transient failures).
 window.addEventListener("unhandledrejection",e=>{console.error("Unhandled rejection:",e.reason);if(S.phase==="ready")showToast("⚠ 背景作業出錯（已記錄到 console）");});
 window.addEventListener("error",e=>{console.error("Uncaught error:",e.error||e.message);if(S.phase==="ready")showToast("⚠ 程式錯誤（已記錄到 console）");});
