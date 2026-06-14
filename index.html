@@ -821,7 +821,9 @@ function renderLogin(){
   // User selector — chip layout: faster taps than a dropdown, and shows who's available at a glance.
   // 快速預覽 gets a dashed-border treatment so it visibly reads as "no auth needed" rather than equivalent to an account.
   box.appendChild(h("div",{style:{textAlign:"left",marginBottom:"8px"}},h("label",{style:{fontSize:"11px",color:"var(--sub)",fontWeight:700,letterSpacing:".5px"}},"選擇使用者")));
-  const userChips=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:"6px",marginBottom:"14px"}});
+  // Named users sit in a tidy 2-col grid; 快速預覽 spans the full width below as a distinct read-only option.
+  const userChips=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:"6px",marginBottom:"6px"}});
+  const previewWrap=h("div",{style:{marginBottom:"14px"}});
   const chipRefs={};
   const _initialUser=S.user;
   // Password field — needs to be referenced inside chip onClicks so we declare its DOM up front.
@@ -835,7 +837,7 @@ function renderLogin(){
   US.forEach(u=>{
     const isCur=u===S.user;
     const isPv=u==="快速預覽";
-    const chip=h("button",{type:"button",style:{padding:"11px 8px",borderRadius:"12px",border:isCur?"1.5px solid var(--blue)":(isPv?"1.5px dashed var(--border)":"1.5px solid var(--border)"),background:isCur?"var(--blue-light)":"#fff",color:isCur?"var(--blue)":(isPv?"var(--sub)":"var(--text)"),fontSize:"13px",fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:"4px",transition:"all .12s"}},
+    const chip=h("button",{type:"button",style:{width:"100%",padding:"11px 8px",borderRadius:"12px",border:isCur?"1.5px solid var(--blue)":(isPv?"1.5px dashed var(--border)":"1.5px solid var(--border)"),background:isCur?"var(--blue-light)":"#fff",color:isCur?"var(--blue)":(isPv?"var(--sub)":"var(--text)"),fontSize:"13px",fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:"4px",transition:"all .12s"}},
       h("span",{style:{fontSize:"14px"}},isPv?"👁":"👤"),
       h("span",{},u)
     );
@@ -860,9 +862,11 @@ function renderLogin(){
       if(!isPv)setTimeout(()=>passInp.focus(),50);
     };
     chipRefs[u]=chip;
-    userChips.appendChild(chip);
+    if(isPv)previewWrap.appendChild(chip);
+    else userChips.appendChild(chip);
   });
   box.appendChild(userChips);
+  box.appendChild(previewWrap);
   box.appendChild(passWrap);
   box.appendChild(errorEl);
   const loginBtn=h("button",{id:"loginBtn",style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",boxShadow:"0 4px 12px rgba(37,99,235,.30)",letterSpacing:".5px"}},"進入系統 →");
