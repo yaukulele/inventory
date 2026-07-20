@@ -48,9 +48,9 @@ button{font-family:inherit;touch-action:manipulation}
 .row{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid #f1f5f9;transition:background .1s;touch-action:manipulation;user-select:none;-webkit-user-select:none;content-visibility:auto;contain-intrinsic-size:auto 56px}
 .row:last-child{border-bottom:none}
 .row:active{background:#f8fafc}
-.circle-btn{width:42px;height:42px;border-radius:50%;border:none;font-size:17px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;touch-action:manipulation}
+.circle-btn{width:36px;height:36px;border-radius:50%;border:none;font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;touch-action:manipulation}
 .circle-btn:active{transform:scale(.9)}
-.circle-btn.del{margin-left:6px}
+.circle-btn.del{margin-left:4px}
 .modal-bg{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center}
 .modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(2px)}
 .modal-box{position:relative;background:#fff;border-radius:18px;padding:20px;width:92%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
@@ -76,13 +76,13 @@ button{font-family:inherit;touch-action:manipulation}
 @media(max-width:480px){
   .stat-card{padding:8px 6px}.stat-card .val{font-size:16px}
   .modal-box{padding:16px;border-radius:14px}
-  .row{gap:4px;padding:9px 10px}
-  .circle-btn{width:40px;height:40px;font-size:16px}
+  .row{gap:3px;padding:9px 8px}
+  .circle-btn{width:33px;height:33px;font-size:15px}
   .tab-btn{padding:11px 10px;font-size:12px}
 }
 @media(max-width:360px){
-  .circle-btn{width:37px;height:37px}
-  .row{gap:3px;padding:8px 8px}
+  .circle-btn{width:30px;height:30px;font-size:14px}
+  .row{gap:2px;padding:8px 6px}
 }
 .hdr-btn-export .icon{display:none}
 @media(max-width:400px){
@@ -119,7 +119,7 @@ const authReady=firebase.auth().signInAnonymously().then(()=>true).catch(err=>{
   document.body.appendChild(b);
   return false;
 });
-const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order"),dbU=db.ref("inventory/users"),dbA=db.ref("inventory/activityLog"),dbSet=db.ref("inventory/settings");
+const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order"),dbU=db.ref("inventory/users"),dbA=db.ref("inventory/activityLog"),dbSet=db.ref("inventory/settings"),dbP=db.ref("inventory/presence");
 
 const D=[
 ["aNueNue","木吉他","M1",1],["aNueNue","木吉他","M1E",2],["aNueNue","木吉他","M2",1],["aNueNue","木吉他","M2E",1],["aNueNue","木吉他","M10",1],["aNueNue","木吉他","M20",1],["aNueNue","木吉他","M15",2],["aNueNue","木吉他","M25",2],["aNueNue","木吉他","MY10",5],["aNueNue","木吉他","M32",1],["aNueNue","木吉他","M52",0],["aNueNue","木吉他","M77",1],["aNueNue","木吉他","M60",1],["aNueNue","木吉他","M88",0],["aNueNue","木吉他","M100",0],["aNueNue","木吉他","Clint",0],["aNueNue","木吉他","BOB",0],["aNueNue","木吉他","MTK PS",1],["aNueNue","木吉他","L10",3],["aNueNue","木吉他","L20",1],["aNueNue","木吉他","L100",0],["aNueNue","木吉他","LF28",1],["aNueNue","木吉他","LF23",1],["aNueNue","木吉他","MBS18E",1],["aNueNue","木吉他","N520SP",1],["aNueNue","木吉他","N520AC",1],
@@ -206,7 +206,24 @@ const dateOnly=t=>(t||"").split(" ")[0]||"";
 const _savedUser=(()=>{try{const u=localStorage.getItem("inv_user");return u&&US.includes(u)?u:US[0];}catch(e){return US[0];}})();
 // Read fresh each time renderLogin runs — after logout we clear inv_pass and the next login render must reflect that
 const getSavedPass=()=>{try{return localStorage.getItem("inv_pass")||"";}catch(e){return "";}};
-let S={items:null,logs:[],olderLogs:[],loadingOlder:false,user:_savedUser,role:"preview",phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100,users:null,activityLog:[],settings:{reorderDefault:2}};
+let S={items:null,logs:[],olderLogs:[],loadingOlder:false,user:_savedUser,role:"preview",phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100,users:null,activityLog:[],settings:{reorderDefault:2},presence:{}};
+// 在線名單：key 安全化（Firebase key 不可含 . $ # [ ] /）
+function presKey(u){return String(u||"").replace(/[.$#\[\]/]/g,"_")||"_";}
+let _presTimer=null;
+function goOnline(){
+  if(!S.user||isPreview())return;
+  try{
+    const ref=dbP.child(presKey(S.user));
+    ref.onDisconnect().remove();
+    const write=()=>ref.set({name:S.user,role:S.role,at:firebase.database.ServerValue.TIMESTAMP}).catch(()=>{});
+    write();
+    if(_presTimer)clearInterval(_presTimer);
+    _presTimer=setInterval(()=>{if(S.phase==="ready"&&S.online&&!document.hidden)write();},30000); // heartbeat
+  }catch(e){}
+}
+function goOffline(){try{if(_presTimer){clearInterval(_presTimer);_presTimer=null;}if(S.user)dbP.child(presKey(S.user)).remove().catch(()=>{});}catch(e){}}
+// 只算 90 秒內有心跳的（onDisconnect 沒觸發時的兜底）
+function onlineUsers(){const now=Date.now();return Object.values(S.presence||{}).filter(p=>p&&p.name&&(!p.at||now-p.at<90000)).sort((a,b)=>(a.name>b.name?1:-1));}
 // 叫貨門檻：單品有設 rp 就用 rp，否則用全店預設。q<=門檻(且未在倉庫)就要叫貨。
 function reorderTh(it){const rp=it&&it.rp;return (rp!==undefined&&rp!==null&&rp!=='')?(parseInt(rp)||0):((S.settings&&S.settings.reorderDefault)!=null?S.settings.reorderDefault:2);}
 function needsReorder(it){return it&&(it.z||'店內')!=='倉庫'&&(it.q||0)<=reorderTh(it);}
@@ -404,7 +421,9 @@ async function startRealtimeSync(){
   const _connStart=Date.now();
   let _hadOffline=false;
   db.ref(".info/connected").on("value",snap=>{
-    const online=!!snap.val();if(S.online===online)return;S.online=online;
+    const online=!!snap.val();
+    if(online)goOnline();  // 連上就登記在線 + 設定斷線自動下線
+    if(S.online===online)return;S.online=online;
     const stable=(Date.now()-_connStart)>3000;
     if(!online)_hadOffline=true;
     // Skip toasts when not on the ready screen — login users don't need connection-status spam blocking their password field.
@@ -471,6 +490,10 @@ async function startRealtimeSync(){
   // 叫貨門檻設定：全店預設值，改了即時同步各裝置
   dbSet.on("value",snap=>{const v=snap.val();const rd=(v&&typeof v==="object"&&v.reorderDefault!=null&&isFinite(parseInt(v.reorderDefault)))?parseInt(v.reorderDefault):2;
     if(S.settings.reorderDefault!==rd){S.settings.reorderDefault=rd;if(S.phase==="ready"&&canRender())listenerRender();}
+  });
+  // 在線名單：誰現在登入中
+  dbP.on("value",snap=>{const v=snap.val()||{};const prev=JSON.stringify(S.presence),next=JSON.stringify(v);
+    if(prev!==next){S.presence=v;if(S.phase==="ready"&&canRender())listenerRender();}
   });
 }
 
@@ -1975,13 +1998,16 @@ function renderMain(){
   const root=h("div",{style:{minHeight:"100vh"}});
   // Header
   root.appendChild(h("header",{style:{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)",background:"rgba(255,255,255,.94)",backdropFilter:"saturate(160%) blur(10px)","-webkit-backdrop-filter":"saturate(160%) blur(10px)",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(15,23,42,.05)"}},
-    h("div",{style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"},title:"回到頂部",onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:isPreview()?"#94a3b8":isAdmin()?"#16a34a":"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600},title:isPreview()?"預覽模式":isAdmin()?"管理員":"一般使用者"},isPreview()?"👁 預覽模式":S.user+(isAdmin()?" ⭐":"")),!S.online?h("span",{style:{fontSize:"10px",color:"#fff",background:"var(--red)",padding:"2px 8px",borderRadius:"10px",fontWeight:600,animation:"toastIn .3s ease"},title:"連線中斷，修改會排隊等回線"},"⚠ 離線"):null),
+    h("div",{style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"},title:"回到頂部",onClick:()=>window.scrollTo({top:0,behavior:"smooth"})},h("span",{style:{fontSize:"20px"}},"📦"),h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--text)"}},"庫存管理"),h("span",{style:{fontSize:"11px",color:"#fff",background:isPreview()?"#94a3b8":isAdmin()?"#16a34a":"var(--blue)",padding:"2px 8px",borderRadius:"10px",fontWeight:600},title:isPreview()?"預覽模式":isAdmin()?"管理員":"一般使用者"},isPreview()?"👁 預覽模式":S.user+(isAdmin()?" ⭐":"")),
+      (()=>{if(isPreview())return null;const ou=onlineUsers();if(!ou.length)return null;const chip=h("span",{style:{fontSize:"11px",color:"#15803d",background:"#dcfce7",padding:"2px 8px",borderRadius:"10px",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"},title:"目前在線："+ou.map(p=>p.name).join("、")},"🟢 在線 "+ou.length);chip.onclick=e=>{e.stopPropagation();S.modal={t:"presence"};render();};return chip;})(),
+      !S.online?h("span",{style:{fontSize:"10px",color:"#fff",background:"var(--red)",padding:"2px 8px",borderRadius:"10px",fontWeight:600,animation:"toastIn .3s ease"},title:"連線中斷，修改會排隊等回線"},"⚠ 離線"):null),
     h("div",{style:{display:"flex",gap:"6px"}},
       h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
       (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{id:"syncLabel",style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
       h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account"};render();},title:"帳號設定"},"🔐"),
       h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{
         if(!isPreview())logActivity("登出");
+        goOffline();S.presence={};
         S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S._olderLoaded=false;S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
         // Reset module-level optimistic-state singletons so any in-flight tx callbacks from this session can't pollute the next user's view (e.g. listener falling through to "show local pending" when S.items is null for the next login).
         _pendingItems.clear();_pendingDeletes.clear();_pendingLogs.clear();
@@ -2810,6 +2836,23 @@ function renderMain(){
         box.appendChild(gcard);
       });
     }
+    root.appendChild(h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box));
+  }
+  // 目前在線 modal
+  if(S.modal&&S.modal.t==="presence"){
+    const ou=onlineUsers();const now=Date.now();
+    const box=h("div",{className:"modal-box",style:{maxWidth:"360px"}});
+    box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},
+      h("h3",{style:{fontSize:"16px",fontWeight:700}},"🟢 目前在線（"+ou.length+"）"),
+      h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:()=>{S.modal=null;render();}},"✕")));
+    if(!ou.length)box.appendChild(h("div",{style:{padding:"24px",textAlign:"center",color:"var(--sub)",fontSize:"13px"}},"目前沒有人在線"));
+    ou.forEach(p=>{
+      const sec=p.at?Math.max(0,Math.round((now-p.at)/1000)):null;
+      const ago=sec==null?"":sec<60?"剛剛":sec<3600?Math.floor(sec/60)+" 分前":Math.floor(sec/3600)+" 時前";
+      box.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"10px",padding:"10px 12px",borderBottom:"1px solid #f1f5f9"}},
+        h("span",{style:{width:"9px",height:"9px",borderRadius:"50%",background:"#22c55e",flexShrink:0}}),
+        h("div",{style:{flex:1,minWidth:0}},h("div",{style:{fontSize:"14px",fontWeight:700,color:"var(--text)"}},p.name+(p.name===S.user?"（你）":"")+(p.role==="admin"?" ⭐":"")),h("div",{style:{fontSize:"11px",color:"var(--sub)"}},"最後動作："+(ago||"—"))) ));
+    });
     root.appendChild(h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box));
   }
   // Zero / Low stock modal
