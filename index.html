@@ -980,8 +980,8 @@ function renderRow(it){
     nameWrap.appendChild(dot);
   }
   row.appendChild(nameWrap);
-  // 叫貨標記：移到品名外、做成很小的紅點/小字，不擠壓品名（手機電腦都看得到）
-  if(reorder)row.appendChild(h("span",{style:{flexShrink:0,fontSize:"9px",fontWeight:700,color:"#fff",background:"#dc2626",borderRadius:"6px",padding:"1px 4px",whiteSpace:"nowrap",lineHeight:1.4},title:"庫存 "+q+"，已達叫貨門檻 "+reorderTh(it)},"叫貨"));
+  // 叫貨標記：只用一顆小紅點（幾乎不佔寬度，不再壓縮品名）；數量也會變紅字一起提示
+  if(reorder)row.appendChild(h("span",{style:{flexShrink:0,fontSize:"13px",color:"#dc2626",lineHeight:1,margin:"0 1px"},title:"要叫貨（庫存 "+q+" ≤ 叫貨門檻 "+reorderTh(it)+"）"},"●"));
   row.appendChild(h("span",{style:{minWidth:"32px",padding:"2px 6px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
   if(!pv){
     row.appendChild(h("button",{className:"circle-btn","aria-label":"進貨 "+it.n,title:"進貨",style:{background:"#dcfce7",color:"var(--green)"},onClick:()=>{S.modal={t:"in",it};render();}},"＋"));
