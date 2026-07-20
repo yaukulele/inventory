@@ -2010,19 +2010,10 @@ function renderMain(){
     statsDiv.appendChild(card);
   });
   root.appendChild(statsDiv);
-  // 重複健檢橫幅 — 只在偵測到疑似重複、且非預覽模式時出現
+  // 重複健檢：不再自動跳橫幅（一直顯示會讓人緊張）。改成一顆低調小按鈕，需要時自己點開檢查。
   if(!isPreview()){
-    const dupGroups=findDupGroups(items);
-    if(dupGroups.length>0){
-      const dupItemCount=dupGroups.reduce((s,g)=>s+g.items.length,0);
-      const banner=h("div",{style:{margin:"0 16px 6px",padding:"10px 14px",borderRadius:"10px",background:"#fff7ed",border:"1px solid #fed7aa",display:"flex",alignItems:"center",gap:"10px",cursor:"pointer"},onClick:()=>{S.modal={t:"dup"};render();}},
-        h("span",{style:{fontSize:"16px"}},"🔁"),
-        h("div",{style:{flex:1,minWidth:0}},
-          h("div",{style:{fontSize:"13px",fontWeight:700,color:"#b45309"}},"發現 "+dupGroups.length+" 組疑似重複（共 "+dupItemCount+" 筆）"),
-          h("div",{style:{fontSize:"11px",color:"#c2853f"}},"點開檢查，保留正確的、刪掉多餘的")),
-        h("span",{style:{fontSize:"12px",color:"#b45309",fontWeight:700,flexShrink:0}},"檢查 ›"));
-      root.appendChild(banner);
-    }
+    root.appendChild(h("div",{style:{padding:"0 16px",margin:"2px 0 6px"}},
+      h("button",{style:{fontSize:"12px",color:"var(--sub)",background:"#fff",border:"1px solid var(--border)",borderRadius:"8px",padding:"6px 12px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"dup"};render();}},"🔁 檢查重複品項")));
   }
   // Tabs — log tab shows a small today-count badge so users can see "12 things happened today" at a glance.
   const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 16px",borderBottom:"1px solid var(--border)",background:"#fff"}});
