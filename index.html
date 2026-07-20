@@ -48,9 +48,9 @@ button{font-family:inherit;touch-action:manipulation}
 .row{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid #f1f5f9;transition:background .1s;touch-action:manipulation;user-select:none;-webkit-user-select:none;content-visibility:auto;contain-intrinsic-size:auto 56px}
 .row:last-child{border-bottom:none}
 .row:active{background:#f8fafc}
-.circle-btn{width:36px;height:36px;border-radius:50%;border:none;font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;touch-action:manipulation}
+.circle-btn{width:34px;height:34px;border-radius:50%;border:none;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;touch-action:manipulation}
 .circle-btn:active{transform:scale(.9)}
-.circle-btn.del{margin-left:4px}
+.circle-btn.del{margin-left:3px}
 .modal-bg{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center}
 .modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(2px)}
 .modal-box{position:relative;background:#fff;border-radius:18px;padding:20px;width:92%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
@@ -76,12 +76,12 @@ button{font-family:inherit;touch-action:manipulation}
 @media(max-width:480px){
   .stat-card{padding:8px 6px}.stat-card .val{font-size:16px}
   .modal-box{padding:16px;border-radius:14px}
-  .row{gap:3px;padding:9px 8px}
-  .circle-btn{width:33px;height:33px;font-size:15px}
+  .row{gap:2px;padding:9px 8px}
+  .circle-btn{width:30px;height:30px;font-size:14px}
   .tab-btn{padding:11px 10px;font-size:12px}
 }
 @media(max-width:360px){
-  .circle-btn{width:30px;height:30px;font-size:14px}
+  .circle-btn{width:28px;height:28px;font-size:13px}
   .row{gap:2px;padding:8px 6px}
 }
 .hdr-btn-export .icon{display:none}
@@ -1005,7 +1005,7 @@ function renderRow(it){
   row.appendChild(nameWrap);
   // 叫貨標記：只用一顆小紅點（幾乎不佔寬度，不再壓縮品名）；數量也會變紅字一起提示
   if(reorder)row.appendChild(h("span",{style:{flexShrink:0,fontSize:"13px",color:"#dc2626",lineHeight:1,margin:"0 1px"},title:"要叫貨（庫存 "+q+" ≤ 叫貨門檻 "+reorderTh(it)+"）"},"●"));
-  row.appendChild(h("span",{style:{minWidth:"32px",padding:"2px 6px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
+  row.appendChild(h("span",{style:{minWidth:"26px",padding:"2px 5px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
   if(!pv){
     row.appendChild(h("button",{className:"circle-btn","aria-label":"進貨 "+it.n,title:"進貨",style:{background:"#dcfce7",color:"var(--green)"},onClick:()=>{S.modal={t:"in",it};render();}},"＋"));
     row.appendChild(h("button",{className:"circle-btn","aria-label":"出貨 "+it.n,title:"出貨",style:{background:q===0?"#f1f5f9":"#fef3c7",color:q===0?"#cbd5e1":"var(--orange)",cursor:q===0?"default":"pointer"},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"－"));
