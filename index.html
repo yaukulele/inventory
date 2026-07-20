@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>庫存管理系統</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%232563eb' rx='18'/><text y='70' x='50' font-size='60' text-anchor='middle'>📦</text></svg>">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' fill='%232563eb' rx='32'/><text y='130' x='90' font-size='120' text-anchor='middle'>📦</text></svg>">
@@ -48,8 +48,9 @@ button{font-family:inherit;touch-action:manipulation}
 .row{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid #f1f5f9;transition:background .1s;touch-action:manipulation;user-select:none;-webkit-user-select:none;content-visibility:auto;contain-intrinsic-size:auto 56px}
 .row:last-child{border-bottom:none}
 .row:active{background:#f8fafc}
-.circle-btn{width:36px;height:36px;border-radius:50%;border:none;font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;touch-action:manipulation}
+.circle-btn{width:42px;height:42px;border-radius:50%;border:none;font-size:17px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;touch-action:manipulation}
 .circle-btn:active{transform:scale(.9)}
+.circle-btn.del{margin-left:6px}
 .modal-bg{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center}
 .modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(2px)}
 .modal-box{position:relative;background:#fff;border-radius:18px;padding:20px;width:92%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
@@ -76,11 +77,11 @@ button{font-family:inherit;touch-action:manipulation}
   .stat-card{padding:8px 6px}.stat-card .val{font-size:16px}
   .modal-box{padding:16px;border-radius:14px}
   .row{gap:4px;padding:9px 10px}
-  .circle-btn{width:34px;height:34px;font-size:15px}
+  .circle-btn{width:40px;height:40px;font-size:16px}
   .tab-btn{padding:11px 10px;font-size:12px}
 }
 @media(max-width:360px){
-  .circle-btn{width:32px;height:32px}
+  .circle-btn{width:37px;height:37px}
   .row{gap:3px;padding:8px 8px}
 }
 .hdr-btn-export .icon{display:none}
@@ -118,7 +119,7 @@ const authReady=firebase.auth().signInAnonymously().then(()=>true).catch(err=>{
   document.body.appendChild(b);
   return false;
 });
-const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order"),dbU=db.ref("inventory/users"),dbA=db.ref("inventory/activityLog");
+const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order"),dbU=db.ref("inventory/users"),dbA=db.ref("inventory/activityLog"),dbSet=db.ref("inventory/settings");
 
 const D=[
 ["aNueNue","木吉他","M1",1],["aNueNue","木吉他","M1E",2],["aNueNue","木吉他","M2",1],["aNueNue","木吉他","M2E",1],["aNueNue","木吉他","M10",1],["aNueNue","木吉他","M20",1],["aNueNue","木吉他","M15",2],["aNueNue","木吉他","M25",2],["aNueNue","木吉他","MY10",5],["aNueNue","木吉他","M32",1],["aNueNue","木吉他","M52",0],["aNueNue","木吉他","M77",1],["aNueNue","木吉他","M60",1],["aNueNue","木吉他","M88",0],["aNueNue","木吉他","M100",0],["aNueNue","木吉他","Clint",0],["aNueNue","木吉他","BOB",0],["aNueNue","木吉他","MTK PS",1],["aNueNue","木吉他","L10",3],["aNueNue","木吉他","L20",1],["aNueNue","木吉他","L100",0],["aNueNue","木吉他","LF28",1],["aNueNue","木吉他","LF23",1],["aNueNue","木吉他","MBS18E",1],["aNueNue","木吉他","N520SP",1],["aNueNue","木吉他","N520AC",1],
@@ -205,7 +206,10 @@ const dateOnly=t=>(t||"").split(" ")[0]||"";
 const _savedUser=(()=>{try{const u=localStorage.getItem("inv_user");return u&&US.includes(u)?u:US[0];}catch(e){return US[0];}})();
 // Read fresh each time renderLogin runs — after logout we clear inv_pass and the next login render must reflect that
 const getSavedPass=()=>{try{return localStorage.getItem("inv_pass")||"";}catch(e){return "";}};
-let S={items:null,logs:[],olderLogs:[],loadingOlder:false,user:_savedUser,role:"preview",phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100,users:null,activityLog:[]};
+let S={items:null,logs:[],olderLogs:[],loadingOlder:false,user:_savedUser,role:"preview",phase:"login",tab:"store",showZero:true,modal:null,bOpen:{},cOpen:{},catOrd:{},toast:"",search:"",brandOrd:[],logSearch:"",logDateFrom:"",logDateTo:"",logBrand:"",logAction:"",lastSyncAt:null,online:true,logLimit:100,users:null,activityLog:[],settings:{reorderDefault:2}};
+// 叫貨門檻：單品有設 rp 就用 rp，否則用全店預設。q<=門檻(且未在倉庫)就要叫貨。
+function reorderTh(it){const rp=it&&it.rp;return (rp!==undefined&&rp!==null&&rp!=='')?(parseInt(rp)||0):((S.settings&&S.settings.reorderDefault)!=null?S.settings.reorderDefault:2);}
+function needsReorder(it){return it&&(it.z||'店內')!=='倉庫'&&(it.q||0)<=reorderTh(it);}
 
 const EXPECTED_COUNT=mkInit().length;
 const RESET_VER="v20260413d";
@@ -216,7 +220,13 @@ const INJECT_ITEMS=[
   {b:"Elixir",c:"AG弦",n:"PB ATTUNE 12-53",q:36,z:"店內"},
 ];
 function hydrateFromCache(){try{const raw=localStorage.getItem("inv_cache");if(!raw)return false;const c=JSON.parse(raw);if(c&&Array.isArray(c.items)&&c.items.length>0){S.items=c.items.filter(x=>x&&x.id&&x.n).map(sanitizeItem);if(!S.items.length)return false;S.logs=(Array.isArray(c.logs)?c.logs:[]).filter(x=>x);S.catOrd=(c.catOrd&&typeof c.catOrd==="object")?c.catOrd:{};S.lastSyncAt=c.t||null;return true;}}catch(e){}return false;}
-function saveCache(){try{const payload={items:S.items||[],logs:(S.logs||[]).slice(0,200),catOrd:S.catOrd||{},t:S.lastSyncAt||Date.now()};localStorage.setItem("inv_cache",JSON.stringify(payload));}catch(e){}}
+function saveCache(){
+  const base={items:S.items||[],catOrd:S.catOrd||{},t:S.lastSyncAt||Date.now()};
+  try{localStorage.setItem("inv_cache",JSON.stringify({...base,logs:(S.logs||[]).slice(0,200)}));return;}catch(e){}
+  // 超過 localStorage 容量 → 退而求其次：只存商品不存 logs；再不行就清掉舊快取避免整個壞掉
+  try{localStorage.setItem("inv_cache",JSON.stringify({...base,logs:[]}));}
+  catch(e2){try{localStorage.removeItem("inv_cache");}catch(e3){}}
+}
 // Firebase arrays may come back as either real arrays or objects with numeric keys (when sparse from many deletions). Normalize to array.
 // Guard against non-numeric keys: a corrupted node could include a stray string key which would sort to NaN and silently inject garbage values into the materialized array.
 function arrFromVal(v){
@@ -237,6 +247,9 @@ function sanitizeItem(x){
   if(typeof x.c!=="string"||!x.c)x.c=String(x.c||"?");
   if(typeof x.n!=="string"||!x.n)x.n=String(x.n||"未命名");
   if(x.z&&typeof x.z!=="string")x.z=String(x.z);
+  // rp（單品叫貨門檻，選填）：正規化成非負整數或移除
+  if(x.rp!==undefined&&x.rp!==null&&x.rp!==""){const rp=parseInt(x.rp,10);if(isFinite(rp)&&rp>=0)x.rp=rp;else delete x.rp;}
+  else if(x.rp!==undefined)delete x.rp;
   return x;
 }
 // Merge a fresh server items array with any in-flight optimistic state. Used by fbLoad, moveItems, doUpdateMeta — any path that wholesale-replaces S.items from a Firebase response.
@@ -318,7 +331,7 @@ function fbDelItemTx(id){return new Promise((resolve,reject)=>{dbI.transaction(c
 // Track logs that we've added locally but not yet committed to remote — so the dbL listener doesn't briefly drop them when it fires before our write lands.
 // pushLogLocal adds the marker BEFORE the local S.logs push so even a listener firing during an `await` between push and appendLog can't wipe our entry.
 const _pendingLogs=new Set();
-function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=arrFromVal(cur)||[];return[entry,...arr].slice(0,500);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:arrFromVal(snap&&snap.val())});},false);});}
+function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=arrFromVal(cur)||[];return[entry,...arr].slice(0,2000);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:arrFromVal(snap&&snap.val())});},false);});}
 function pushLogLocal(entry){_pendingLogs.add(entry.id);S.logs=[entry,...S.logs].slice(0,500);saveCache();}
 function dropLogLocal(id){_pendingLogs.delete(id);S.logs=S.logs.filter(l=>l.id!==id);}
 function appendLog(entry){return fbAppendLogTx(entry).catch(e=>{console.error("appendLog failed:",e);showToast("⚠ 紀錄寫入失敗，動作已生效但 log 沒同步");}).finally(()=>{_pendingLogs.delete(entry.id);});}
@@ -453,6 +466,10 @@ async function startRealtimeSync(){
     const prev=JSON.stringify(S.catOrd),next=JSON.stringify(remote);
     if(prev!==next){S.catOrd=remote;if(canRender())listenerRender();}
   });
+  // 叫貨門檻設定：全店預設值，改了即時同步各裝置
+  dbSet.on("value",snap=>{const v=snap.val();const rd=(v&&typeof v==="object"&&v.reorderDefault!=null&&isFinite(parseInt(v.reorderDefault)))?parseInt(v.reorderDefault):2;
+    if(S.settings.reorderDefault!==rd){S.settings.reorderDefault=rd;if(S.phase==="ready"&&canRender())listenerRender();}
+  });
 }
 
 
@@ -545,6 +562,8 @@ function normalizeImgUrl(url){
   // imgur share page → i.imgur direct (legacy 5/7 char IDs and newer 8+ char IDs)
   const imgurMatch=url.match(/^https?:\/\/(?:www\.)?imgur\.com\/(?:gallery\/|a\/)?([A-Za-z0-9]{5,10})(?:[?#].*)?$/);
   if(imgurMatch)return "https://i.imgur.com/"+imgurMatch[1]+".jpg";
+  // 安全：只接受 http(s) 或無協議(//)開頭的圖片網址，擋掉 javascript:/data: 等可執行協議（避免被塞惡意連結）
+  if(!/^(https?:)?\/\//i.test(url))return "";
   return url;
 }
 async function doAdd(f){
@@ -586,11 +605,12 @@ async function doUpdateMeta(id,patch){
     const next={...cur};
     if("img" in patch){const nm=normalizeImgUrl(patch.img);if(nm)next.img=nm;else delete next.img;}
     if("dsc" in patch){if(patch.dsc)next.dsc=patch.dsc;else delete next.dsc;}
+    if("rp" in patch){const rp=parseInt(patch.rp,10);if(patch.rp!==""&&patch.rp!=null&&isFinite(rp)&&rp>=0)next.rp=rp;else delete next.rp;}
     if("b" in patch&&patch.b)next.b=patch.b;
     if("c" in patch&&patch.c)next.c=patch.c;
     if("n" in patch&&patch.n)next.n=patch.n;
     if("z" in patch&&patch.z)next.z=patch.z;
-    if((cur.img||"")===(next.img||"")&&(cur.dsc||"")===(next.dsc||"")&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
+    if((cur.img||"")===(next.img||"")&&(cur.dsc||"")===(next.dsc||"")&&(cur.rp==null?"":cur.rp)===(next.rp==null?"":next.rp)&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
     return next;
   }).catch(e=>{console.error(e);return{committed:false};});
   if(noChange)return true;
@@ -921,8 +941,8 @@ function highlightText(text,search){
   return nodes;
 }
 function renderRow(it){
-  const q=it.q,qColor=q===0?"var(--red)":q<=2?"var(--orange)":"var(--text)";
-  const qBg=q===0?"#fef2f2":q<=2?"#fff7ed":"#f0f9ff";
+  const q=it.q,reorder=needsReorder(it),qColor=q===0?"var(--red)":reorder?"var(--orange)":"var(--text)";
+  const qBg=q===0?"#fef2f2":reorder?"#fff7ed":"#f0f9ff";
   const pv=isPreview();
   const selMode=!!S._selectMode&&!pv;
   const checked=selMode&&S._sel&&S._sel.has(it.id);
@@ -955,13 +975,14 @@ function renderRow(it){
     if(!pv)dot.onclick=e=>{e.stopPropagation();S.modal={t:"detail",id:it.id,edit:true};render();};
     nameWrap.appendChild(dot);
   }
+  if(reorder){nameWrap.appendChild(h("span",{style:{flexShrink:0,fontSize:"10px",fontWeight:700,color:"#dc2626",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:"8px",padding:"1px 6px",whiteSpace:"nowrap"},title:"庫存 "+q+"，已達叫貨門檻 "+reorderTh(it)},"🔴 叫貨"));}
   row.appendChild(nameWrap);
   row.appendChild(h("span",{style:{minWidth:"36px",padding:"2px 8px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
   if(!pv){
     row.appendChild(h("button",{className:"circle-btn","aria-label":"進貨 "+it.n,title:"進貨",style:{background:"#dcfce7",color:"var(--green)"},onClick:()=>{S.modal={t:"in",it};render();}},"＋"));
     row.appendChild(h("button",{className:"circle-btn","aria-label":"出貨 "+it.n,title:"出貨",style:{background:q===0?"#f1f5f9":"#fef3c7",color:q===0?"#cbd5e1":"var(--orange)",cursor:q===0?"default":"pointer"},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"－"));
     row.appendChild(h("button",{className:"circle-btn","aria-label":"盤點 "+it.n,title:"盤點",style:{background:"#f0f9ff",color:"var(--blue)",fontSize:"12px"},onClick:()=>{S.modal={t:"audit",it};render();}},"📋"));
-    row.appendChild(h("button",{className:"circle-btn","aria-label":"刪除 "+it.n,title:"刪除",style:{background:"#fef2f2",color:"var(--red)",fontSize:"12px"},onClick:()=>doDel(it)},"✕"));
+    row.appendChild(h("button",{className:"circle-btn del","aria-label":"刪除 "+it.n,title:"刪除",style:{background:"#fef2f2",color:"var(--red)",fontSize:"12px"},onClick:()=>doDel(it)},"✕"));
   }
   return row;
 }
@@ -989,6 +1010,7 @@ function renderActionModal(){
   const box=h("div",{className:"modal-box"});
   box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px",gap:"8px"}},h("h3",{style:{fontSize:"18px",fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:it.n},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px",flexShrink:0},onClick:closeAction},"✕")));
   box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--sub)",marginBottom:"12px",padding:"8px 12px",background:"#f8fafc",borderRadius:"8px"}},(type==="audit"?"系統庫存":"目前庫存")+"：",h("b",{style:{color:col,fontSize:"16px"}},String(it.q))));
+  if(type==="audit")box.appendChild(h("div",{style:{fontSize:"11px",color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:"8px",padding:"6px 10px",marginBottom:"12px",lineHeight:1.5}},"⚠ 盤點會用你數的數量「直接覆蓋」系統值。若盤點期間有人進/出貨，上方數字會即時更新，確認前再看一眼。"));
   if(type==="out"&&it.q===0)box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--red)",fontWeight:700,marginBottom:"8px",padding:"8px 12px",background:"#fef2f2",borderRadius:"8px"}},"⚠ 庫存為 0，無法出貨"));
   // Qty
   const qDiv=h("div",{style:{marginBottom:"12px"}});qDiv.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"6px",fontWeight:600}},"數量"));
@@ -1309,8 +1331,11 @@ function renderDetailModal(){
     const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"80px",resize:"vertical",fontFamily:"inherit"}});
     dscI.value=it.dsc||"";
     box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述"),dscI));
+    const _gdef=((S.settings&&S.settings.reorderDefault)!=null?S.settings.reorderDefault:2);
+    const rpI=h("input",{className:"ipt",type:"number",min:"0",inputmode:"numeric",placeholder:"留空＝用全店預設（目前 "+_gdef+"）",value:(it.rp!==undefined&&it.rp!==null&&it.rp!=='')?String(it.rp):""});
+    box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"叫貨門檻（庫存 ≤ 此數量就亮紅燈提醒叫貨）"),rpI));
     // Track initial values so 取消 can warn before discarding unsaved edits. Without this an accidental tap on 取消 silently throws away description rewrites — particularly painful since the modal is wide and the button is close to the right edge.
-    const _initN=it.n,_initB=it.b,_initC=it.c,_initZ=origZ,_initImg=it.img||"",_initDsc=it.dsc||"";
+    const _initN=it.n,_initB=it.b,_initC=it.c,_initZ=origZ,_initImg=it.img||"",_initDsc=it.dsc||"",_initRp=(it.rp!==undefined&&it.rp!==null&&it.rp!=='')?String(it.rp):"";
     const isDirty=()=>{
       if(nI.value.trim()!==_initN)return true;
       const curB=bSel.value==="__newB"?bcInp.value.trim():(bSel.value||_initB);
@@ -1320,11 +1345,12 @@ function renderDetailModal(){
       if(zS.value!==_initZ)return true;
       if(imgI.value.trim()!==_initImg)return true;
       if(dscI.value.trim()!==_initDsc)return true;
+      if(rpI.value.trim()!==_initRp)return true;
       return false;
     };
     const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
     btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(isDirty()&&!confirm("有未儲存的變更，確定放棄？"))return;S.modal={t:"detail",id:it.id,back};render();}},"取消"));
-    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(isReservedKey(newB)||isReservedKey(newC)||isReservedKey(newN)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim()});if(ok){const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
+    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(isReservedKey(newB)||isReservedKey(newC)||isReservedKey(newN)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim(),rp:rpI.value.trim()});if(ok){const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
     btnRow.appendChild(saveBtn);
     box.appendChild(btnRow);
     box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&e.target.tagName!=="BUTTON"&&!saveBtn.disabled){e.preventDefault();saveBtn.click();}});
@@ -1403,7 +1429,13 @@ function renderAccountModal(){
   box.appendChild(oldI);box.appendChild(newI);box.appendChild(confI);box.appendChild(pwMsg);box.appendChild(pwBtn);
   // Admin-only sections
   if(isAdmin()){
-    box.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,marginBottom:"8px",borderTop:"1px dashed var(--border)",paddingTop:"14px"}},"👥 管理所有帳號"));
+    box.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,marginBottom:"6px",borderTop:"1px dashed var(--border)",paddingTop:"14px"}},"🔔 全店叫貨門檻"));
+    box.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginBottom:"6px",lineHeight:1.5}},"任何商品庫存 ≤ 此數量就亮紅燈「要叫貨」。個別商品可在編輯裡各自設定覆蓋。"));
+    const rdInp=h("input",{className:"ipt",type:"number",min:"0",inputmode:"numeric",value:String((S.settings&&S.settings.reorderDefault)!=null?S.settings.reorderDefault:2)});
+    const rdSave=h("button",{style:{padding:"10px 16px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer",flexShrink:0}},"儲存");
+    rdSave.onclick=async function(){const v=parseInt(rdInp.value,10);if(!isFinite(v)||v<0){showToast("請輸入 0 以上的整數");return;}this.disabled=true;this.textContent="儲存中…";try{await dbSet.child("reorderDefault").set(v);S.settings.reorderDefault=v;logActivity("設定叫貨門檻","全店叫貨門檻設為 "+v);showToast("✅ 全店叫貨門檻設為 "+v);render();}catch(e){this.disabled=false;this.textContent="儲存";showToast("⚠ 儲存失敗，請重試");}};
+    box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"16px"}},rdInp,rdSave));
+    box.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,marginBottom:"8px"}},"👥 管理所有帳號"));
     if(!S.users){
       const loadBtn=h("button",{style:{width:"100%",padding:"10px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",cursor:"pointer",marginBottom:"10px"}},"📋 載入帳號清單");
       loadBtn.onclick=async function(){this.disabled=true;this.textContent="載入中…";const u=await fbLoadUsers();if(u){S.users=u;render();}else{this.disabled=false;this.textContent="📋 載入帳號清單";}};
@@ -1831,7 +1863,16 @@ function renderExportModal(){
 
 // 重複健檢：同品牌內，正規化品名相同、或一個是另一個的前綴（如「MC10 AM」⊂「MC10 AM 杏奶白」）就視為疑似重複
 function dupNorm(s){return (s||"").toLowerCase().replace(/[\s\-_/()\[\]【】、。,，.·|~～]+/g,"");}
+let _dupCache={sig:null,groups:[]};
 function findDupGroups(items){
+  // 記憶化：品名/品牌/id 沒變就不重算（原本每次 render/每個搜尋鍵都跑 O(n²)）
+  const sig=(items||[]).map(x=>x&&x.id+"|"+x.b+"|"+x.n).join("~");
+  if(sig===_dupCache.sig)return _dupCache.groups;
+  const groups=_findDupGroupsRaw(items);
+  _dupCache={sig,groups};
+  return groups;
+}
+function _findDupGroupsRaw(items){
   const byBrand=Object.create(null);
   (items||[]).forEach(it=>{if(!it||!it.n)return;const b=it.b||"其他";(byBrand[b]=byBrand[b]||[]).push(it);});
   const groups=[];
@@ -1871,7 +1912,9 @@ function renderMain(){
     let its=m[b][c];const itemOrd=arrFromVal(S.catOrd[zone+"|"+b+"|"+c]);
     if(itemOrd){const idSet=new Set(its.map(x=>x.id));its=[...itemOrd.filter(id=>idSet.has(id)).map(id=>its.find(x=>x.id===id)),...its.filter(x=>!itemOrd.includes(x.id))];}
     return{c,its};})};});
-  const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>!x.q).length,l:items.filter(x=>x.q>0&&x.q<=2).length,m:items.filter(x=>!x.img||!x.dsc).length};
+  // 零庫存/要叫貨都只算「非倉庫」，跟點開的清單一致（原本首頁算全部含倉庫→數字對不上）
+  const _sz=x=>(x.z||'店內')!=='倉庫';
+  const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>_sz(x)&&x.q===0).length,l:items.filter(x=>_sz(x)&&x.q>0&&x.q<=reorderTh(x)).length,m:items.filter(x=>!x.img||!x.dsc).length};
   const root=h("div",{style:{minHeight:"100vh"}});
   // Header
   root.appendChild(h("header",{style:{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)",background:"rgba(255,255,255,.94)",backdropFilter:"saturate(160%) blur(10px)","-webkit-backdrop-filter":"saturate(160%) blur(10px)",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(15,23,42,.05)"}},
@@ -1903,7 +1946,7 @@ function renderMain(){
   ));
   // Stats — accent strip on top to make actionable cards visually distinct, plus a small hint icon when card is clickable
   const statsDiv=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",padding:"12px 16px"}});
-  [{l:"商品",v:st.c,c:"var(--blue)"},{l:"總庫存",v:st.q,c:"var(--green)"},{l:"零庫存",v:st.o,c:st.o?"var(--red)":"var(--sub)",click:"zero",alert:st.o>0},{l:"低庫存",v:st.l,c:st.l?"var(--orange)":"var(--sub)",click:"low",alert:st.l>0},{l:"缺資料",v:st.m,c:st.m?"#d97706":"var(--sub)",click:"missing",alert:st.m>0}].forEach(s=>{
+  [{l:"商品",v:st.c,c:"var(--blue)"},{l:"總庫存",v:st.q,c:"var(--green)"},{l:"零庫存",v:st.o,c:st.o?"var(--red)":"var(--sub)",click:"zero",alert:st.o>0},{l:"要叫貨",v:st.l,c:st.l?"#dc2626":"var(--sub)",click:"low",alert:st.l>0},{l:"缺資料",v:st.m,c:st.m?"#d97706":"var(--sub)",click:"missing",alert:st.m>0}].forEach(s=>{
     const card=h("div",{className:"stat-card",style:{cursor:s.click?"pointer":"default",position:"relative",borderTop:s.alert?"3px solid "+s.c:"3px solid transparent",paddingTop:s.alert?"9px":"12px"},onClick:s.click?()=>{S.modal={t:s.click};render();}:null});
     card.appendChild(h("div",{style:{fontSize:"10px",color:"var(--sub)",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"}},s.l,s.click&&s.alert?h("span",{style:{fontSize:"8px",color:s.c}},"›"):null));
     card.appendChild(h("div",{className:"val",style:{fontSize:"20px",fontWeight:800,color:s.c,lineHeight:1.1}},s.v.toLocaleString()));
@@ -2011,7 +2054,7 @@ function renderMain(){
     grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.search?true:S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
       // Surface attention items in the collapsed brand header so users don't have to expand every brand to find what needs restocking.
       const bZero=cats.reduce((s,c)=>s+c.its.filter(x=>x.q===0).length,0);
-      const bLow=cats.reduce((s,c)=>s+c.its.filter(x=>x.q>0&&x.q<=2).length,0);
+      const bLow=cats.reduce((s,c)=>s+c.its.filter(x=>x.q>0&&x.q<=reorderTh(x)).length,0);
       // No drag in select mode — taps inside select mode should only toggle selection. Otherwise dragging a brand header would compete with the row click handlers.
       const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:!pvMode&&!S._selectMode});
       bCard.addEventListener("dragstart",e=>{clearDrag();dragBrand=bi;armDrag(bCard);e.dataTransfer.effectAllowed="move";bCard.style.opacity="0.5";});
@@ -2707,8 +2750,8 @@ function renderMain(){
   }
   // Zero / Low stock modal
   if(S.modal&&(S.modal.t==="zero"||S.modal.t==="low")){
-    const isZero=S.modal.t==="zero";const title=isZero?"🔴 零庫存清單（需補貨）":"🟠 低庫存清單（庫存≤2）";
-    const list=(S.items||[]).filter(x=>x.z!=="倉庫"&&(isZero?x.q===0:(x.q>0&&x.q<=2)));
+    const isZero=S.modal.t==="zero";const title=isZero?"🔴 零庫存清單（需補貨）":"🔴 要叫貨清單（已達叫貨門檻）";
+    const list=(S.items||[]).filter(x=>x.z!=="倉庫"&&(isZero?x.q===0:(x.q>0&&x.q<=reorderTh(x))));
     const byBrand=Object.create(null);list.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
     const box=h("div",{className:"modal-box",style:{maxWidth:"500px"}});
     box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},
