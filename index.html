@@ -247,9 +247,11 @@ function sanitizeItem(x){
   if(typeof x.c!=="string"||!x.c)x.c=String(x.c||"?");
   if(typeof x.n!=="string"||!x.n)x.n=String(x.n||"未命名");
   if(x.z&&typeof x.z!=="string")x.z=String(x.z);
-  // rp（單品叫貨門檻，選填）：正規化成非負整數或移除
-  if(x.rp!==undefined&&x.rp!==null&&x.rp!==""){const rp=parseInt(x.rp,10);if(isFinite(rp)&&rp>=0)x.rp=rp;else delete x.rp;}
-  else if(x.rp!==undefined)delete x.rp;
+  // rp（叫貨門檻）/ cost（進價）/ price（售價）選填：正規化成非負數或移除
+  ["rp","cost","price"].forEach(k=>{
+    if(x[k]!==undefined&&x[k]!==null&&x[k]!==""){const n=Number(x[k]);if(isFinite(n)&&n>=0)x[k]=(k==="rp"?Math.round(n):n);else delete x[k];}
+    else if(x[k]!==undefined)delete x[k];
+  });
   return x;
 }
 // Merge a fresh server items array with any in-flight optimistic state. Used by fbLoad, moveItems, doUpdateMeta — any path that wholesale-replaces S.items from a Firebase response.
@@ -606,11 +608,13 @@ async function doUpdateMeta(id,patch){
     if("img" in patch){const nm=normalizeImgUrl(patch.img);if(nm)next.img=nm;else delete next.img;}
     if("dsc" in patch){if(patch.dsc)next.dsc=patch.dsc;else delete next.dsc;}
     if("rp" in patch){const rp=parseInt(patch.rp,10);if(patch.rp!==""&&patch.rp!=null&&isFinite(rp)&&rp>=0)next.rp=rp;else delete next.rp;}
+    ["cost","price"].forEach(k=>{if(k in patch){const n=Number(patch[k]);if(patch[k]!==""&&patch[k]!=null&&isFinite(n)&&n>=0)next[k]=n;else delete next[k];}});
     if("b" in patch&&patch.b)next.b=patch.b;
     if("c" in patch&&patch.c)next.c=patch.c;
     if("n" in patch&&patch.n)next.n=patch.n;
     if("z" in patch&&patch.z)next.z=patch.z;
-    if((cur.img||"")===(next.img||"")&&(cur.dsc||"")===(next.dsc||"")&&(cur.rp==null?"":cur.rp)===(next.rp==null?"":next.rp)&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
+    const _eq=(a,b)=>(a==null?"":a)===(b==null?"":b);
+    if((cur.img||"")===(next.img||"")&&(cur.dsc||"")===(next.dsc||"")&&_eq(cur.rp,next.rp)&&_eq(cur.cost,next.cost)&&_eq(cur.price,next.price)&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
     return next;
   }).catch(e=>{console.error(e);return{committed:false};});
   if(noChange)return true;
@@ -1334,8 +1338,11 @@ function renderDetailModal(){
     const _gdef=((S.settings&&S.settings.reorderDefault)!=null?S.settings.reorderDefault:2);
     const rpI=h("input",{className:"ipt",type:"number",min:"0",inputmode:"numeric",placeholder:"留空＝用全店預設（目前 "+_gdef+"）",value:(it.rp!==undefined&&it.rp!==null&&it.rp!=='')?String(it.rp):""});
     box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"叫貨門檻（庫存 ≤ 此數量就亮紅燈提醒叫貨）"),rpI));
+    const costI=h("input",{className:"ipt",type:"number",min:"0",inputmode:"decimal",placeholder:"進價(選填)",value:(it.cost!=null&&it.cost!=='')?String(it.cost):""});
+    const priceI=h("input",{className:"ipt",type:"number",min:"0",inputmode:"decimal",placeholder:"售價(選填)",value:(it.price!=null&&it.price!=='')?String(it.price):""});
+    box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"進價 / 售價（用來算庫存總值，選填）"),h("div",{style:{display:"flex",gap:"6px"}},costI,priceI)));
     // Track initial values so 取消 can warn before discarding unsaved edits. Without this an accidental tap on 取消 silently throws away description rewrites — particularly painful since the modal is wide and the button is close to the right edge.
-    const _initN=it.n,_initB=it.b,_initC=it.c,_initZ=origZ,_initImg=it.img||"",_initDsc=it.dsc||"",_initRp=(it.rp!==undefined&&it.rp!==null&&it.rp!=='')?String(it.rp):"";
+    const _initN=it.n,_initB=it.b,_initC=it.c,_initZ=origZ,_initImg=it.img||"",_initDsc=it.dsc||"",_initRp=(it.rp!==undefined&&it.rp!==null&&it.rp!=='')?String(it.rp):"",_initCost=(it.cost!=null&&it.cost!=='')?String(it.cost):"",_initPrice=(it.price!=null&&it.price!=='')?String(it.price):"";
     const isDirty=()=>{
       if(nI.value.trim()!==_initN)return true;
       const curB=bSel.value==="__newB"?bcInp.value.trim():(bSel.value||_initB);
@@ -1346,11 +1353,13 @@ function renderDetailModal(){
       if(imgI.value.trim()!==_initImg)return true;
       if(dscI.value.trim()!==_initDsc)return true;
       if(rpI.value.trim()!==_initRp)return true;
+      if(costI.value.trim()!==_initCost)return true;
+      if(priceI.value.trim()!==_initPrice)return true;
       return false;
     };
     const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
     btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(isDirty()&&!confirm("有未儲存的變更，確定放棄？"))return;S.modal={t:"detail",id:it.id,back};render();}},"取消"));
-    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(isReservedKey(newB)||isReservedKey(newC)||isReservedKey(newN)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim(),rp:rpI.value.trim()});if(ok){const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
+    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(isReservedKey(newB)||isReservedKey(newC)||isReservedKey(newN)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim(),rp:rpI.value.trim(),cost:costI.value.trim(),price:priceI.value.trim()});if(ok){const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
     btnRow.appendChild(saveBtn);
     box.appendChild(btnRow);
     box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&e.target.tagName!=="BUTTON"&&!saveBtn.disabled){e.preventDefault();saveBtn.click();}});
@@ -1820,8 +1829,8 @@ function renderExportModal(){
   const downloadBlob=(content,filename,mime)=>{const blob=new Blob([content],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(url),1000);};
   const csvDownload=()=>{
     const zoneItems=S.items.filter(x=>(x.z||"店內")===expZone);
-    const rows=[["品牌","分類","商品名","數量","區域","圖片","敘述"]];
-    zoneItems.forEach(it=>rows.push([it.b,it.c,it.n,it.q,it.z||"店內",it.img||"",(it.dsc||"").replace(/\n/g," ")]));
+    const rows=[["品牌","分類","商品名","數量","區域","圖片","敘述","進價","售價","叫貨門檻"]];
+    zoneItems.forEach(it=>rows.push([it.b,it.c,it.n,it.q,it.z||"店內",it.img||"",(it.dsc||"").replace(/\n/g," "),it.cost??"",it.price??"",it.rp??""]));
     // CSV formula injection: Excel/Sheets execute cells beginning with = + - @ \t \r when opened. Prefix with apostrophe to force text interpretation.
     const esc=v=>{let s=String(v);if(/^[=+\-@\t\r]/.test(s))s="'"+s;return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
     const csv="\ufeff"+rows.map(r=>r.map(esc).join(",")).join("\r\n");
@@ -1857,8 +1866,54 @@ function renderExportModal(){
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#7c3aed",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:csvDownload},"📊 CSV"),
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#0891b2",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:mdDownload},"📝 MD")));
   box.appendChild(h("button",{style:{width:"100%",padding:"9px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fffbeb",color:"#b45309",fontSize:"12px",fontWeight:600,cursor:"pointer",marginBottom:"14px"},onClick:jsonBackup},"💾 下載完整備份 JSON（含所有品項與紀錄）"));
+  // ---- CSV 匯入（只新增、不覆蓋既有；管理員限定）----
+  if(isAdmin()){
+    const impStatus=h("div",{style:{fontSize:"11px",color:"var(--sub)",marginTop:"6px",lineHeight:1.5}});
+    const fileInp=h("input",{type:"file",accept:".csv,text/csv",style:{display:"none"}});
+    fileInp.addEventListener("change",async function(){const f=this.files&&this.files[0];if(!f){return;}impStatus.textContent="讀取中…";try{const text=await f.text();const res=await importCsv(text);impStatus.textContent="✅ 新增 "+res.added+" 筆；略過 "+res.skipped+" 筆（品牌+品名已存在）；"+res.bad+" 列格式不符";showToast("匯入完成：新增 "+res.added+" 筆");}catch(e){impStatus.textContent="❌ 匯入失敗："+e.message;}this.value="";});
+    box.appendChild(h("div",{style:{borderTop:"1px dashed var(--border)",paddingTop:"12px",marginBottom:"12px"}},
+      h("div",{style:{fontSize:"13px",fontWeight:700,marginBottom:"4px"}},"📥 CSV 匯入（只新增，不覆蓋既有）"),
+      h("div",{style:{fontSize:"11px",color:"var(--sub)",marginBottom:"8px",lineHeight:1.5}},"欄位順序：品牌,分類,商品名,數量,區域,圖片,敘述,進價,售價,叫貨門檻（第一列可放標題，會自動略過）。品牌＋品名已存在的會跳過，不會蓋掉現有庫存，可放心匯入。跟上面「CSV」匯出的格式一致，可來回使用。"),
+      h("button",{style:{width:"100%",padding:"10px",borderRadius:"10px",border:"1px solid #bbf7d0",background:"#f0fdf4",color:"var(--green)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>fileInp.click()},"選擇 CSV 檔匯入"),
+      fileInp,impStatus));
+  }
   box.appendChild(h("div",{className:"export-box"},txt));
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
+}
+// 簡易 CSV parser（支援雙引號跳脫、\r\n）
+function parseCsv(text){
+  const rows=[];let row=[],cur="",inQ=false;text=(text||"").replace(/^﻿/,"");
+  for(let i=0;i<text.length;i++){const ch=text[i];
+    if(inQ){if(ch==='"'){if(text[i+1]==='"'){cur+='"';i++;}else inQ=false;}else cur+=ch;}
+    else if(ch==='"')inQ=true;
+    else if(ch===','){row.push(cur);cur="";}
+    else if(ch==='\n'){row.push(cur);rows.push(row);row=[];cur="";}
+    else if(ch!=='\r')cur+=ch;
+  }
+  if(cur!==""||row.length){row.push(cur);rows.push(row);}
+  return rows.filter(r=>r.some(c=>String(c).trim()!==""));
+}
+async function importCsv(text){
+  if(!S.items)throw new Error("尚未載入資料");
+  let rows=parseCsv(text);
+  if(!rows.length)throw new Error("空檔案");
+  if(String(rows[0].join("")).match(/品牌|商品名|品名/))rows=rows.slice(1);
+  const exist=new Set(S.items.map(x=>(x.b||"")+"|"+(x.n||"")));
+  const toAdd=[];let bad=0,skipped=0;
+  rows.forEach(r=>{
+    const b=String(r[0]||"").trim(),c=String(r[1]||"").trim()||"其他",n=String(r[2]||"").trim();
+    if(!b||!n||isReservedKey(b)||isReservedKey(c)||isReservedKey(n)){bad++;return;}
+    if(exist.has(b+"|"+n)){skipped++;return;}
+    exist.add(b+"|"+n);
+    const it=sanitizeItem({id:uid(),b,c,n,q:parseInt(r[3])||0,z:(String(r[4]||"").trim()==="倉庫"?"倉庫":"店內"),img:normalizeImgUrl(String(r[5]||"").trim()),dsc:String(r[6]||"").trim(),cost:String(r[7]||"").trim(),price:String(r[8]||"").trim(),rp:String(r[9]||"").trim()});
+    if(!it.img)delete it.img;if(!it.dsc)delete it.dsc;
+    toAdd.push(it);
+  });
+  if(!toAdd.length)return{added:0,skipped,bad};
+  await new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=arrFromVal(cur)||[];const ex=new Set(arr.map(x=>x&&(x.b+"|"+x.n)));const fresh=toAdd.filter(x=>!ex.has(x.b+"|"+x.n));return fresh.length?[...arr,...fresh]:cur;},(err,committed,snap)=>{if(err)return reject(err);const a=arrFromVal(snap&&snap.val());if(a&&S.items)S.items=mergeWithPending(a.filter(x=>x).map(sanitizeItem));saveCache();resolve();},false);});
+  logActivity("CSV匯入","CSV 匯入新增 "+toAdd.length+" 筆");
+  render();
+  return{added:toAdd.length,skipped,bad};
 }
 
 // 重複健檢：同品牌內，正規化品名相同、或一個是另一個的前綴（如「MC10 AM」⊂「MC10 AM 杏奶白」）就視為疑似重複
@@ -2322,6 +2377,22 @@ function renderMain(){
     const allLogs=(()=>{if(!S.olderLogs.length)return S.logs;const cIds=new Set(S.logs.map(l=>l.id));return [...S.logs,...S.olderLogs.filter(l=>!cIds.has(l.id))];})();
     if(!S.olderLogs.length&&!S._olderLoaded&&S.logs.length>=200){
       content.appendChild(h("div",{style:{padding:"10px 12px",margin:"0 0 12px 0",background:"#fef3c7",borderRadius:"8px",fontSize:"11px",color:"#b45309",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px"}},h("span",{},"📊 統計基於最新 200 筆紀錄"),h("button",{disabled:S.loadingOlder,style:{padding:"4px 10px",borderRadius:"6px",border:"none",background:S.loadingOlder?"#e2e8f0":"#7c3aed",color:"#fff",fontSize:"11px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer",flexShrink:0},onClick:loadOlderLogs},S.loadingOlder?"載入中…":"載入全部")));
+    }
+    // 庫存價值（用有填進價/售價的商品計算）
+    {
+      const vit=S.items||[];
+      const tcost=vit.reduce((s,x)=>s+((Number(x.cost)||0)*(x.q||0)),0);
+      const tretail=vit.reduce((s,x)=>s+((Number(x.price)||0)*(x.q||0)),0);
+      const nCost=vit.filter(x=>x.cost!=null&&x.cost!=='').length,nPrice=vit.filter(x=>x.price!=null&&x.price!=='').length;
+      if(tcost>0||tretail>0){
+        const vc=h("div",{className:"card",style:{marginBottom:"14px",padding:"16px"}});
+        vc.appendChild(h("div",{style:{fontSize:"15px",fontWeight:700,marginBottom:"10px"}},"💰 庫存價值"));
+        const cell=(lbl,val,col)=>h("div",{style:{textAlign:"center",padding:"8px",background:"#f8fafc",borderRadius:"8px"}},h("div",{style:{fontSize:"10px",color:"var(--sub)"}},lbl),h("div",{style:{fontSize:"17px",fontWeight:800,color:col||"var(--text)"}},"$"+Math.round(val).toLocaleString()));
+        vc.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px"}},
+          cell("庫存總成本",tcost),cell("零售總值",tretail,"var(--blue)"),cell("潛在毛利",tretail-tcost,tretail-tcost>=0?"var(--green)":"var(--red)")));
+        vc.appendChild(h("div",{style:{fontSize:"10px",color:"var(--sub)",marginTop:"8px"}},"已填進價 "+nCost+" 項、售價 "+nPrice+" 項；沒填的不列入計算（去商品編輯裡補進價/售價）"));
+        content.appendChild(vc);
+      }
     }
     // Monthly stats
     const now=new Date();const ym=now.getFullYear()+"/"+String(now.getMonth()+1).padStart(2,"0");

@@ -5,7 +5,7 @@
 //  - 商品圖（catbox 等）：cache-first，捲動/重畫時免重抓
 //  - Firebase 即時資料庫 / 匿名登入流量：完全略過，交給 SDK，確保即時同步不受影響
 // 改版時把 VER 加一號，舊快取會自動清掉。
-const VER = "inv-v4";
+const VER = "inv-v5";
 const SHELL = VER + "-shell";
 const CDN = VER + "-cdn";
 const IMG = VER + "-img";
