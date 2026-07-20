@@ -259,21 +259,12 @@ async function fbLoad(){try{await authReady;const tm=ms=>new Promise((_,r)=>setT
     // Firebase arrays can be sparse (null gaps when keys are deleted) — strip them out before set/map operations
     // sanitizeItem coerces q to a non-negative integer in case external data put a string in (e.g. from a manual Firebase edit or a botched import)
     S.items=mergePending(i.filter(x=>x).map(sanitizeItem));
-    // Auto-inject missing items by (brand|name) via transaction — avoids racing with other users' writes
-    const existNames=new Set(S.items.map(x=>x.b+"|"+x.n));
-    const toAdd=INJECT_ITEMS.filter(x=>!existNames.has(x.b+"|"+x.n)).map(x=>({...x,id:uid()}));
-    const init=mkInit();const toAddInit=init.filter(x=>!existNames.has(x.b+"|"+x.n)).map(x=>({...x,id:uid()}));
-    const allNew=[...toAdd,...toAddInit];
-    if(allNew.length>0){
-      await new Promise((resolve)=>{dbI.transaction(cur=>{
-        const arr=arrFromVal(cur)||[];
-        const exist=new Set(arr.map(x=>x&&(x.b+"|"+x.n)));
-        const stillMissing=allNew.filter(x=>!exist.has(x.b+"|"+x.n));
-        if(!stillMissing.length)return cur;
-        return[...arr,...stillMissing];
-      },(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=mergePending(a.filter(x=>x).map(sanitizeItem));resolve();},false);});
-      console.log("Auto-injected via tx: "+allNew.length+" item(s) checked");
-    }
+    // ⚠️ 2026-07-20 移除「每次載入自動補回預設品項」邏輯 —— 這是「刪了又復活 + 重複品項」的元兇。
+    // 原本每次 fbLoad 都拿 mkInit()/INJECT_ITEMS 的預設清單比對，凡 brand|name 不在庫存就補回，造成：
+    //   (1) 使用者刪掉的預設品項，下次開頁又被自動加回來（刪不掉／過段時間又跳出來）
+    //   (2) 預設是短名「MC10 AM」，實際品項被改成全名「MC10 AM 杏奶白」→ brand|name 對不上
+    //       → 每次載入都判定「MC10 AM」缺漏而重新補進去 → 無圖的重複品項一直長出來
+    // 首次建置的種子只在「資料庫全空」時觸發（見下方 else 分支），全新環境仍會被正確初始化。
   }
   else{await new Promise(resolve=>{dbI.transaction(cur=>{const arr=arrFromVal(cur);if(arr&&arr.length>0)return arr;return mkInit();},(err,committed,snap)=>{const a=arrFromVal(snap&&snap.val());if(!err&&a)S.items=a.filter(x=>x).map(sanitizeItem);else S.items=mkInit();resolve();},false);});}
   // Logs: clear old test logs once (version check). filter(x=>x) drops sparse-array nulls.
@@ -1838,6 +1829,34 @@ function renderExportModal(){
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box);
 }
 
+// 重複健檢：同品牌內，正規化品名相同、或一個是另一個的前綴（如「MC10 AM」⊂「MC10 AM 杏奶白」）就視為疑似重複
+function dupNorm(s){return (s||"").toLowerCase().replace(/[\s\-_/()\[\]【】、。,，.·|~～]+/g,"");}
+function findDupGroups(items){
+  const byBrand=Object.create(null);
+  (items||[]).forEach(it=>{if(!it||!it.n)return;const b=it.b||"其他";(byBrand[b]=byBrand[b]||[]).push(it);});
+  const groups=[];
+  Object.keys(byBrand).forEach(b=>{
+    const arr=byBrand[b].map(it=>({it,k:dupNorm(it.n)})).filter(x=>x.k.length>=5);
+    const parent=arr.map((_,i)=>i);
+    const find=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
+    for(let i=0;i<arr.length;i++)for(let j=i+1;j<arr.length;j++){
+      const a=arr[i].k,c=arr[j].k;
+      if(a===c||a.startsWith(c)||c.startsWith(a))parent[find(i)]=find(j);
+    }
+    const gm=Object.create(null);
+    arr.forEach((x,i)=>{const r=find(i);(gm[r]=gm[r]||[]).push(x.it);});
+    Object.keys(gm).forEach(r=>{if(gm[r].length>=2)groups.push({brand:b,items:gm[r]});});
+  });
+  return groups;
+}
+// 建議保留哪一個：有圖 > 名稱較長（較完整）> 庫存較多
+function dupRecommendKeep(items){
+  return [...items].sort((a,b)=>{
+    const ai=a.img?1:0,bi=b.img?1:0;if(ai!==bi)return bi-ai;
+    const al=(a.n||"").length,bl=(b.n||"").length;if(al!==bl)return bl-al;
+    return (b.q||0)-(a.q||0);
+  })[0];
+}
 function renderMain(){
   const items=S.items||[];const zone=S.tab==="warehouse"?"倉庫":"店內";
   let fil=items.filter(x=>(x.z||"店內")===zone);
@@ -1891,6 +1910,20 @@ function renderMain(){
     statsDiv.appendChild(card);
   });
   root.appendChild(statsDiv);
+  // 重複健檢橫幅 — 只在偵測到疑似重複、且非預覽模式時出現
+  if(!isPreview()){
+    const dupGroups=findDupGroups(items);
+    if(dupGroups.length>0){
+      const dupItemCount=dupGroups.reduce((s,g)=>s+g.items.length,0);
+      const banner=h("div",{style:{margin:"0 16px 6px",padding:"10px 14px",borderRadius:"10px",background:"#fff7ed",border:"1px solid #fed7aa",display:"flex",alignItems:"center",gap:"10px",cursor:"pointer"},onClick:()=>{S.modal={t:"dup"};render();}},
+        h("span",{style:{fontSize:"16px"}},"🔁"),
+        h("div",{style:{flex:1,minWidth:0}},
+          h("div",{style:{fontSize:"13px",fontWeight:700,color:"#b45309"}},"發現 "+dupGroups.length+" 組疑似重複（共 "+dupItemCount+" 筆）"),
+          h("div",{style:{fontSize:"11px",color:"#c2853f"}},"點開檢查，保留正確的、刪掉多餘的")),
+        h("span",{style:{fontSize:"12px",color:"#b45309",fontWeight:700,flexShrink:0}},"檢查 ›"));
+      root.appendChild(banner);
+    }
+  }
   // Tabs — log tab shows a small today-count badge so users can see "12 things happened today" at a glance.
   const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 16px",borderBottom:"1px solid var(--border)",background:"#fff"}});
   const todayStr=(()=>{const d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0");})();
@@ -2641,6 +2674,35 @@ function renderMain(){
           h("span",{style:{fontSize:"11px",color:"var(--blue)",flexShrink:0}},"✏️")
         ));});
     });
+    root.appendChild(h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box));
+  }
+  // 重複健檢 modal — 列出疑似重複組，逐筆可刪（走既有 del-confirm 流程，含撤銷）
+  if(S.modal&&S.modal.t==="dup"){
+    const groups=findDupGroups(S.items||[]);
+    const box=h("div",{className:"modal-box",style:{maxWidth:"560px"}});
+    box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}},
+      h("h3",{style:{fontSize:"16px",fontWeight:700}},"🔁 重複品項健檢"),
+      h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:()=>{S.modal=null;render();}},"✕")));
+    if(!groups.length){box.appendChild(h("div",{style:{padding:"40px",textAlign:"center",color:"var(--green)",fontSize:"14px",fontWeight:600}},"✅ 沒有偵測到重複品項！"));}
+    else{
+      box.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"12px",padding:"8px 12px",background:"#fff7ed",borderRadius:"8px",lineHeight:1.6}},"同品牌、品名相同或一個是另一個開頭的視為疑似重複。綠框是系統建議保留（有圖/名稱較完整），✕ 刪掉多餘的那筆。刪除有 8 秒可撤銷。"));
+      groups.forEach(g=>{
+        const keep=dupRecommendKeep(g.items);
+        const gcard=h("div",{style:{border:"1px solid var(--border)",borderRadius:"10px",padding:"8px",marginBottom:"10px"}});
+        gcard.appendChild(h("div",{style:{fontSize:"12px",fontWeight:700,color:gc(g.brand),marginBottom:"6px"}},g.brand+"｜"+g.items.length+" 筆疑似重複"));
+        g.items.forEach(it=>{
+          const isKeep=it.id===keep.id;
+          const rowEl=h("div",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"6px",borderRadius:"8px",marginBottom:"4px",background:isKeep?"#f0fdf4":"#fff",border:isKeep?"2px solid var(--green)":"1px solid #f1f5f9"}},
+            h("span",{style:{width:"34px",height:"34px",borderRadius:"6px",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}},it.img?h("img",{src:it.img,style:{width:"100%",height:"100%",objectFit:"cover"}}):h("span",{style:{fontSize:"12px",color:"#cbd5e1"}},"📷")),
+            h("div",{style:{flex:1,minWidth:0}},
+              h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+              h("div",{style:{fontSize:"10px",color:"var(--sub)"}},it.c+" · "+(it.z||"店內")+" · 庫存 "+(it.q||0)+(it.img?"":" · 無圖"))),
+            isKeep?h("span",{style:{fontSize:"11px",color:"var(--green)",fontWeight:700,flexShrink:0}},"建議保留"):h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"12px",fontWeight:700,cursor:"pointer",flexShrink:0},onClick:()=>{S.modal={t:"del-confirm",id:it.id,back:{t:"dup"}};render();}},"✕ 刪除"));
+          gcard.appendChild(rowEl);
+        });
+        box.appendChild(gcard);
+      });
+    }
     root.appendChild(h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{S.modal=null;render();}}),box));
   }
   // Zero / Low stock modal
