@@ -979,9 +979,10 @@ function renderRow(it){
     if(!pv)dot.onclick=e=>{e.stopPropagation();S.modal={t:"detail",id:it.id,edit:true};render();};
     nameWrap.appendChild(dot);
   }
-  if(reorder){nameWrap.appendChild(h("span",{style:{flexShrink:0,fontSize:"10px",fontWeight:700,color:"#dc2626",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:"8px",padding:"1px 6px",whiteSpace:"nowrap"},title:"庫存 "+q+"，已達叫貨門檻 "+reorderTh(it)},"🔴 叫貨"));}
   row.appendChild(nameWrap);
-  row.appendChild(h("span",{style:{minWidth:"36px",padding:"2px 8px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
+  // 叫貨標記：移到品名外、做成很小的紅點/小字，不擠壓品名（手機電腦都看得到）
+  if(reorder)row.appendChild(h("span",{style:{flexShrink:0,fontSize:"9px",fontWeight:700,color:"#fff",background:"#dc2626",borderRadius:"6px",padding:"1px 4px",whiteSpace:"nowrap",lineHeight:1.4},title:"庫存 "+q+"，已達叫貨門檻 "+reorderTh(it)},"叫貨"));
+  row.appendChild(h("span",{style:{minWidth:"32px",padding:"2px 6px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
   if(!pv){
     row.appendChild(h("button",{className:"circle-btn","aria-label":"進貨 "+it.n,title:"進貨",style:{background:"#dcfce7",color:"var(--green)"},onClick:()=>{S.modal={t:"in",it};render();}},"＋"));
     row.appendChild(h("button",{className:"circle-btn","aria-label":"出貨 "+it.n,title:"出貨",style:{background:q===0?"#f1f5f9":"#fef3c7",color:q===0?"#cbd5e1":"var(--orange)",cursor:q===0?"default":"pointer"},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"－"));
@@ -1932,12 +1933,13 @@ function _findDupGroupsRaw(items){
   (items||[]).forEach(it=>{if(!it||!it.n)return;const b=it.b||"其他";(byBrand[b]=byBrand[b]||[]).push(it);});
   const groups=[];
   Object.keys(byBrand).forEach(b=>{
-    const arr=byBrand[b].map(it=>({it,k:dupNorm(it.n)})).filter(x=>x.k.length>=5);
+    // 只抓「正規化後名稱完全相同」的真重複。前綴比對誤判太多（三包/散是包裝、SMB/NS是顏色、鼓棒vs鼓棒袋是不同商品）→ 不用前綴。
+    const arr=byBrand[b].map(it=>({it,k:dupNorm(it.n)})).filter(x=>x.k.length>=1);
     const parent=arr.map((_,i)=>i);
     const find=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
     for(let i=0;i<arr.length;i++)for(let j=i+1;j<arr.length;j++){
       const a=arr[i].k,c=arr[j].k;
-      if(a===c||a.startsWith(c)||c.startsWith(a))parent[find(i)]=find(j);
+      if(a===c)parent[find(i)]=find(j);
     }
     const gm=Object.create(null);
     arr.forEach((x,i)=>{const r=find(i);(gm[r]=gm[r]||[]).push(x.it);});
@@ -2799,7 +2801,7 @@ function renderMain(){
       h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:()=>{S.modal=null;render();}},"✕")));
     if(!groups.length){box.appendChild(h("div",{style:{padding:"40px",textAlign:"center",color:"var(--green)",fontSize:"14px",fontWeight:600}},"✅ 沒有偵測到重複品項！"));}
     else{
-      box.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"12px",padding:"8px 12px",background:"#fff7ed",borderRadius:"8px",lineHeight:1.6}},"同品牌、品名相同或一個是另一個開頭的視為疑似重複。綠框是系統建議保留（有圖/名稱較完整），✕ 刪掉多餘的那筆。刪除有 8 秒可撤銷。"));
+      box.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"12px",padding:"8px 12px",background:"#fff7ed",borderRadius:"8px",lineHeight:1.6}},"只抓「同品牌、品名完全相同」的真重複（顏色/包裝/型號不同不算，避免誤刪）。綠框是系統建議保留（有圖/庫存多），✕ 刪掉多餘的那筆。刪除有 8 秒可撤銷。"));
       groups.forEach(g=>{
         const keep=dupRecommendKeep(g.items);
         const gcard=h("div",{style:{border:"1px solid var(--border)",borderRadius:"10px",padding:"8px",marginBottom:"10px"}});
