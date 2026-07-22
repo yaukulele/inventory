@@ -1126,11 +1126,41 @@ function renderAddModal(){
   // Negative numbers bypass HTML min attribute via paste or arrow keys; clamp on blur so the saved value matches what the user sees.
   qI.addEventListener("blur",()=>{const n=parseInt(qI.value);if(isNaN(n)||n<0)qI.value="0";});
   box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"初始庫存"),qI));
-  // Image URL + preview
-  const imgI=h("input",{className:"ipt",placeholder:"https://… 或留空",type:"url"});
+  // Image URL + preview + 圖片獵人（找圖）
+  const imgI=h("input",{className:"ipt",placeholder:"https://… 或留空",type:"url",style:{flex:1}});
   const imgPreview=h("div",{style:{marginTop:"6px",display:"none",width:"80px",height:"80px",borderRadius:"10px",background:"#f8fafc",border:"1px solid var(--border)",overflow:"hidden"}});
-  imgI.addEventListener("input",()=>{const v=normalizeImgUrl(imgI.value);if(v){imgPreview.innerHTML="";const img=h("img",{src:v,style:{width:"100%",height:"100%",objectFit:"cover"}});img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"圖片載入失敗"));};imgPreview.appendChild(img);imgPreview.style.display="block";}else imgPreview.style.display="none";});
-  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"圖片 URL（選填）"),imgI,imgPreview));
+  const refreshAddPreview=()=>{const v=normalizeImgUrl(imgI.value);imgPreview.innerHTML="";if(!v){imgPreview.style.display="none";return;}imgPreview.style.display="block";const img=h("img",{src:v,style:{width:"100%",height:"100%",objectFit:"cover"}});img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"圖片載入失敗"));};imgPreview.appendChild(img);};
+  imgI.addEventListener("input",refreshAddPreview);
+  const findBtn=h("button",{type:"button",title:"用圖片獵人找官方圖",style:{padding:"0 12px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"var(--blue-light)",color:"var(--blue)",fontSize:"13px",fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}},"🔍 找圖");
+  const clearImgBtn=h("button",{type:"button",style:{width:"38px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"14px",cursor:"pointer",flexShrink:0},onClick:()=>{imgI.value="";refreshAddPreview();}},"✕");
+  const imgRow=h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}},imgI,findBtn,clearImgBtn);
+  const candBox=h("div",{style:{display:"none",flexWrap:"wrap",gap:"6px",marginTop:"8px"}});
+  const IMG_FINDER="https://product-image-finder-production-1e1b.up.railway.app";
+  findBtn.onclick=async()=>{
+    const brand=(selB&&selB==="__newB")?bcI.value.trim():(selB||"");
+    const nm=(nI.value||"").trim();
+    const q=((brand&&brand!=="其他"?brand+" ":"")+nm).trim();
+    if(!q){alert("請先填商品名稱再找圖");return;}
+    findBtn.disabled=true;findBtn.textContent="搜尋中…";
+    candBox.style.display="flex";candBox.innerHTML="";
+    candBox.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",width:"100%"}},"🔍 搜尋「"+q+"」…"));
+    try{
+      const r=await fetch(IMG_FINDER+"/api/v1/find?n=8&q="+encodeURIComponent(q));
+      const d=await r.json();
+      candBox.innerHTML="";
+      const res=(d.results||[]).filter(x=>x&&x.url);
+      if(!res.length){candBox.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",width:"100%"}},"找不到合適的圖，換個名稱再試一次"));}
+      else candBox.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",width:"100%"}},"點一張套用："));
+      res.forEach(x=>{
+        const t=h("img",{src:x.url,loading:"lazy",title:x.title||x.src||"",style:{width:"66px",height:"66px",objectFit:"cover",borderRadius:"8px",border:"2px solid transparent",cursor:"pointer",background:"#f1f5f9"}});
+        t.onerror=()=>t.remove();
+        t.onclick=()=>{imgI.value=x.url;refreshAddPreview();Array.from(candBox.querySelectorAll("img")).forEach(i=>i.style.border="2px solid transparent");t.style.border="2px solid var(--blue)";};
+        candBox.appendChild(t);
+      });
+    }catch(e){candBox.innerHTML="";candBox.appendChild(h("div",{style:{fontSize:"12px",color:"var(--red)",width:"100%"}},"搜尋失敗："+e.message));}
+    findBtn.disabled=false;findBtn.textContent="🔍 找圖";
+  };
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"圖片 URL（選填）"),imgRow,imgPreview,candBox));
   // Description
   const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"60px",resize:"vertical",fontFamily:"inherit"}});
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
