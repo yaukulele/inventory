@@ -591,8 +591,21 @@ function normalizeImgUrl(url){
   if(!/^(https?:)?\/\//i.test(url))return "";
   return url;
 }
+// 開機後若偵測到未送出的「新增商品」草稿，自動重開視窗還原（手機重載頁面防資料遺失）
+function _maybeReopenAddDraft(){
+  if(window._addDraftReopened)return;window._addDraftReopened=true;
+  if(S.modal)return;
+  let dr=null;try{dr=localStorage.getItem("inv_add_draft");}catch(e){}
+  if(!dr)return;
+  try{const o=JSON.parse(dr);if(!(o&&(o.n||o.img||o.dsc||o.bc||o.cc||o.b)))return;}catch(e){return;}
+  S.modal={t:"add"};render();
+  try{showToast("已還原上次未送出的「新增商品」內容");}catch(e){}
+}
+
 async function doAdd(f){
   if(!S.items)return;  // Same logout guard as doAction — if S.items is null we'd crash on the optimistic spread below.
+  try{localStorage.removeItem("inv_add_draft");}catch(e){}  // 成功送出→清掉草稿
+
   const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
   if(f.img)ni.img=normalizeImgUrl(f.img);if(f.dsc)ni.dsc=f.dsc;
   // Optimistic add
@@ -836,14 +849,14 @@ async function postLogin(){
       if(S.lastSyncAt===beforeSync&&!prefetched)showToast("⚠ 同步失敗，目前顯示本地快取");
       // cached path: listener wasn't subscribed yet, do it now after first sync confirms data flow.
       if(cached)startRealtimeSync();
-      S.phase="ready";render();
+      S.phase="ready";render();_maybeReopenAddDraft();
     });
   }
   else{
     await fbLoadInitial();
     if(S.phase==="login")return;  // Same guard for non-cached path
     if(S.lastSyncAt===beforeSync)showToast("⚠ 同步失敗，使用預設清單");
-    S.phase="ready";render();startRealtimeSync();
+    S.phase="ready";render();startRealtimeSync();_maybeReopenAddDraft();
   }
 }
 
@@ -1098,7 +1111,7 @@ function renderAddModal(){
   let selB=lastB,selC="";const box=h("div",{className:"modal-box"});
   // Filled in after the field inputs are constructed so closeAdd can ask "discard unsaved?" without forward-reference TDZ issues.
   let isAddDirty=null;
-  const closeAdd=()=>{if(isAddDirty&&isAddDirty()&&!confirm("有未送出的內容，確定關閉？"))return;S.modal=null;render();};
+  const closeAdd=()=>{if(isAddDirty&&isAddDirty()&&!confirm("有未送出的內容，確定關閉？"))return;try{localStorage.removeItem("inv_add_draft");}catch(e){}S.modal=null;render();};
   box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"16px"}},h("h3",{style:{fontSize:"18px",fontWeight:700}},dup?"🔁 複製商品":"➕ 新增商品"),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:closeAdd},"✕")));
   const zS=h("select",{className:"ipt"},h("option",{value:"店內"},"店內"),h("option",{value:"倉庫"},"倉庫"));
   if(dup&&dup.z)zS.value=dup.z;
@@ -1170,6 +1183,35 @@ function renderAddModal(){
     if(dup.img){imgI.value=dup.img;imgI.dispatchEvent(new Event("input"));}
     if(dup.dsc)dscI.value=dup.dsc;
     setTimeout(()=>{const el=document.getElementById("addNameInput");if(el){el.focus();el.select();}},80);
+  }
+  // 草稿持久化：跳出網頁/手機重載頁面也不會清空剛填的內容
+  function saveAddDraft(){
+    try{
+      const bc=selB==="__newB"?bcI.value:"";
+      const b=selB==="__newB"?"":selB;
+      const cc=ccI.style.display!=="none"?ccI.value:"";
+      const c=ccI.style.display!=="none"?"":selC;
+      const any=nI.value||imgI.value||dscI.value||bc||cc||(b&&b!=="");
+      if(any)localStorage.setItem("inv_add_draft",JSON.stringify({z:zS.value,b:b,bc:bc,c:c,cc:cc,n:nI.value,q:qI.value,img:imgI.value,dsc:dscI.value}));
+      else localStorage.removeItem("inv_add_draft");
+    }catch(e){}
+  }
+  [nI,qI,imgI,dscI,bcI,ccI].forEach(el=>el.addEventListener("input",saveAddDraft));
+  [zS,bS,cS].forEach(el=>el.addEventListener("change",()=>setTimeout(saveAddDraft,0)));
+  if(!dup){
+    let _d=null;try{const r=localStorage.getItem("inv_add_draft");if(r)_d=JSON.parse(r);}catch(e){}
+    if(_d&&(_d.n||_d.img||_d.dsc||_d.bc||_d.cc||_d.b)){
+      if(_d.z)zS.value=_d.z;
+      if(_d.bc){bS.value="__newB";selB="__newB";bcI.style.display="block";bcI.value=_d.bc;rebuildCats();}
+      else if(_d.b){bS.value=_d.b;selB=_d.b;rebuildCats();}
+      if(_d.cc){cS.value="__new";selC="__new";ccI.style.display="block";ccI.value=_d.cc;}
+      else if(_d.c){cS.value=_d.c;selC=_d.c;}
+      if(_d.n)nI.value=_d.n;
+      if(_d.q!=null&&_d.q!=="")qI.value=_d.q;
+      if(_d.img){imgI.value=_d.img;if(typeof refreshAddPreview==="function")refreshAddPreview();}
+      if(_d.dsc)dscI.value=_d.dsc;
+      setTimeout(checkDup,0);
+    }
   }
   // Dirty check: any actively-typed input counts. Brand auto-pre-select from localStorage doesn't (avoids prompting on empty-form close).
   isAddDirty=()=>{
