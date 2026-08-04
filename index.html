@@ -273,6 +273,21 @@ function sanitizeItem(x){
 }
 // Merge a fresh server items array with any in-flight optimistic state. Used by fbLoad, moveItems, doUpdateMeta — any path that wholesale-replaces S.items from a Firebase response.
 // Without this, a doAction still awaiting fbTxItem will briefly see its locally-bumped q flicker back to the server value, then jump to the post-tx value once the round-trip completes.
+// 防呆(2026-08-04)：清掉「短名品項」當它是另一個同品牌同分類「全名品項」的前綴。
+// 情境：舊版快取程式碼會拿預設短名清單(如「MC10 AM」)比對→誤判缺漏→補回沒圖的重複，
+// 而使用者已把原品項改成全名「MC10 AM 杏奶白」。即使某台裝置還殘留舊碼又補回，
+// 只要有一台跑新碼載入，這裡就會把短名重複濾掉(顯示層)，下次任何全量寫入(reorder/moveItems)自然清掉。
+function dedupePrefixDupes(items){
+  if(!Array.isArray(items)||items.length<2)return items;
+  const byKey=Object.create(null);
+  items.forEach(x=>{if(x&&typeof x.n==="string"&&x.n){const k=(x.b||"")+"|"+(x.c||"");(byKey[k]||(byKey[k]=[])).push(x);}});
+  const drop=new Set();
+  Object.keys(byKey).forEach(k=>{const arr=byKey[k];arr.forEach(a=>{
+    if(drop.has(a.id))return;
+    if(arr.some(b=>b!==a&&typeof b.n==="string"&&b.n.length>a.n.length&&b.n.slice(0,a.n.length+1)===a.n+" "))drop.add(a.id);
+  });});
+  return drop.size?items.filter(x=>!x||!drop.has(x.id)):items;
+}
 function mergeWithPending(remote){
   if(!remote)return remote;
   let merged=remote;
@@ -290,7 +305,7 @@ async function fbLoad(){try{await authReady;const tm=ms=>new Promise((_,r)=>setT
   if(i&&i.length>0){
     // Firebase arrays can be sparse (null gaps when keys are deleted) — strip them out before set/map operations
     // sanitizeItem coerces q to a non-negative integer in case external data put a string in (e.g. from a manual Firebase edit or a botched import)
-    S.items=mergePending(i.filter(x=>x).map(sanitizeItem));
+    S.items=dedupePrefixDupes(mergePending(i.filter(x=>x).map(sanitizeItem)));
     // ⚠️ 2026-07-20 移除「每次載入自動補回預設品項」邏輯 —— 這是「刪了又復活 + 重複品項」的元兇。
     // 原本每次 fbLoad 都拿 mkInit()/INJECT_ITEMS 的預設清單比對，凡 brand|name 不在庫存就補回，造成：
     //   (1) 使用者刪掉的預設品項，下次開頁又被自動加回來（刪不掉／過段時間又跳出來）
