@@ -1964,9 +1964,13 @@ function renderExportModal(){
     const byBrand=Object.create(null);zoneItems.forEach(x=>{(byBrand[x.b]||(byBrand[x.b]=[])).push(x);});
     let bodyHtml="";
     Object.keys(byBrand).sort((a,b)=>a.localeCompare(b,"zh-Hant")).forEach(b=>{
-      const arr=byBrand[b].slice().sort((x,y)=>(x.c||"").localeCompare(y.c||"","zh-Hant")||(x.n||"").localeCompare(y.n||"","zh-Hant"));
-      bodyHtml+='<div class="bd">'+he(b)+' <span class="bc">'+arr.length+'</span></div>';
-      arr.forEach(x=>{bodyHtml+='<div class="rw"><span class="nm">'+he(x.n)+'</span><span class="cur">'+(x.q||0)+'</span><span class="bx"></span></div>';});
+      bodyHtml+='<div class="bd">'+he(b)+' <span class="bc">'+byBrand[b].length+'</span></div>';
+      // 品牌底下再依分類(品相)分小標：木吉他/烏克麗麗/弦…
+      const byCat=Object.create(null);byBrand[b].forEach(x=>{const c=x.c||"其他";(byCat[c]||(byCat[c]=[])).push(x);});
+      Object.keys(byCat).sort((a,b)=>a.localeCompare(b,"zh-Hant")).forEach(c=>{
+        bodyHtml+='<div class="cd">'+he(c)+' <span class="cc">'+byCat[c].length+'</span></div>';
+        byCat[c].slice().sort((x,y)=>(x.n||"").localeCompare(y.n||"","zh-Hant")).forEach(x=>{bodyHtml+='<div class="rw"><span class="nm">'+he(x.n)+'</span><span class="cur">'+(x.q||0)+'</span><span class="bx"></span></div>';});
+      });
     });
     const total=zoneItems.reduce((s,x)=>s+(x.q||0),0);
     const html='<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>'+(expZone==="倉庫"?"倉庫":"店內")+'點貨單 '+d+'</title><style>'+
@@ -1977,6 +1981,8 @@ function renderExportModal(){
       '.list{column-width:57mm;column-gap:5mm}'+
       '.bd{font-weight:800;font-size:10.5px;background:#e5e7eb;padding:2px 5px;margin:5px 0 1px;border-radius:2px;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
       '.bd .bc{font-weight:600;color:#64748b;font-size:9px}'+
+      '.cd{font-weight:700;font-size:9.5px;color:#475569;padding:1px 5px;margin:2px 0 0;border-left:3px solid #94a3b8;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
+      '.cd .cc{font-weight:500;color:#94a3b8;font-size:8.5px}'+
       '.rw{display:flex;align-items:center;gap:4px;padding:1.5px 4px;border-bottom:1px dotted #cbd5e1;break-inside:avoid}'+
       '.nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
       '.cur{width:24px;text-align:right;color:#64748b;flex-shrink:0}'+
