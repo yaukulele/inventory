@@ -1956,11 +1956,48 @@ function renderExportModal(){
     downloadBlob(JSON.stringify(payload,null,2),"inventory_backup_"+d.replace(/\//g,"-")+".json","application/json");
     showToast("💾 已下載完整備份 ("+payload.items.length+" 品項 / "+payload.logs.length+" 筆紀錄)");
   };
+  // 點貨單：A4 列印用。依品牌分組、CSS 多欄壓縮省紙；每項顯示系統現量＋一個空格手寫實點數量。
+  const countSheet=()=>{
+    const he=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    const zoneItems=S.items.filter(x=>(x.z||"店內")===expZone);
+    if(!zoneItems.length){showToast("此區域沒有品項");return;}
+    const byBrand=Object.create(null);zoneItems.forEach(x=>{(byBrand[x.b]||(byBrand[x.b]=[])).push(x);});
+    let bodyHtml="";
+    Object.keys(byBrand).sort((a,b)=>a.localeCompare(b,"zh-Hant")).forEach(b=>{
+      const arr=byBrand[b].slice().sort((x,y)=>(x.c||"").localeCompare(y.c||"","zh-Hant")||(x.n||"").localeCompare(y.n||"","zh-Hant"));
+      bodyHtml+='<div class="bd">'+he(b)+' <span class="bc">'+arr.length+'</span></div>';
+      arr.forEach(x=>{bodyHtml+='<div class="rw"><span class="nm">'+he(x.n)+'</span><span class="cur">'+(x.q||0)+'</span><span class="bx"></span></div>';});
+    });
+    const total=zoneItems.reduce((s,x)=>s+(x.q||0),0);
+    const html='<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>'+(expZone==="倉庫"?"倉庫":"店內")+'點貨單 '+d+'</title><style>'+
+      '@page{size:A4;margin:7mm}*{box-sizing:border-box}html,body{margin:0}body{font-family:-apple-system,"Microsoft JhengHei","PingFang TC",sans-serif;color:#111;font-size:9.5px}'+
+      '.hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #333;padding-bottom:3px;margin-bottom:5px}'+
+      '.hd h1{font-size:15px;margin:0}.hd .mt{font-size:10px;color:#555}'+
+      '.hint{font-size:9px;color:#777;margin-bottom:5px}'+
+      '.list{column-width:57mm;column-gap:5mm}'+
+      '.bd{font-weight:800;font-size:10.5px;background:#e5e7eb;padding:2px 5px;margin:5px 0 1px;border-radius:2px;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
+      '.bd .bc{font-weight:600;color:#64748b;font-size:9px}'+
+      '.rw{display:flex;align-items:center;gap:4px;padding:1.5px 4px;border-bottom:1px dotted #cbd5e1;break-inside:avoid}'+
+      '.nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
+      '.cur{width:24px;text-align:right;color:#64748b;flex-shrink:0}'+
+      '.bx{width:38px;height:14px;border:1px solid #94a3b8;border-radius:2px;flex-shrink:0}'+
+      '@media print{.noprint{display:none}}'+
+      '</style></head><body>'+
+      '<div class="hd"><h1>'+(expZone==="倉庫"?"🏭 倉庫":"🏪 店內")+'點貨單</h1><div class="mt">'+d+'　品項 '+zoneItems.length+'　系統總量 '+total+'　盤點人：________</div></div>'+
+      '<div class="hint">灰色數字＝系統現有量，右邊空格請手寫實際盤點數量。</div>'+
+      '<div class="list">'+bodyHtml+'</div>'+
+      '<div class="noprint" style="position:fixed;top:8px;right:8px"><button onclick="window.print()" style="padding:8px 16px;font-size:14px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer">🖨 列印</button></div>'+
+      '<scr'+'ipt>window.addEventListener("load",function(){setTimeout(function(){window.print();},250);});</scr'+'ipt></body></html>';
+    const w=window.open("","_blank");
+    if(!w){showToast("請允許彈出視窗才能列印點貨單");return;}
+    w.document.write(html);w.document.close();
+  };
   box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"6px"}},
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{navigator.clipboard.writeText(txt).then(()=>showToast("已複製！")).catch(()=>{const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);showToast("已複製！");});}},"📋 複製"),
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(navigator.share)navigator.share({title:(expZone==="倉庫"?"倉庫":"店內")+"庫存報表 "+d,text:txt}).catch(()=>{});else showToast("不支援分享");}},"📤 分享"),
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#7c3aed",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:csvDownload},"📊 CSV"),
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#0891b2",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:mdDownload},"📝 MD")));
+  box.appendChild(h("button",{style:{width:"100%",padding:"12px",borderRadius:"10px",border:"none",background:"var(--red)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer",marginBottom:"8px"},onClick:countSheet,title:"依品牌分組、壓縮省紙、含系統現量＋手寫實點空格，直接叫出列印"},"🖨 點貨單（A4 列印・分品牌）"));
   box.appendChild(h("button",{style:{width:"100%",padding:"9px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fffbeb",color:"#b45309",fontSize:"12px",fontWeight:600,cursor:"pointer",marginBottom:"14px"},onClick:jsonBackup},"💾 下載完整備份 JSON（含所有品項與紀錄）"));
   // ---- CSV 匯入（只新增、不覆蓋既有；管理員限定）----
   if(isAdmin()){
