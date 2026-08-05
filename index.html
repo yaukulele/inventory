@@ -3088,7 +3088,20 @@ render();
 // Service worker: instant repeat loads (cached app shell + Firebase SDK + fonts + product images),
 // offline-capable. Registered after load so it never delays first paint. Firebase realtime/auth
 // traffic is explicitly bypassed inside sw.js so live sync is untouched.
-if("serviceWorker" in navigator){window.addEventListener("load",()=>{navigator.serviceWorker.register("sw.js").catch(()=>{});});}
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>{navigator.serviceWorker.register("sw.js").catch(()=>{});});
+  // 有新版本自動重載：新 SW 接手(controllerchange)後，等沒有開著編輯/動作視窗時自動重新整理抓新碼，
+  // 免手動強制更新。開著視窗就先不重載(避免丟未存的填寫)，關掉後由 1.5s 輪詢補做。
+  let _swPending=false,_swReloading=false;
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{_swPending=true;});
+  setInterval(()=>{
+    if(!_swPending||_swReloading)return;
+    if(typeof S==="object"&&S&&S.modal)return; // 有開視窗先等
+    _swReloading=true;
+    try{showToast&&showToast("已更新到新版本…");}catch(e){}
+    setTimeout(()=>location.reload(),400);
+  },1500);
+}
 // Global error nets so unhandled rejections / sync errors don't go silent — they show in the console with stack and surface to the user as a non-blocking toast (only when on the ready screen, to avoid spam during the login flow's known transient failures).
 window.addEventListener("unhandledrejection",e=>{console.error("Unhandled rejection:",e.reason);if(S.phase==="ready")showToast("⚠ 背景作業出錯（已記錄到 console）");});
 window.addEventListener("error",e=>{console.error("Uncaught error:",e.error||e.message);if(S.phase==="ready")showToast("⚠ 程式錯誤（已記錄到 console）");});
