@@ -3095,7 +3095,13 @@ render();
 // offline-capable. Registered after load so it never delays first paint. Firebase realtime/auth
 // traffic is explicitly bypassed inside sw.js so live sync is untouched.
 if("serviceWorker" in navigator){
-  window.addEventListener("load",()=>{navigator.serviceWorker.register("sw.js").catch(()=>{});});
+  let _swReg=null;
+  window.addEventListener("load",()=>{navigator.serviceWorker.register("sw.js").then(r=>{_swReg=r;}).catch(()=>{});});
+  // 主動檢查新版：每 5 分鐘 + 每次切回這個分頁時，呼叫 registration.update()。
+  // 沒這個的話，一直開著沒動的分頁(尤其電腦端)不會主動去比對 sw.js，就抓不到新版。
+  const _swCheck=()=>{try{if(_swReg)_swReg.update();}catch(e){}};
+  setInterval(_swCheck,300000);
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden)_swCheck();});
   // 有新版本自動重載：新 SW 接手(controllerchange)後，等沒有開著編輯/動作視窗時自動重新整理抓新碼，
   // 免手動強制更新。開著視窗就先不重載(避免丟未存的填寫)，關掉後由 1.5s 輪詢補做。
   let _swPending=false,_swReloading=false;
