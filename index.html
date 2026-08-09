@@ -1974,19 +1974,19 @@ function renderExportModal(){
     });
     const total=zoneItems.reduce((s,x)=>s+(x.q||0),0);
     const html='<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>'+(expZone==="倉庫"?"倉庫":"店內")+'點貨單 '+d+'</title><style>'+
-      '@page{size:A4;margin:7mm}*{box-sizing:border-box}html,body{margin:0}body{font-family:-apple-system,"Microsoft JhengHei","PingFang TC",sans-serif;color:#111;font-size:9.5px}'+
-      '.hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #333;padding-bottom:3px;margin-bottom:5px}'+
-      '.hd h1{font-size:15px;margin:0}.hd .mt{font-size:10px;color:#555}'+
-      '.hint{font-size:9px;color:#777;margin-bottom:5px}'+
-      '.list{column-width:57mm;column-gap:5mm}'+
-      '.bd{font-weight:800;font-size:10.5px;background:#e5e7eb;padding:2px 5px;margin:5px 0 1px;border-radius:2px;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
-      '.bd .bc{font-weight:600;color:#64748b;font-size:9px}'+
-      '.cd{font-weight:700;font-size:9.5px;color:#475569;padding:1px 5px;margin:2px 0 0;border-left:3px solid #94a3b8;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
-      '.cd .cc{font-weight:500;color:#94a3b8;font-size:8.5px}'+
-      '.rw{display:flex;align-items:center;gap:4px;padding:1.5px 4px;border-bottom:1px dotted #cbd5e1;break-inside:avoid}'+
+      '@page{size:A4;margin:4.5mm}*{box-sizing:border-box}html,body{margin:0}body{font-family:-apple-system,"Microsoft JhengHei","PingFang TC",sans-serif;color:#111;font-size:8px;line-height:1.12}'+
+      '.hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #333;padding-bottom:2px;margin-bottom:3px}'+
+      '.hd h1{font-size:12px;margin:0}.hd .mt{font-size:8.5px;color:#555}'+
+      '.hint{font-size:7.5px;color:#777;margin-bottom:3px}'+
+      '.list{column-width:42mm;column-gap:4mm}'+
+      '.bd{font-weight:800;font-size:8.6px;background:#e5e7eb;padding:1px 4px;margin:3px 0 0;border-radius:2px;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
+      '.bd .bc{font-weight:600;color:#64748b;font-size:7.5px}'+
+      '.cd{font-weight:700;font-size:7.8px;color:#475569;padding:0 4px;margin:1px 0 0;border-left:3px solid #94a3b8;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
+      '.cd .cc{font-weight:500;color:#94a3b8;font-size:7px}'+
+      '.rw{display:flex;align-items:center;gap:3px;padding:0.3px 3px;border-bottom:1px dotted #cbd5e1;break-inside:avoid}'+
       '.nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
-      '.cur{width:24px;text-align:right;color:#64748b;flex-shrink:0}'+
-      '.bx{width:38px;height:14px;border:1px solid #94a3b8;border-radius:2px;flex-shrink:0}'+
+      '.cur{width:16px;text-align:right;color:#64748b;flex-shrink:0}'+
+      '.bx{width:26px;height:10px;border:1px solid #94a3b8;border-radius:2px;flex-shrink:0}'+
       '@media print{.noprint{display:none}}'+
       '</style></head><body>'+
       '<div class="hd"><h1>'+(expZone==="倉庫"?"🏭 倉庫":"🏪 店內")+'點貨單</h1><div class="mt">'+d+'　品項 '+zoneItems.length+'　系統總量 '+total+'　盤點人：________</div></div>'+
