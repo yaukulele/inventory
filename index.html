@@ -1974,11 +1974,13 @@ function renderExportModal(){
     });
     const total=zoneItems.reduce((s,x)=>s+(x.q||0),0);
     const html='<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>'+(expZone==="倉庫"?"倉庫":"店內")+'點貨單 '+d+'</title><style>'+
-      '@page{size:A4;margin:4.5mm}*{box-sizing:border-box}html,body{margin:0}body{font-family:-apple-system,"Microsoft JhengHei","PingFang TC",sans-serif;color:#111;font-size:8px;line-height:1.12}'+
+      '@page{size:A4;margin:5mm}*{box-sizing:border-box}html,body{margin:0}'+
+      // 強制內容寬=A4 內容寬(210-2×5)=200mm，避免某些瀏覽器在彈窗列印時把版面算成窄的一欄、右邊整片空白
+      'body{width:200mm;font-family:-apple-system,"Microsoft JhengHei","PingFang TC",sans-serif;color:#111;font-size:8px;line-height:1.12}'+
       '.hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #333;padding-bottom:2px;margin-bottom:3px}'+
       '.hd h1{font-size:12px;margin:0}.hd .mt{font-size:8.5px;color:#555}'+
       '.hint{font-size:7.5px;color:#777;margin-bottom:3px}'+
-      '.list{column-width:42mm;column-gap:4mm}'+
+      '.list{column-count:4;-webkit-column-count:4;column-gap:4mm}'+
       '.bd{font-weight:800;font-size:8.6px;background:#e5e7eb;padding:1px 4px;margin:3px 0 0;border-radius:2px;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
       '.bd .bc{font-weight:600;color:#64748b;font-size:7.5px}'+
       '.cd{font-weight:700;font-size:7.8px;color:#475569;padding:0 4px;margin:1px 0 0;border-left:3px solid #94a3b8;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
