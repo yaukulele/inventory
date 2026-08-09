@@ -1962,38 +1962,46 @@ function renderExportModal(){
     const zoneItems=S.items.filter(x=>(x.z||"店內")===expZone);
     if(!zoneItems.length){showToast("此區域沒有品項");return;}
     const byBrand=Object.create(null);zoneItems.forEach(x=>{(byBrand[x.b]||(byBrand[x.b]=[])).push(x);});
+    // 用 table 排版(非 CSS 多欄)：table 跨頁穩、各瀏覽器列印都會填滿頁寬，
+    // 解決 CSS column 在 Mac/Safari 列印「中間欄消失、右半頁空白」的問題。3 欄。
+    const NCOL=3;
+    const cellHtml=x=>x?'<div class="cw"><span class="nm">'+he(x.n)+'</span><span class="cur">'+(x.q||0)+'</span><span class="bx"></span></div>':'';
+    const rowOf=cells=>{while(cells.length<NCOL)cells.push(null);return '<tr>'+cells.map(x=>'<td class="cell">'+cellHtml(x)+'</td>').join('')+'</tr>';};
     let bodyHtml="";
     Object.keys(byBrand).sort((a,b)=>a.localeCompare(b,"zh-Hant")).forEach(b=>{
-      bodyHtml+='<div class="bd">'+he(b)+' <span class="bc">'+byBrand[b].length+'</span></div>';
-      // 品牌底下再依分類(品相)分小標：木吉他/烏克麗麗/弦…
+      bodyHtml+='<tr><td class="bd" colspan="'+NCOL+'">'+he(b)+' <span class="bc">'+byBrand[b].length+'</span></td></tr>';
       const byCat=Object.create(null);byBrand[b].forEach(x=>{const c=x.c||"其他";(byCat[c]||(byCat[c]=[])).push(x);});
       Object.keys(byCat).sort((a,b)=>a.localeCompare(b,"zh-Hant")).forEach(c=>{
-        bodyHtml+='<div class="cd">'+he(c)+' <span class="cc">'+byCat[c].length+'</span></div>';
-        byCat[c].slice().sort((x,y)=>(x.n||"").localeCompare(y.n||"","zh-Hant")).forEach(x=>{bodyHtml+='<div class="rw"><span class="nm">'+he(x.n)+'</span><span class="cur">'+(x.q||0)+'</span><span class="bx"></span></div>';});
+        bodyHtml+='<tr><td class="cd" colspan="'+NCOL+'">'+he(c)+' <span class="cc">'+byCat[c].length+'</span></td></tr>';
+        const arr=byCat[c].slice().sort((x,y)=>(x.n||"").localeCompare(y.n||"","zh-Hant"));
+        for(let i=0;i<arr.length;i+=NCOL)bodyHtml+=rowOf(arr.slice(i,i+NCOL));
       });
     });
     const total=zoneItems.reduce((s,x)=>s+(x.q||0),0);
     const html='<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>'+(expZone==="倉庫"?"倉庫":"店內")+'點貨單 '+d+'</title><style>'+
-      '@page{size:A4;margin:5mm}*{box-sizing:border-box}html,body{margin:0}'+
-      // 強制內容寬=A4 內容寬(210-2×5)=200mm，避免某些瀏覽器在彈窗列印時把版面算成窄的一欄、右邊整片空白
-      'body{width:200mm;font-family:-apple-system,"Microsoft JhengHei","PingFang TC",sans-serif;color:#111;font-size:8px;line-height:1.12}'+
-      '.hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #333;padding-bottom:2px;margin-bottom:3px}'+
-      '.hd h1{font-size:12px;margin:0}.hd .mt{font-size:8.5px;color:#555}'+
-      '.hint{font-size:7.5px;color:#777;margin-bottom:3px}'+
-      '.list{column-count:4;-webkit-column-count:4;column-gap:4mm}'+
-      '.bd{font-weight:800;font-size:8.6px;background:#e5e7eb;padding:1px 4px;margin:3px 0 0;border-radius:2px;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
-      '.bd .bc{font-weight:600;color:#64748b;font-size:7.5px}'+
-      '.cd{font-weight:700;font-size:7.8px;color:#475569;padding:0 4px;margin:1px 0 0;border-left:3px solid #94a3b8;break-inside:avoid;break-after:avoid;-webkit-column-break-after:avoid}'+
-      '.cd .cc{font-weight:500;color:#94a3b8;font-size:7px}'+
-      '.rw{display:flex;align-items:center;gap:3px;padding:0.3px 3px;border-bottom:1px dotted #cbd5e1;break-inside:avoid}'+
+      '@page{size:A4;margin:6mm}*{box-sizing:border-box}html,body{margin:0}'+
+      'body{font-family:-apple-system,"Microsoft JhengHei","PingFang TC",sans-serif;color:#111;font-size:9px;line-height:1.1}'+
+      '.hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #333;padding-bottom:2px;margin-bottom:4px}'+
+      '.hd h1{font-size:15px;margin:0}.hd .mt{font-size:10px;color:#555}'+
+      '.hint{font-size:9px;color:#777;margin-bottom:4px}'+
+      // table 排版：一定填滿頁寬、跨頁穩，避免 CSS column 在 Mac 列印中間欄消失
+      '.list{width:100%;border-collapse:collapse;table-layout:fixed}'+
+      '.list td{vertical-align:middle}'+
+      '.bd{font-weight:800;font-size:11px;background:#e5e7eb;padding:2px 6px}'+
+      '.bd .bc{font-weight:600;color:#64748b;font-size:9px}'+
+      '.cd{font-weight:700;font-size:9.5px;color:#475569;padding:1px 6px;border-left:4px solid #94a3b8;background:#f8fafc}'+
+      '.cd .cc{font-weight:500;color:#94a3b8;font-size:8px}'+
+      'td.cell{width:33.33%;border-bottom:1px dotted #cbd5e1;padding:0.4px 6px}'+
+      '.cw{display:flex;align-items:center;gap:5px}'+
       '.nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
-      '.cur{width:16px;text-align:right;color:#64748b;flex-shrink:0}'+
-      '.bx{width:26px;height:10px;border:1px solid #94a3b8;border-radius:2px;flex-shrink:0}'+
+      '.cur{min-width:18px;text-align:right;color:#64748b;flex-shrink:0}'+
+      '.bx{width:46px;height:13px;border:1px solid #94a3b8;border-radius:3px;flex-shrink:0}'+
+      'tr{break-inside:avoid}'+
       '@media print{.noprint{display:none}}'+
       '</style></head><body>'+
       '<div class="hd"><h1>'+(expZone==="倉庫"?"🏭 倉庫":"🏪 店內")+'點貨單</h1><div class="mt">'+d+'　品項 '+zoneItems.length+'　系統總量 '+total+'　盤點人：________</div></div>'+
       '<div class="hint">灰色數字＝系統現有量，右邊空格請手寫實際盤點數量。</div>'+
-      '<div class="list">'+bodyHtml+'</div>'+
+      '<table class="list">'+bodyHtml+'</table>'+
       '<div class="noprint" style="position:fixed;top:8px;right:8px"><button onclick="window.print()" style="padding:8px 16px;font-size:14px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer">🖨 列印</button></div>'+
       '<scr'+'ipt>window.addEventListener("load",function(){setTimeout(function(){window.print();},250);});</scr'+'ipt></body></html>';
     const w=window.open("","_blank");
