@@ -222,6 +222,47 @@ function goOnline(){
   }catch(e){}
 }
 function goOffline(){try{if(_presTimer){clearInterval(_presTimer);_presTimer=null;}if(S.user)dbP.child(presKey(S.user)).remove().catch(()=>{});}catch(e){}}
+// 登出（共用：右上登出鈕 + 午夜自動登出）— 從原本內嵌 handler 抽出。
+function doInvLogout(reason){
+  _mnInvClose();
+  if(!isPreview())logActivity(reason?("登出（"+reason+"）"):"登出");
+  goOffline();S.presence={};
+  S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S._olderLoaded=false;S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
+  _pendingItems.clear();_pendingDeletes.clear();_pendingLogs.clear();
+  resetLoginPrefetch();
+  clearTimeout(_searchTimer);clearTimeout(_logSearchTimer);_searchTimer=_logSearchTimer=null;
+  if(_listenerRenderTimer){clearTimeout(_listenerRenderTimer);_listenerRenderTimer=null;}
+  _silentAutoLoadFailed=false;
+  disarmDrag();
+  _syncing=false;
+  try{localStorage.removeItem("inv_pass");}catch(e){}
+  render();
+}
+// ── 午夜自動登出：過 00:00（跨到登入日隔天）跳確認，10 分沒回應自動登出，防隔天誤用同事帳號 ──
+let _mnPrompted=false,_mnAutoTimer=null,_mnCountdownTimer=null;
+function _mnToday(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function _mnCheck(){
+  if(S.phase!=="ready"||isPreview()||_mnPrompted)return;
+  let loginDay;try{loginDay=localStorage.getItem("inv_login_day")}catch(e){}
+  if(!loginDay){try{localStorage.setItem("inv_login_day",_mnToday())}catch(e){}return}// 舊 session 沒記錄→先設今天當基準
+  if(_mnToday()>loginDay)_mnShowPrompt();
+}
+function _mnShowPrompt(){
+  _mnPrompted=true;
+  let ov=document.getElementById("mn-logout-ov");
+  if(!ov){ov=document.createElement("div");ov.id="mn-logout-ov";ov.style.cssText="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px";document.body.appendChild(ov)}
+  ov.innerHTML='<div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center;font-family:inherit"><div style="font-size:34px;margin-bottom:6px">🌙</div><div style="font-size:16px;font-weight:800;margin-bottom:8px">已經過午夜了</div><div style="font-size:13px;color:#64748b;line-height:1.7;margin-bottom:6px">目前登入的是 <strong>'+(S.user||"")+'</strong>。<br>如果不是你在用，請登出，避免今天誤用到同事的帳號。</div><div style="font-size:12px;color:#c0392b;margin-bottom:16px"><strong id="mn-count">10:00</strong> 後沒回應會自動登出</div><div style="display:flex;gap:10px"><button id="mn-stay" style="flex:1;padding:12px;border:0;border-radius:10px;background:#16a34a;color:#fff;font-weight:700;font-size:14px;cursor:pointer">還是我，繼續用</button><button id="mn-out" style="flex:1;padding:12px;border:0;border-radius:10px;background:#dc2626;color:#fff;font-weight:700;font-size:14px;cursor:pointer">登出</button></div></div>';
+  ov.style.display="flex";
+  const sb=document.getElementById("mn-stay");if(sb)sb.onclick=_mnStay;
+  const ob=document.getElementById("mn-out");if(ob)ob.onclick=()=>doInvLogout("午夜提示手動登出");
+  let left=600;const upd=()=>{const el=document.getElementById("mn-count");if(el){const m=Math.floor(left/60),s=left%60;el.textContent=m+":"+String(s).padStart(2,"0")}};upd();
+  _mnCountdownTimer=setInterval(()=>{left--;upd();if(left<=0)clearInterval(_mnCountdownTimer)},1000);
+  _mnAutoTimer=setTimeout(()=>doInvLogout("午夜無回應自動登出"),600000);
+}
+function _mnStay(){try{localStorage.setItem("inv_login_day",_mnToday())}catch(e){}_mnPrompted=false;_mnInvClose()}
+function _mnInvClose(){if(_mnAutoTimer){clearTimeout(_mnAutoTimer);_mnAutoTimer=null}if(_mnCountdownTimer){clearInterval(_mnCountdownTimer);_mnCountdownTimer=null}const ov=document.getElementById("mn-logout-ov");if(ov)ov.style.display="none"}
+setInterval(_mnCheck,60000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)_mnCheck()});
 // 只算 90 秒內有心跳的（onDisconnect 沒觸發時的兜底）
 function onlineUsers(){const now=Date.now();return Object.values(S.presence||{}).filter(p=>p&&p.name&&(!p.at||now-p.at<90000)).sort((a,b)=>(a.name>b.name?1:-1));}
 // 叫貨門檻：單品有設 rp 就用 rp，否則用全店預設。q<=門檻(且未在倉庫)就要叫貨。
@@ -945,7 +986,8 @@ function renderLogin(){
     S.user=pickedUser;
     S.role=userRecord.role||"user";
     S.users=users;
-    try{localStorage.setItem("inv_user",pickedUser);localStorage.setItem("inv_pass",enteredPass);}catch(e){}
+    try{localStorage.setItem("inv_user",pickedUser);localStorage.setItem("inv_pass",enteredPass);localStorage.setItem("inv_login_day",_mnToday());}catch(e){}
+    _mnPrompted=false;
     this.textContent="連線中…";
     logActivity("登入");
     await postLogin();
@@ -2130,27 +2172,7 @@ function renderMain(){
       h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
       (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{id:"syncLabel",style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
       h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account"};render();},title:"帳號設定"},"🔐"),
-      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>{
-        if(!isPreview())logActivity("登出");
-        goOffline();S.presence={};
-        S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S._olderLoaded=false;S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
-        // Reset module-level optimistic-state singletons so any in-flight tx callbacks from this session can't pollute the next user's view (e.g. listener falling through to "show local pending" when S.items is null for the next login).
-        _pendingItems.clear();_pendingDeletes.clear();_pendingLogs.clear();
-        // Reset the login prefetch promises so a re-login under a different account refetches fresh data instead of reusing the previous session's cached promises (which would skip fbLoad entirely if the cached promise was already resolved).
-        resetLoginPrefetch();
-        // Cancel pending debounce so a previously-typed search term doesn't fire after logout and re-set S.search.
-        clearTimeout(_searchTimer);clearTimeout(_logSearchTimer);_searchTimer=_logSearchTimer=null;
-        // Also cancel any pending listener-driven render so a delayed remote-data render doesn't try to redraw the inventory under the new user's nose.
-        if(_listenerRenderTimer){clearTimeout(_listenerRenderTimer);_listenerRenderTimer=null;}
-        // Clear the silent-load failure latch so the next session's stats tab can retry on its own.
-        _silentAutoLoadFailed=false;
-        // Drop any stuck drag state so a dragged-but-never-dropped row on this session doesn't leave the next session's listener locked out.
-        disarmDrag();
-        // Clear sync mutex too — if fbLoad hung mid-doSync without firing timeout, _syncing stays true forever and the next session's 🔄 button silently no-ops.
-        _syncing=false;
-        try{localStorage.removeItem("inv_pass");}catch(e){}
-        render();
-      }},"登出"))
+      h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>doInvLogout()},"登出"))
   ));
   // Stats — accent strip on top to make actionable cards visually distinct, plus a small hint icon when card is clickable
   const statsDiv=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",padding:"12px 16px"}});
