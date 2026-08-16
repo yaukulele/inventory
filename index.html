@@ -187,7 +187,7 @@ function isReservedKey(s){return RESERVED_KEYS.indexOf((s||"").trim())>=0;}
 function gc(b){if(BC[b])return BC[b];if(_brandColorCache[b])return _brandColorCache[b];if(!b)return "#64748b";let h=0;for(let i=0;i<b.length;i++){h=((h<<5)-h+b.charCodeAt(i))|0;}const color=hslToHex(Math.abs(h)%360,55,42);_brandColorCache[b]=color;return color;}
 // Login dropdown options. 快速預覽 = read-only no-password mode; the other three require password authentication.
 // Role lookup happens at login time against Firebase /inventory/users.
-const US=["快速預覽","Allie","阿淵","雨停","建杰"];
+const US=["快速預覽","Allie","阿淵","雨停","建杰","詠璇","芷瑜"];
 const SEED_USERS={
   "Allie":{pass:"Allie",role:"admin"},
   "阿淵":{pass:"阿淵",role:"admin"},
@@ -952,6 +952,10 @@ function renderLogin(){
       if(u!==_initialUser)passInp.value="";
       else passInp.value=getSavedPass();
       if(!isPv)setTimeout(()=>passInp.focus(),50);
+      // 改密碼面板跟著收起來 — 表單是對「目前選到的人」送出的，換人就重來
+      pwLink.style.display=isPv?"none":"inline-block";
+      pwPanel.style.display="none";pwLink.textContent="🔑 更改密碼";
+      pwOld.value="";pwNew.value="";pwConf.value="";pwMsg.textContent="";
     };
     chipRefs[u]=chip;
     if(isPv)previewWrap.appendChild(chip);
@@ -993,6 +997,47 @@ function renderLogin(){
     await postLogin();
   };
   box.appendChild(loginBtn);
+  // ── 登入頁直接改密碼 ──
+  // 原本改密碼只藏在登入後右上角那顆 🔐 圖示裡，員工反映找不到；而「想換密碼」的當下人正好
+  // 就在登入頁，入口放這裡最直覺。一樣要先驗證目前密碼才能改（不是重設，避免任何人亂改別人的）。
+  const pwLink=h("button",{type:"button",style:{marginTop:"12px",background:"none",border:"none",color:"var(--blue)",fontSize:"12px",fontWeight:600,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit",display:S.user==="快速預覽"?"none":"inline-block"}},"🔑 更改密碼");
+  const pwPanel=h("div",{style:{display:"none",marginTop:"10px",padding:"12px",background:"#f8fafc",border:"1px solid var(--border)",borderRadius:"12px",textAlign:"left"}});
+  const pwOld=h("input",{type:"password",className:"ipt",placeholder:"目前密碼",autocomplete:"current-password",style:{marginBottom:"6px"}});
+  const pwNew=h("input",{type:"password",className:"ipt",placeholder:"新密碼",autocomplete:"new-password",style:{marginBottom:"6px"}});
+  const pwConf=h("input",{type:"password",className:"ipt",placeholder:"再輸入一次新密碼",autocomplete:"new-password",style:{marginBottom:"6px"}});
+  const pwMsg=h("div",{style:{fontSize:"12px",minHeight:"16px",marginBottom:"6px",fontWeight:600,color:"var(--red)"}});
+  const pwSave=h("button",{style:{width:"100%",padding:"10px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}},"💾 儲存新密碼");
+  pwLink.onclick=()=>{
+    const opened=pwPanel.style.display==="block";
+    pwPanel.style.display=opened?"none":"block";
+    pwLink.textContent=opened?"🔑 更改密碼":"✕ 取消更改密碼";
+    if(!opened)setTimeout(()=>pwOld.focus(),50);
+  };
+  pwSave.onclick=async function(){
+    const u=S.user;
+    const done=(msg,ok)=>{pwMsg.style.color=ok?"var(--green)":"var(--red)";pwMsg.textContent=msg;this.disabled=false;this.textContent="💾 儲存新密碼";};
+    if(!u||u==="快速預覽")return done("⚠ 請先在上面選擇使用者",false);
+    const o=pwOld.value,n=pwNew.value,c=pwConf.value;
+    if(!o||!n)return done("⚠ 請填完所有欄位",false);
+    if(n!==c)return done("⚠ 兩次新密碼不一致",false);
+    if(n===o)return done("⚠ 新密碼與目前密碼相同",false);
+    this.disabled=true;this.textContent="儲存中…";
+    // 直接讀最新的 users（不走 cache）— 密碼可能剛在別台被改過
+    const users=await fbLoadUsers().catch(()=>null);
+    if(!users||!users[u])return done("⚠ 連線失敗或找不到帳號",false);
+    if((users[u].pass||"")!==o)return done("⚠ 目前密碼錯誤",false);
+    const ok=await fbSetUserField(u,{pass:n});
+    if(!ok)return done("⚠ 儲存失敗，請重試",false);
+    _usersPromise=null;  // 清掉登入用的 users 快取，否則接著登入會拿到剛被換掉的舊密碼
+    try{localStorage.setItem("inv_pass",n);}catch(e){}
+    logActivity("改自己密碼（登入頁）");
+    passInp.value=n;     // 新密碼直接帶到上面的登入欄，改完可以馬上進系統
+    pwOld.value="";pwNew.value="";pwConf.value="";
+    done("✅ 密碼已更新，可以直接按上面登入了",true);
+  };
+  pwPanel.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginBottom:"8px",lineHeight:1.5}},"改的是上面選到的使用者的密碼，需要先輸入目前密碼。"));
+  pwPanel.appendChild(pwOld);pwPanel.appendChild(pwNew);pwPanel.appendChild(pwConf);pwPanel.appendChild(pwMsg);pwPanel.appendChild(pwSave);
+  box.appendChild(pwLink);box.appendChild(pwPanel);
   // Auto-focus the password field on load for non-preview users — chips are tap targets so they don't need focus.
   if(S.user!=="快速預覽")setTimeout(()=>{const el=document.getElementById("loginPass");if(el)el.focus();},50);
   wrap.appendChild(box);
@@ -2171,7 +2216,7 @@ function renderMain(){
     h("div",{style:{display:"flex",gap:"6px"}},
       h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
       (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{id:"syncLabel",style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
-      h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account"};render();},title:"帳號設定"},"🔐"),
+      h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account"};render();},title:"帳號設定（改密碼）"},"🔐 密碼"),
       h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>doInvLogout()},"登出"))
   ));
   // Stats — accent strip on top to make actionable cards visually distinct, plus a small hint icon when card is clickable
