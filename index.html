@@ -3122,7 +3122,33 @@ setInterval(()=>{
   if(el.textContent!==label)el.textContent=label;
   el.style.color=diffSec>3600?"var(--orange)":"var(--sub)";
 },30000);
+
+// ── 自動登入：存過帳密且是「同一天」就直接進系統，不用再按一次「進入系統」。
+//    這修的是「一直閃退要重新登入」：頁面只要重載一次（SW 自動更新重載、手機/平板記憶體
+//    回收、手動重整），原本一律被丟回登入頁。跨日仍需重新登入，午夜防誤用同事帳號的保護不變。
+const _autoLoginable=(()=>{try{
+  const u=localStorage.getItem("inv_user"),p=localStorage.getItem("inv_pass"),d=localStorage.getItem("inv_login_day");
+  return !!(u&&u!=="快速預覽"&&US.includes(u)&&p&&d&&d===_mnToday());
+}catch(e){return false;}})();
+async function tryAutoLogin(){
+  let u,p;try{u=localStorage.getItem("inv_user");p=localStorage.getItem("inv_pass");}catch(e){}
+  // 任何一步失敗都退回登入畫面手動登入，絕不卡在 loading。
+  const bail=()=>{if(S.phase!=="ready"){S.phase="login";render();}};
+  if(!u||!p)return bail();
+  const users=await fbLoadUsersCached().catch(()=>null);
+  if(!users)return bail();
+  const rec=users[u];
+  // 密碼在別的裝置被改過 → 清掉存的舊密碼，讓人手動輸入新的
+  if(!rec||(rec.pass||"")!==p){try{localStorage.removeItem("inv_pass");}catch(e){}return bail();}
+  if(S.phase==="ready")return;  // 使用者在這段等待中已手動登入完成，不要重跑一次
+  S.user=u;S.role=rec.role||"user";S.users=users;
+  _mnPrompted=false;
+  logActivity("登入（自動）");
+  await postLogin();
+}
+if(_autoLoginable)S.phase="loading";  // 先顯示載入畫面，避免登入頁閃一下又跳走
 render();
+if(_autoLoginable)tryAutoLogin();
 // Service worker: instant repeat loads (cached app shell + Firebase SDK + fonts + product images),
 // offline-capable. Registered after load so it never delays first paint. Firebase realtime/auth
 // traffic is explicitly bypassed inside sw.js so live sync is untouched.
@@ -3136,8 +3162,11 @@ if("serviceWorker" in navigator){
   document.addEventListener("visibilitychange",()=>{if(!document.hidden)_swCheck();});
   // 有新版本自動重載：新 SW 接手(controllerchange)後，等沒有開著編輯/動作視窗時自動重新整理抓新碼，
   // 免手動強制更新。開著視窗就先不重載(避免丟未存的填寫)，關掉後由 1.5s 輪詢補做。
+  // 首次安裝（本來沒有 controller）也會觸發 controllerchange，但那不是「有新版」。
+  // 沒有這個判斷的話，每個新裝置／清過快取／無痕開啟的人一進來 1.5 秒就被自動重載一次。
+  const _hadController=!!navigator.serviceWorker.controller;
   let _swPending=false,_swReloading=false;
-  navigator.serviceWorker.addEventListener("controllerchange",()=>{_swPending=true;});
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{if(_hadController)_swPending=true;});
   setInterval(()=>{
     if(!_swPending||_swReloading)return;
     if(typeof S==="object"&&S&&S.modal)return; // 有開視窗先等
