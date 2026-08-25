@@ -2054,6 +2054,103 @@ function genExportText(zone,selDate){
   return all.trim();
 }
 
+// ── 帳務健檢 ──────────────────────────────────────────────
+// 2026-08-25 出過一次「庫存扣了但異動紀錄不見」（Nano 09-42 從 28 掉到 27 沒紀錄），
+// 當時是人工把每個品項的現量跟最後一筆紀錄一支一支比對才找出來。
+// 這裡把那個比對做成一鍵，之後同樣的事當天就查得出來，不用等到匯出才發現。
+//
+// 兩種檢查：
+//   A 帳實不符：現量 ≠ 該品項最後一筆紀錄的結果數量 → 有人動了庫存卻沒留紀錄
+//   B 紀錄斷鏈：某筆的起始量 ≠ 前一筆的結束量 → 中間漏了一筆紀錄
+// 只讀不寫，按幾次都沒關係。
+function runHealthCheck(){
+  const items = S.items || [];
+  // S.logs 是新→舊；olderLogs 是再更早的，合起來才看得完整
+  const cIds = new Set((S.logs || []).map(l => l && l.id));
+  const logs = [...(S.logs || []), ...((S.olderLogs || []).filter(l => l && !cIds.has(l.id)))];
+
+  const last = Object.create(null);
+  const byItem = Object.create(null);
+  logs.forEach((l, idx) => {
+    if(!l || !l.iid) return;
+    if(!(l.iid in last)) last[l.iid] = l;          // 第一個遇到的就是最新的
+    (byItem[l.iid] || (byItem[l.iid] = [])).push(l);
+  });
+
+  const mismatch = [];
+  items.forEach(it => {
+    const l = last[it.id];
+    if(!l) return;                                  // 從來沒異動過的品項不算問題
+    const q = Number(it.q), nq = Number(l.nq);
+    if(Number.isFinite(q) && Number.isFinite(nq) && q !== nq){
+      mismatch.push({ it, l, diff: q - nq });
+    }
+  });
+
+  const broken = [];
+  Object.keys(byItem).forEach(iid => {
+    const arr = byItem[iid];                        // 已經是新→舊
+    for(let i = 0; i < arr.length - 1; i++){
+      const newer = arr[i], older = arr[i + 1];
+      const a = Number(newer.pq), b = Number(older.nq);
+      if(Number.isFinite(a) && Number.isFinite(b) && a !== b) broken.push({ iid, newer, older });
+    }
+  });
+
+  return { mismatch, broken, checked: items.length, logCount: logs.length };
+}
+
+function renderHealthCheck(){
+  const r = runHealthCheck();
+  const box = h("div", { style:{ marginTop:"10px", padding:"12px", borderRadius:"10px",
+    background: (r.mismatch.length || r.broken.length) ? "#fef2f2" : "#f0fdf4",
+    border: "1px solid " + ((r.mismatch.length || r.broken.length) ? "#fecaca" : "#bbf7d0") } });
+
+  box.appendChild(h("div", { style:{ fontSize:"13px", fontWeight:800, marginBottom:"6px",
+    color: (r.mismatch.length || r.broken.length) ? "var(--red)" : "var(--green)" } },
+    (r.mismatch.length || r.broken.length)
+      ? ("發現 " + (r.mismatch.length + r.broken.length) + " 個問題")
+      : "沒有問題，帳實相符"));
+
+  box.appendChild(h("div", { style:{ fontSize:"11px", color:"var(--sub)", marginBottom:"8px" } },
+    "檢查了 " + r.checked + " 個品項、" + r.logCount + " 筆紀錄"));
+
+  if(r.mismatch.length){
+    box.appendChild(h("div", { style:{ fontSize:"12px", fontWeight:700, marginTop:"8px", marginBottom:"4px" } },
+      "庫存動過但沒有紀錄（" + r.mismatch.length + "）"));
+    r.mismatch.slice(0, 30).forEach(m => {
+      box.appendChild(h("div", { style:{ fontSize:"11.5px", lineHeight:1.7, paddingLeft:"4px" } },
+        "・" + (m.it.b || "") + " " + (m.it.n || "") + "：現在 " + m.it.q +
+        "，最後一筆紀錄（" + (m.l.t || "") + " " + (m.l.u || "") + "）結果是 " + m.l.nq +
+        "　差 " + (m.diff > 0 ? "+" : "") + m.diff));
+    });
+    if(r.mismatch.length > 30) box.appendChild(h("div", { style:{ fontSize:"11px", color:"var(--sub)" } }, "…還有 " + (r.mismatch.length - 30) + " 筆"));
+  }
+
+  if(r.broken.length){
+    box.appendChild(h("div", { style:{ fontSize:"12px", fontWeight:700, marginTop:"10px", marginBottom:"4px" } },
+      "紀錄接不起來（" + r.broken.length + "）"));
+    r.broken.slice(0, 20).forEach(b => {
+      box.appendChild(h("div", { style:{ fontSize:"11.5px", lineHeight:1.7, paddingLeft:"4px" } },
+        "・" + (b.newer.n || b.iid) + "：" + (b.newer.t || "") + " 那筆從 " + b.newer.pq +
+        " 開始，但前一筆（" + (b.older.t || "") + "）結束在 " + b.older.nq));
+    });
+    if(r.broken.length > 20) box.appendChild(h("div", { style:{ fontSize:"11px", color:"var(--sub)" } }, "…還有 " + (r.broken.length - 20) + " 處"));
+  }
+
+  if(r.mismatch.length || r.broken.length){
+    box.appendChild(h("div", { style:{ fontSize:"11px", color:"var(--sub)", marginTop:"10px", lineHeight:1.6 } },
+      "※ 這通常代表某次動作只改了數量、紀錄沒寫進去。庫存數字本身不一定是錯的，" +
+      "但那筆異動查不到。可以用「盤點」把數量確認一次，盤點會留下紀錄。"));
+  }
+  // 預設只看得到最近 200 筆紀錄，太舊的異動比不到 —— 講清楚免得誤以為全查過了
+  if(!(S.olderLogs || []).length){
+    box.appendChild(h("div", { style:{ fontSize:"11px", color:"var(--sub)", marginTop:"6px" } },
+      "※ 目前只比對已載入的紀錄。到「紀錄」頁按「載入更多」之後再檢查一次，涵蓋範圍會更完整。"));
+  }
+  return box;
+}
+
 function renderExportModal(){
   if(!S.modal||S.modal.t!=="export")return null;
   const expZone=S.modal.zone||"店內";
@@ -2170,7 +2267,13 @@ function renderExportModal(){
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#7c3aed",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:csvDownload},"📊 CSV"),
     h("button",{style:{flex:1,padding:"11px 4px",borderRadius:"10px",border:"none",background:"#0891b2",color:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:mdDownload},"📝 MD")));
   box.appendChild(h("button",{style:{width:"100%",padding:"12px",borderRadius:"10px",border:"none",background:"var(--red)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer",marginBottom:"8px"},onClick:countSheet,title:"依品牌分組、壓縮省紙、含系統現量＋手寫實點空格，直接叫出列印"},"🖨 點貨單（A4 列印・分品牌）"));
-  box.appendChild(h("button",{style:{width:"100%",padding:"9px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fffbeb",color:"#b45309",fontSize:"12px",fontWeight:600,cursor:"pointer",marginBottom:"14px"},onClick:jsonBackup},"💾 下載完整備份 JSON（含所有品項與紀錄）"));
+  box.appendChild(h("button",{style:{width:"100%",padding:"9px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fffbeb",color:"#b45309",fontSize:"12px",fontWeight:600,cursor:"pointer",marginBottom:"8px"},onClick:jsonBackup},"💾 下載完整備份 JSON（含所有品項與紀錄）"));
+  // 帳務健檢：比對現量與紀錄，找出「動了庫存卻沒留紀錄」的品項。只讀不寫。
+  const hcWrap=h("div",{style:{marginBottom:"14px"}});
+  hcWrap.appendChild(h("button",{style:{width:"100%",padding:"10px",borderRadius:"10px",border:"1px solid #bfdbfe",background:"#eff6ff",color:"#1d4ed8",fontSize:"12.5px",fontWeight:700,cursor:"pointer"},
+    onClick:()=>{const old=hcWrap.querySelector("[data-hc]");if(old)old.remove();const r=renderHealthCheck();r.setAttribute("data-hc","1");hcWrap.appendChild(r);},
+    title:"比對每個品項的現有數量與最後一筆異動紀錄，找出動了庫存卻沒留紀錄的品項"},"🩺 帳務健檢（比對庫存與紀錄）"));
+  box.appendChild(hcWrap);
   // ---- CSV 匯入（只新增、不覆蓋既有；管理員限定）----
   if(isAdmin()){
     const impStatus=h("div",{style:{fontSize:"11px",color:"var(--sub)",marginTop:"6px",lineHeight:1.5}});
