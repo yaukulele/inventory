@@ -394,7 +394,74 @@ const _pendingLogs=new Set();
 function fbAppendLogTx(entry){return new Promise((resolve,reject)=>{dbL.transaction(cur=>{const arr=arrFromVal(cur)||[];return[entry,...arr].slice(0,2000);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:arrFromVal(snap&&snap.val())});},false);});}
 function pushLogLocal(entry){_pendingLogs.add(entry.id);S.logs=[entry,...S.logs].slice(0,500);saveCache();}
 function dropLogLocal(id){_pendingLogs.delete(id);S.logs=S.logs.filter(l=>l.id!==id);}
-function appendLog(entry){return fbAppendLogTx(entry).catch(e=>{console.error("appendLog failed:",e);showToast("⚠ 紀錄寫入失敗，動作已生效但 log 沒同步");}).finally(()=>{_pendingLogs.delete(entry.id);});}
+// ── 紀錄補送佇列 ──────────────────────────────────────────────
+// 「改庫存數量」跟「寫異動紀錄」是兩次獨立寫入。數量成功、紀錄失敗，就會變成
+// 庫存變了但查不到紀錄 —— 2026-08-25 真的發生過（Nano 09-42 從 28 掉到 27 沒有紀錄），
+// 而當時唯一的提示是一個幾秒就消失的 toast，沒有人看得到。
+// 這裡的原則是：紀錄可以晚到，但不能不見。
+//   失敗 → 重試三次 → 還是不行就存在本機排隊 → 下次開啟／網路恢復自動補送 →
+//   只要還有沒補完的，畫面底下就掛一條不會消失的紅條。
+const PENDING_LOG_KEY = "inv_pending_logs";
+function loadPendingLogs(){
+  try{ const a = JSON.parse(localStorage.getItem(PENDING_LOG_KEY) || "[]"); return Array.isArray(a) ? a.filter(x => x && x.id) : []; }
+  catch(e){ return []; }
+}
+function savePendingLogs(a){
+  // 只留最後 200 筆：真的積到這個量代表出大事了，再多存也沒意義，還可能塞爆 localStorage
+  try{ localStorage.setItem(PENDING_LOG_KEY, JSON.stringify(a.slice(-200))); }catch(e){}
+}
+function queuePendingLog(entry){
+  const a = loadPendingLogs();
+  if(!a.some(x => x.id === entry.id)){ a.push(entry); savePendingLogs(a); }
+}
+function unqueuePendingLog(id){ savePendingLogs(loadPendingLogs().filter(x => x.id !== id)); }
+function pendingLogCount(){ return loadPendingLogs().length; }
+function _sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+// 重試 1s / 2s / 4s。Firebase transaction 自己會處理「同時有人在寫」的競爭，
+// 這裡要擋的是斷線、逾時這種一次性失敗。
+async function appendLogWithRetry(entry, tries){
+  tries = tries || 3;
+  let last;
+  for(let i = 0; i < tries; i++){
+    try{ return await fbAppendLogTx(entry); }
+    catch(e){ last = e; if(i < tries - 1) await _sleep(1000 * Math.pow(2, i)); }
+  }
+  throw last || new Error("append failed");
+}
+
+let _flushingLogs = false;
+async function flushPendingLogs(silent){
+  if(_flushingLogs) return;
+  const list = loadPendingLogs();
+  if(!list.length) return;
+  _flushingLogs = true;
+  let ok = 0, fail = 0;
+  for(const e of list){
+    // 遠端已經有同一筆（例如上次其實寫成功了只是回應沒收到）→ 直接清掉，不要補成兩筆
+    if((S.logs || []).some(l => l && l.id === e.id)){ unqueuePendingLog(e.id); ok++; continue; }
+    try{ await appendLogWithRetry(e, 2); unqueuePendingLog(e.id); ok++; }
+    catch(err){ fail++; }
+  }
+  _flushingLogs = false;
+  if(!silent && ok) showToast("已補送 " + ok + " 筆紀錄" + (fail ? ("，還有 " + fail + " 筆沒成功") : ""));
+  render();
+}
+
+function appendLog(entry){
+  return appendLogWithRetry(entry)
+    .then(r => { unqueuePendingLog(entry.id); return r; })
+    .catch(e => {
+      console.error("appendLog failed:", e);
+      queuePendingLog(entry);
+      showToast("⚠ 紀錄沒同步成功，已排隊，會自動補送");
+      render();   // 讓底下的紅條出現
+    })
+    .finally(() => { _pendingLogs.delete(entry.id); });
+}
+
+// 網路回來就自動補送；不吵使用者（silent），補完紅條自己會消失
+window.addEventListener("online", () => { flushPendingLogs(true); });
 // catOrd: atomically set one key so concurrent drags from different users don't clobber each other
 function fbSetOrdKey(key,value){return new Promise((resolve)=>{dbO.transaction(cur=>{const obj=(cur&&typeof cur==="object")?{...cur}:{};if(value===null)delete obj[key];else obj[key]=value;return obj;},(err,committed,snap)=>{if(err){console.error("fbSetOrdKey failed:",key,err);showToast("⚠ 排序儲存失敗");}else if(snap&&snap.val()&&typeof snap.val()==="object")S.catOrd=snap.val();resolve();},false);});}
 
@@ -870,6 +937,8 @@ function h(t,p,...c){const e=document.createElement(t);if(p)Object.entries(p).fo
 
 // After successful login (or preview entry), kick off the inventory data load and switch to ready phase.
 async function postLogin(){
+  // 上次沒送出去的紀錄，一進系統就先補 —— 不吵人，補完紅條自己會消失
+  setTimeout(() => { flushPendingLogs(true); }, 2500);
   const cached=hydrateFromCache();
   // Three start states:
   //  1. cached (localStorage hit) — show ready immediately, freshen in background
@@ -3113,6 +3182,24 @@ function render(){if(_renderQueued)return;_renderQueued=true;if(_listenerRenderT
     try{unlockBody();}catch(e2){/* swallow */}
     showToast("⚠ 畫面更新失敗，請重新整理頁面");
   }});}
+// 有沒補完的紀錄就掛一條紅色橫條，而且不會自己消失 —— 這次漏單就是因為提示一閃就沒了。
+// 掛在 body 而不是 #app 裡面，因為 _render 每次都會把 #app 清空重畫。
+function renderPendingLogBar(){
+  const old = document.getElementById("pendingLogBar");
+  if(old) old.remove();
+  const n = pendingLogCount();
+  if(!n || S.phase === "login") return;
+  document.body.appendChild(h("div", { id:"pendingLogBar", style:{
+      position:"fixed", left:"0", right:"0", bottom:"0", zIndex:"9999",
+      background:"#dc2626", color:"#fff", padding:"10px 14px",
+      fontSize:"13px", fontWeight:"700", display:"flex", alignItems:"center", gap:"10px",
+      boxShadow:"0 -2px 12px rgba(0,0,0,.28)" } },
+    h("span", {}, "⚠ 還有 " + n + " 筆異動紀錄沒同步（庫存數量已經生效）"),
+    h("button", { style:{ marginLeft:"auto", background:"#fff", color:"#dc2626", border:"none",
+        borderRadius:"8px", padding:"6px 14px", fontWeight:"800", cursor:"pointer", flex:"0 0 auto" },
+      onClick:() => flushPendingLogs(false) }, "立即重送")
+  ));
+}
 function _render(){
   const a=document.getElementById("app");
   const wasLocked=document.body.dataset.locked==="1";
@@ -3133,6 +3220,7 @@ function _render(){
       try{el.setSelectionRange(focusInfo.start,focusInfo.end);}catch(e){/* number input 等不支援 setSelectionRange */}
     }
   }
+  renderPendingLogBar();
   if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}
   else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}
 }
