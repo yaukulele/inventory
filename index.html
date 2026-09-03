@@ -560,7 +560,7 @@ async function startRealtimeSync(){
       S.items.forEach(x=>{if(_pendingItems.has(x.id)&&!remoteIds.has(x.id))merged.push(x);});
     }
     if(_pendingDeletes.size)merged=merged.filter(x=>!_pendingDeletes.has(x.id));
-    const sig=arr=>JSON.stringify(arr.map(x=>x&&[x.id,x.q,x.n,x.b,x.c,x.z,x.img||"",x.dsc||""]));
+    const sig=arr=>JSON.stringify(arr.map(x=>x&&[x.id,x.q,x.n,x.b,x.c,x.z,x.img||"",x.ph||"",x.dsc||""]));
     const prev=sig(S.items),next=sig(merged);
     if(prev!==next){
       S.items=merged;
@@ -699,6 +699,209 @@ function normalizeImgUrl(url){
   if(!/^(https?:)?\/\//i.test(url))return "";
   return url;
 }
+
+// ===================== 手機拍照上傳 =====================
+// 為什麼照片不直接存進 items：items 是「一整包」載入的陣列（現在約 124KB，470 筆），
+// 每個人一開頁就整包下載。把 base64 照片塞進去會膨脹到好幾 MB，每次同步都重傳一次，手機吃不消。
+// 所以照片另外存在 inventory/photos/<photoId>，一張存兩個尺寸：
+//   /t = 縮圖（最長邊 240px）→ 清單、預覽用，要用到才抓
+//   /d = 大圖（最長邊 1280px）→ 只有點開看大圖才抓
+// 商品上只多一個 ph:"<photoId>" 欄位（20 幾個字元），清單大小幾乎不變。
+// img（外部網址）與 ph（自拍照片）同時間只會有一個：填網址就清掉照片，拍照就清掉網址。
+const dbPh=db.ref("inventory/photos");
+const PHOTO_MAX_DIM=1280;          // 大圖最長邊
+const PHOTO_MAX_CHARS=230000;      // 大圖 dataURI 上限（約 168KB 實際檔案）
+const THUMB_DIM=240;               // 縮圖最長邊
+const _phThumbs=Object.create(null);   // photoId -> 縮圖 dataURI（記憶體快取）
+const _phFulls=Object.create(null);    // photoId -> 大圖 dataURI
+const _phLoading=Object.create(null);  // photoId -> Promise，同一張同時只抓一次
+
+// 縮圖存 localStorage：捲清單時不用每次重抓（照片不會變，換照片是換新 id，不會拿到舊的）
+function _phCacheLS(id,d){
+  if(!d||d.length>60000)return;
+  try{localStorage.setItem("inv_ph_"+id,d);}
+  catch(e){
+    // 配額爆掉：清掉所有照片快取再存一次（清掉只是下次重抓，不會掉資料）
+    try{Object.keys(localStorage).filter(k=>k.indexOf("inv_ph_")===0).forEach(k=>localStorage.removeItem(k));localStorage.setItem("inv_ph_"+id,d);}catch(e2){}
+  }
+}
+function _phValid(d){return typeof d==="string"&&d.slice(0,11)==="data:image/";}
+function photoThumbCached(id){
+  if(!id)return "";
+  if(_phThumbs[id])return _phThumbs[id];
+  try{const v=localStorage.getItem("inv_ph_"+id);if(_phValid(v)){_phThumbs[id]=v;return v;}}catch(e){}
+  return "";
+}
+function photoThumbLoad(id){
+  if(!id)return Promise.reject(new Error("沒有照片編號"));
+  const c=photoThumbCached(id);if(c)return Promise.resolve(c);
+  if(_phLoading[id])return _phLoading[id];
+  const p=dbPh.child(id).child("t").once("value").then(s=>{
+    const d=s.val();
+    if(!_phValid(d))throw new Error("照片不存在");
+    _phThumbs[id]=d;_phCacheLS(id,d);return d;
+  });
+  p.catch(()=>{}).then(()=>{delete _phLoading[id];});
+  _phLoading[id]=p;
+  return p;
+}
+function photoFullLoad(id){
+  if(!id)return Promise.reject(new Error("沒有照片編號"));
+  if(_phFulls[id])return Promise.resolve(_phFulls[id]);
+  return dbPh.child(id).child("d").once("value").then(s=>{
+    const d=s.val();
+    if(!_phValid(d))throw new Error("照片不存在");
+    _phFulls[id]=d;return d;
+  });
+}
+// 商品有沒有圖（外部網址 或 自己拍的照片）
+function itemHasImg(it){return !!(it&&(it.img||it.ph));}
+// 商品圖 <img>：網址直接給 src；自拍照先看快取，沒有就背景抓完自己填進去
+// （不走 render()，因為 render 會整頁重畫，開著的編輯視窗會被洗掉）
+function itemImgEl(it,style,onErr){
+  const im=h("img",{style:style||{},loading:"lazy",decoding:"async"});
+  im.onerror=()=>{if(onErr)onErr(im);};
+  if(it&&it.img){im.src=it.img;return im;}
+  const c=it&&it.ph?photoThumbCached(it.ph):"";
+  if(c){im.src=c;return im;}
+  if(it&&it.ph)photoThumbLoad(it.ph).then(d=>{im.src=d;}).catch(()=>{if(onErr)onErr(im);});
+  return im;
+}
+// 叫出手機相機／相簿。cam=true → 直接開後鏡頭；false → 開相簿
+function pickPhotoFile(cam){
+  return new Promise(resolve=>{
+    const inp=document.createElement("input");
+    inp.type="file";inp.accept="image/*";
+    if(cam)inp.setAttribute("capture","environment");
+    inp.style.cssText="position:fixed;left:-9999px;top:0;opacity:0";
+    document.body.appendChild(inp);
+    let done=false;
+    const fin=f=>{if(done)return;done=true;setTimeout(()=>{try{inp.remove();}catch(e){}},0);resolve(f||null);};
+    inp.addEventListener("change",()=>fin(inp.files&&inp.files[0]));
+    // 使用者在相機/相簿按「取消」時多數瀏覽器不發任何事件 → 靠回到頁面時檢查，
+    // 否則按鈕會永遠卡在「處理中…」。延遲 1.2 秒是等 change 事件先跑（iOS 有時比 focus 慢）。
+    window.addEventListener("focus",()=>{setTimeout(()=>{if(!done&&!(inp.files&&inp.files.length))fin(null);},1200);},{once:true});
+    inp.click();
+  });
+}
+async function _loadBitmap(file){
+  // createImageBitmap 才吃得到 EXIF 方向（手機直拍的照片不會變成躺著的）
+  if(window.createImageBitmap){
+    try{return await createImageBitmap(file,{imageOrientation:"from-image"});}catch(e){}
+    try{return await createImageBitmap(file);}catch(e){}
+  }
+  return await new Promise((res,rej)=>{
+    const u=URL.createObjectURL(file);const im=new Image();
+    im.onload=()=>{URL.revokeObjectURL(u);res(im);};
+    im.onerror=()=>{URL.revokeObjectURL(u);rej(new Error("這張圖讀不進來（HEIC 格式的話請改用相機直接拍）"));};
+    im.src=u;
+  });
+}
+function _drawScaled(src,maxDim){
+  const w0=src.width||src.naturalWidth,h0=src.height||src.naturalHeight;
+  if(!w0||!h0)throw new Error("讀不到照片尺寸");
+  const sc=Math.min(1,maxDim/Math.max(w0,h0));
+  const w=Math.max(1,Math.round(w0*sc)),h=Math.max(1,Math.round(h0*sc));
+  const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+  const cx=cv.getContext("2d");
+  cx.fillStyle="#fff";cx.fillRect(0,0,w,h);   // 透明底轉 JPEG 會變黑，先鋪白
+  cx.drawImage(src,0,0,w,h);
+  return cv;
+}
+// 壓縮：先縮邊長再降品質，壓到 dataURI 在上限內為止。回傳 {t:縮圖, d:大圖, w, h}
+async function compressPhoto(file){
+  if(!/^image\//.test(file.type||""))throw new Error("這不是圖片檔");
+  const bmp=await _loadBitmap(file);
+  let d="",big=null,ok=false;
+  for(const dim of [PHOTO_MAX_DIM,1000,800,640]){
+    big=_drawScaled(bmp,dim);
+    for(let q=0.85;q>=0.4;q-=0.1){
+      d=big.toDataURL("image/jpeg",q);
+      if(d.length<=PHOTO_MAX_CHARS){ok=true;break;}
+    }
+    if(ok)break;
+  }
+  const t=_drawScaled(bmp,THUMB_DIM).toDataURL("image/jpeg",0.62);
+  try{if(bmp.close)bmp.close();}catch(e){}
+  if(!_phValid(d))throw new Error("壓縮失敗");
+  return {t,d,w:big.width,h:big.height,bytes:Math.round(d.length*0.75)};
+}
+// 拍/選一張 → 壓縮好（還沒上傳）。使用者按取消回傳 null
+async function grabPhoto(cam){
+  const f=await pickPhotoFile(cam);
+  if(!f)return null;
+  if(f.size>30*1024*1024)throw new Error("照片太大（超過 30MB）");
+  return await compressPhoto(f);
+}
+// 上傳壓好的照片 → 回傳 photoId
+async function uploadPhoto(p,itemName){
+  const id="p"+uid();
+  // 加逾時：離線時 Firebase 的 set() promise 會一直不 resolve（寫入排隊等連線），
+  // 沒逾時的話「儲存中…」會卡到天荒地老。逾時就報錯讓人重試（排隊的那筆頂多變成沒人用的照片）。
+  await Promise.race([
+    dbPh.child(id).set({t:p.t,d:p.d,by:S.user||"",at:ts(),n:itemName||""}),
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error("上傳逾時，請確認網路後重試")),25000))
+  ]);
+  _phThumbs[id]=p.t;_phFulls[id]=p.d;_phCacheLS(id,p.t);
+  return id;
+}
+// 刪掉沒人用的舊照片（換照片時清掉前一張，不然 Firebase 會越積越多）。
+// 有別的商品還指著同一張（例如用「🔁 複製」複製出來的）就留著。
+async function fbPhotoDropIfUnused(id,exceptItemId){
+  if(!id)return;
+  try{
+    if((S.items||[]).some(x=>x&&x.ph===id&&x.id!==exceptItemId))return;
+    await dbPh.child(id).remove();
+    delete _phThumbs[id];delete _phFulls[id];
+    try{localStorage.removeItem("inv_ph_"+id);}catch(e){}
+  }catch(e){console.error("刪舊照片失敗",e);}
+}
+// 直接拍一張存進某商品（不用進編輯視窗）：商品詳情、缺資料清單都用這條
+async function quickPhotoFor(it,cam,onStatus){
+  const say=(t,c)=>{if(onStatus)onStatus(t,c);};
+  try{
+    say("處理照片中…");
+    const p=await grabPhoto(cam);
+    if(!p){say("");return false;}
+    say("上傳中…");
+    const oldPh=it.ph||"";
+    const id=await uploadPhoto(p,it.n);
+    const ok=await doUpdateMeta(it.id,{ph:id,img:""});
+    if(!ok){fbPhotoDropIfUnused(id,it.id);say("⚠ 存檔失敗，請重試","var(--red)");return false;}
+    if(oldPh&&oldPh!==id)fbPhotoDropIfUnused(oldPh,it.id);   // 換照片：舊的沒人用就清掉
+    logActivity("拍照","為「"+it.n+"」上傳照片（"+Math.round(p.bytes/1024)+"KB）");
+    say("");
+    showToast("✅ 已存好「"+it.n+"」的照片");
+    return true;
+  }catch(e){say("⚠ "+(e&&e.message||"照片處理失敗"),"var(--red)");return false;}
+}
+// 拍照 / 相簿 兩顆鈕 + 狀態文字。onGot(壓好的照片) 由呼叫端決定要怎麼收
+function photoBtnRow(onGot,extra){
+  const status=h("div",{style:{fontSize:"11px",color:"var(--sub)",marginTop:"4px",display:"none"}});
+  const mk=(label,cam)=>h("button",{type:"button",style:{flex:1,padding:"9px 0",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--text)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:async function(){
+    if(this.disabled)return;
+    const btns=row.querySelectorAll("button");
+    btns.forEach(b=>{b.disabled=true;b.style.opacity=".6";});
+    status.style.display="block";status.style.color="var(--sub)";status.textContent="處理照片中…";
+    try{
+      const p=await grabPhoto(cam);
+      if(!p){status.style.display="none";}
+      else{
+        status.style.color="var(--green)";
+        status.textContent="✅ 已選好照片（"+Math.round(p.bytes/1024)+"KB，"+p.w+"×"+p.h+"）— 記得按儲存";
+        onGot(p);
+      }
+    }catch(e){
+      status.style.color="var(--red)";status.textContent="⚠ "+(e&&e.message||"照片處理失敗");
+    }
+    btns.forEach(b=>{b.disabled=false;b.style.opacity="";});
+  }},label);
+  const row=h("div",{style:{display:"flex",gap:"6px",marginTop:"6px"}},mk("📷 拍照",true),mk("🖼 相簿",false));
+  if(extra)row.appendChild(extra);
+  return {row,status,setStatus:(txt,color)=>{status.style.display=txt?"block":"none";status.style.color=color||"var(--sub)";status.textContent=txt||"";}};
+}
+// ===================== /手機拍照上傳 =====================
+
 // 開機後若偵測到未送出的「新增商品」草稿，自動重開視窗還原（手機重載頁面防資料遺失）
 function _maybeReopenAddDraft(){
   if(window._addDraftReopened)return;window._addDraftReopened=true;
@@ -715,7 +918,7 @@ async function doAdd(f){
   try{localStorage.removeItem("inv_add_draft");}catch(e){}  // 成功送出→清掉草稿
 
   const ni={id:uid(),b:f.b,c:f.c,n:f.n,q:f.q,z:f.z};
-  if(f.img)ni.img=normalizeImgUrl(f.img);if(f.dsc)ni.dsc=f.dsc;
+  if(f.img)ni.img=normalizeImgUrl(f.img);if(f.ph)ni.ph=f.ph;if(f.dsc)ni.dsc=f.dsc;
   // Optimistic add
   _pendingItems.bump(ni.id);
   S.items=[...S.items,ni];
@@ -747,9 +950,11 @@ async function doUpdateMeta(id,patch){
   let noChange=false;
   let beforeFields=null;
   const tx=await fbTxItem(id,cur=>{
-    beforeFields={n:cur.n,b:cur.b,c:cur.c,z:cur.z||"店內",img:cur.img||"",dsc:cur.dsc||"",q:cur.q||0};
+    beforeFields={n:cur.n,b:cur.b,c:cur.c,z:cur.z||"店內",img:cur.img||"",ph:cur.ph||"",dsc:cur.dsc||"",q:cur.q||0};
     const next={...cur};
     if("img" in patch){const nm=normalizeImgUrl(patch.img);if(nm)next.img=nm;else delete next.img;}
+    // ph = 手機拍的照片編號（照片本體在 inventory/photos）。跟 img 互斥，兩者只留一個。
+    if("ph" in patch){if(patch.ph)next.ph=String(patch.ph);else delete next.ph;}
     if("dsc" in patch){if(patch.dsc)next.dsc=patch.dsc;else delete next.dsc;}
     if("rp" in patch){const rp=parseInt(patch.rp,10);if(patch.rp!==""&&patch.rp!=null&&isFinite(rp)&&rp>=0)next.rp=rp;else delete next.rp;}
     ["cost","price"].forEach(k=>{if(k in patch){const n=Number(patch[k]);if(patch[k]!==""&&patch[k]!=null&&isFinite(n)&&n>=0)next[k]=n;else delete next[k];}});
@@ -758,7 +963,7 @@ async function doUpdateMeta(id,patch){
     if("n" in patch&&patch.n)next.n=patch.n;
     if("z" in patch&&patch.z)next.z=patch.z;
     const _eq=(a,b)=>(a==null?"":a)===(b==null?"":b);
-    if((cur.img||"")===(next.img||"")&&(cur.dsc||"")===(next.dsc||"")&&_eq(cur.rp,next.rp)&&_eq(cur.cost,next.cost)&&_eq(cur.price,next.price)&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
+    if((cur.img||"")===(next.img||"")&&(cur.ph||"")===(next.ph||"")&&(cur.dsc||"")===(next.dsc||"")&&_eq(cur.rp,next.rp)&&_eq(cur.cost,next.cost)&&_eq(cur.price,next.price)&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
     return next;
   }).catch(e=>{console.error(e);return{committed:false};});
   if(noChange)return true;
@@ -1158,16 +1363,16 @@ function renderRow(it){
   }
   // Thumbnail or placeholder
   const thumb=h("div",{style:{width:"32px",height:"32px",borderRadius:"8px",overflow:"hidden",flexShrink:0,background:"#f1f5f9",border:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",color:"#cbd5e1",cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
-  if(it.img){const img=h("img",{src:it.img,style:{width:"100%",height:"100%",objectFit:"cover",display:"block"},loading:"lazy",decoding:"async"});img.onerror=()=>{thumb.innerHTML="";thumb.appendChild(h("span",{style:{fontSize:"14px"}},"⚠"));};thumb.appendChild(img);}
+  if(itemHasImg(it)){const img=itemImgEl(it,{width:"100%",height:"100%",objectFit:"cover",display:"block"},()=>{thumb.innerHTML="";thumb.appendChild(h("span",{style:{fontSize:"14px"}},"⚠"));});thumb.appendChild(img);}
   else thumb.appendChild(h("span",{},"📷"));
   row.appendChild(thumb);
   // Name (clickable) + missing indicators
   const nameWrap=h("div",{style:{flex:1,minWidth:0,overflow:"hidden",cursor:"pointer",display:"flex",alignItems:"center",gap:"4px"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
   nameWrap.appendChild(h("span",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1},title:it.n},...highlightText(it.n,S.search)));
-  if(!it.img||!it.dsc){
+  if(!itemHasImg(it)||!it.dsc){
     // Clicking the orange dot is a shortcut to "fill missing info" — opens straight into edit mode instead of detail-view-then-edit. Stop propagation so the parent nameWrap's plain-detail click doesn't fire.
     // Inline-block + padding widens the hit area without disturbing flex layout (negative margins were pulling the bounding box into the name span).
-    const dot=h("span",{style:{fontSize:"9px",color:"#f59e0b",flexShrink:0,cursor:pv?"default":"pointer",display:"inline-block",padding:"4px",lineHeight:"10px"},title:(!it.img?"無圖 ":"")+(!it.dsc?"無敘述":"")+(pv?"":" — 點擊編輯")},"●");
+    const dot=h("span",{style:{fontSize:"9px",color:"#f59e0b",flexShrink:0,cursor:pv?"default":"pointer",display:"inline-block",padding:"4px",lineHeight:"10px"},title:(!itemHasImg(it)?"無圖 ":"")+(!it.dsc?"無敘述":"")+(pv?"":" — 點擊編輯")},"●");
     if(!pv)dot.onclick=e=>{e.stopPropagation();S.modal={t:"detail",id:it.id,edit:true};render();};
     nameWrap.appendChild(dot);
   }
@@ -1298,10 +1503,23 @@ function renderAddModal(){
   // Image URL + preview + 圖片獵人（找圖）
   const imgI=h("input",{className:"ipt",placeholder:"https://… 或留空",type:"url",style:{flex:1}});
   const imgPreview=h("div",{style:{marginTop:"6px",display:"none",width:"80px",height:"80px",borderRadius:"10px",background:"#f8fafc",border:"1px solid var(--border)",overflow:"hidden"}});
-  const refreshAddPreview=()=>{const v=normalizeImgUrl(imgI.value);imgPreview.innerHTML="";if(!v){imgPreview.style.display="none";return;}imgPreview.style.display="block";const img=h("img",{src:v,style:{width:"100%",height:"100%",objectFit:"cover"}});img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"圖片載入失敗"));};imgPreview.appendChild(img);};
+  let dupPh="";   // 用「🔁 複製」複製過來的照片編號（沿用原商品那張）
+  // 拍好但還沒送出的照片掛在 S.modal 上（不是區域變數）：整頁重畫時 S.modal 會留著，照片才不會不見
+  const refreshAddPreview=()=>{
+    const pend=S.modal&&S.modal._photo;
+    const url=normalizeImgUrl(imgI.value);
+    const v=pend?pend.t:(url||(dupPh?(photoThumbCached(dupPh)||"pending"):""));
+    imgPreview.innerHTML="";
+    if(!v){imgPreview.style.display="none";return;}
+    imgPreview.style.display="block";
+    if(v==="pending"){imgPreview.appendChild(itemImgEl({ph:dupPh},{width:"100%",height:"100%",objectFit:"cover"}));return;}
+    const img=h("img",{src:v,style:{width:"100%",height:"100%",objectFit:"cover"}});
+    img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"圖片載入失敗"));};
+    imgPreview.appendChild(img);
+  };
   imgI.addEventListener("input",refreshAddPreview);
   const findBtn=h("button",{type:"button",title:"用圖片獵人找官方圖",style:{padding:"0 12px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"var(--blue-light)",color:"var(--blue)",fontSize:"13px",fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}},"🔍 找圖");
-  const clearImgBtn=h("button",{type:"button",style:{width:"38px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"14px",cursor:"pointer",flexShrink:0},onClick:()=>{imgI.value="";refreshAddPreview();}},"✕");
+  const clearImgBtn=h("button",{type:"button",title:"清掉網址／照片",style:{width:"38px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"14px",cursor:"pointer",flexShrink:0},onClick:()=>{imgI.value="";dupPh="";if(S.modal)S.modal._photo=null;addPhotoUI.setStatus("");refreshAddPreview();}},"✕");
   const imgRow=h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}},imgI,findBtn,clearImgBtn);
   const candBox=h("div",{style:{display:"none",flexWrap:"wrap",gap:"6px",marginTop:"8px"}});
   const IMG_FINDER="https://product-image-finder-production-1e1b.up.railway.app";
@@ -1329,7 +1547,10 @@ function renderAddModal(){
     }catch(e){candBox.innerHTML="";candBox.appendChild(h("div",{style:{fontSize:"12px",color:"var(--red)",width:"100%"}},"搜尋失敗："+e.message));}
     findBtn.disabled=false;findBtn.textContent="🔍 找圖";
   };
-  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"圖片 URL（選填）"),imgRow,imgPreview,candBox));
+  // 手機拍照／相簿：拍好先放著，按「新增商品」才真的上傳（中途關掉視窗就不會留下沒人用的照片）
+  const addPhotoUI=photoBtnRow(p=>{if(S.modal){S.modal._photo=p;}imgI.value="";dupPh="";refreshAddPreview();});
+  box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"圖片（貼網址、找圖，或直接用手機拍）"),imgRow,addPhotoUI.row,addPhotoUI.status,imgPreview,candBox));
+  if(S.modal&&S.modal._photo){addPhotoUI.setStatus("✅ 已選好照片 — 按下方「新增商品」才會存",'var(--green)');refreshAddPreview();}
   // Description
   const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"60px",resize:"vertical",fontFamily:"inherit"}});
   box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述（選填）"),dscI));
@@ -1337,6 +1558,8 @@ function renderAddModal(){
   if(dup){
     nI.value=dup.n||"";
     if(dup.img){imgI.value=dup.img;imgI.dispatchEvent(new Event("input"));}
+    // 複製來源是手機照片：兩筆共用同一張（換掉其中一筆的照片時，fbPhotoDropIfUnused 會確認沒別人在用才刪）
+    if(dup.ph&&!dup.img){dupPh=dup.ph;addPhotoUI.setStatus("📷 沿用原商品的照片","var(--sub)");refreshAddPreview();}
     if(dup.dsc)dscI.value=dup.dsc;
     setTimeout(()=>{const el=document.getElementById("addNameInput");if(el){el.focus();el.select();}},80);
   }
@@ -1371,6 +1594,7 @@ function renderAddModal(){
   }
   // Dirty check: any actively-typed input counts. Brand auto-pre-select from localStorage doesn't (avoids prompting on empty-form close).
   isAddDirty=()=>{
+    if(S.modal&&S.modal._photo)return true;   // 拍好還沒送出的照片也算，不然關掉就白拍了
     if(nI.value.trim())return true;
     if(dscI.value.trim())return true;
     if(imgI.value.trim())return true;
@@ -1379,7 +1603,17 @@ function renderAddModal(){
     if(bcI.value.trim())return true;
     return false;
   };
-  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}if(isReservedKey(brand)||isReservedKey(cat)||isReservedKey(n)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;const initQ=Math.max(0,parseInt(qI.value)||0);doAdd({z:zS.value,b:brand,c:cat,n,q:initQ,img:imgI.value.trim(),dsc:dscI.value.trim()});}},"新增商品");
+  const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}if(isReservedKey(brand)||isReservedKey(cat)||isReservedKey(n)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;const initQ=Math.max(0,parseInt(qI.value)||0);
+    // 有拍照的話先把照片存上去拿到編號，再建商品（照片存失敗就不新增，免得建出一筆指著不存在照片的商品）
+    let phId="";const pend=S.modal&&S.modal._photo;
+    if(pend){
+      this.textContent="上傳照片中…";
+      try{phId=await uploadPhoto(pend,n);}
+      catch(e){this.disabled=false;this.textContent="新增商品";addPhotoUI.setStatus("⚠ 照片上傳失敗："+(e&&e.message||"請重試"),"var(--red)");return;}
+      if(S.modal)S.modal._photo=null;
+    }
+    const finalPh=phId||dupPh;
+    doAdd({z:zS.value,b:brand,c:cat,n,q:initQ,img:finalPh?"":imgI.value.trim(),ph:finalPh,dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&e.target.tagName!=="BUTTON"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
   // Auto-focus name input so the user can start typing immediately (especially after the "再加一個" continuation flow). Skipped in dup mode — the dup branch above sets its own focus+select timer at 80ms (selecting the cloned name for easy replacement).
@@ -1414,8 +1648,25 @@ function renderDetailModal(){
   ));
   const isEdit=S.modal.edit;
   if(!isEdit){
-    if(it.img){const imgBox=h("div",{style:{width:"100%",aspectRatio:"1",maxHeight:"280px",borderRadius:"12px",overflow:"hidden",background:"#f8fafc",marginBottom:"12px",border:"1px solid var(--border)",cursor:"zoom-in",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.modal={t:"lightbox",src:it.img,fromModal:S.modal};render();}});const img=h("img",{src:it.img,style:{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}});img.onerror=()=>{imgBox.innerHTML="";imgBox.appendChild(h("div",{style:{padding:"40px 20px",textAlign:"center",color:"var(--red)",fontSize:"13px"}},"⚠ 圖片載入失敗"));};imgBox.appendChild(img);box.appendChild(imgBox);}
-    else box.appendChild(h("div",{style:{padding:"24px",textAlign:"center",background:"#f8fafc",borderRadius:"12px",marginBottom:"12px",border:"1px dashed var(--border)",color:"var(--sub)",fontSize:"13px"}},"🖼 尚無圖片"));
+    if(itemHasImg(it)){const imgBox=h("div",{style:{width:"100%",aspectRatio:"1",maxHeight:"280px",borderRadius:"12px",overflow:"hidden",background:"#f8fafc",marginBottom:"12px",border:"1px solid var(--border)",cursor:"zoom-in",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.modal=it.img?{t:"lightbox",src:it.img,fromModal:S.modal}:{t:"lightbox",ph:it.ph,fromModal:S.modal};render();}});const img=itemImgEl(it,{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"},()=>{imgBox.innerHTML="";imgBox.appendChild(h("div",{style:{padding:"40px 20px",textAlign:"center",color:"var(--red)",fontSize:"13px"}},"⚠ 圖片載入失敗"));});imgBox.appendChild(img);
+      // 自己拍的照片：先秀縮圖（上面已填），大圖抓到再換掉，開視窗不會空一片
+      if(it.ph&&!it.img)photoFullLoad(it.ph).then(d=>{img.src=d;}).catch(()=>{});
+      box.appendChild(imgBox);}
+    else{
+      // 沒圖：整塊就是「拍一張」的按鈕，站在貨架前一按就開相機
+      const emptyBox=h("div",{style:{padding:"22px 16px",textAlign:"center",background:"#f8fafc",borderRadius:"12px",marginBottom:"12px",border:"1px dashed var(--border)",color:"var(--sub)",fontSize:"13px"}},"🖼 尚無圖片");
+      if(!pv){
+        const st=h("div",{style:{fontSize:"11px",marginTop:"8px",display:"none"}});
+        const shoot=h("button",{type:"button",style:{marginTop:"10px",padding:"10px 18px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:async function(){
+          if(this.disabled)return;this.disabled=true;this.style.opacity=".6";
+          const ok=await quickPhotoFor(it,true,(t,c)=>{st.style.display=t?"block":"none";st.style.color=c||"var(--sub)";st.textContent=t||"";});
+          if(ok)render();else{this.disabled=false;this.style.opacity="";}
+        }},"📷 用手機拍一張");
+        emptyBox.appendChild(h("div",{},shoot));
+        emptyBox.appendChild(st);
+      }
+      box.appendChild(emptyBox);
+    }
     if(it.dsc)box.appendChild(h("div",{style:{padding:"12px 14px",background:"#f8fafc",borderRadius:"10px",marginBottom:"12px",fontSize:"13px",color:"var(--text)",whiteSpace:"pre-wrap",lineHeight:1.6}},...highlightText(it.dsc,S.search)));
     else box.appendChild(h("div",{style:{padding:"14px",textAlign:"center",background:"#f8fafc",borderRadius:"10px",marginBottom:"12px",color:"var(--sub)",fontSize:"12px",border:"1px dashed var(--border)"}},"📝 尚無敘述"));
     // Recent history — match by iid where available, fall back to name for legacy logs.
@@ -1521,7 +1772,7 @@ function renderDetailModal(){
       box.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"2fr 1fr",gap:"6px"}},
         h("button",{style:{padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--text)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,edit:true,back};render();}},"✏️ 編輯資料"),
         // Duplicate creates a new item pre-filled with this one's brand/cat/zone/img/dsc — fast way to add variants (different color/size).
-        h("button",{style:{padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"#7c3aed",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"add",dup:{b:it.b,c:it.c,z:it.z||"店內",n:it.n+" (複製)",img:it.img||"",dsc:it.dsc||""}};render();},title:"以此商品為範本新增"},"🔁 複製")
+        h("button",{style:{padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"#7c3aed",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"add",dup:{b:it.b,c:it.c,z:it.z||"店內",n:it.n+" (複製)",img:it.img||"",ph:it.ph||"",dsc:it.dsc||""}};render();},title:"以此商品為範本新增"},"🔁 複製")
       ));
     }
   }else{
@@ -1550,11 +1801,24 @@ function renderDetailModal(){
     box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"區域"),h("div",{style:{display:"flex",gap:"6px",alignItems:"stretch"}},zS,zUnlock)));
     const imgI=h("input",{className:"ipt",placeholder:"https://…",type:"url",value:it.img||"",style:{flex:1}});
     const findBtn=h("button",{type:"button",title:"用圖片獵人找官方圖",style:{padding:"0 12px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"var(--blue-light)",color:"var(--blue)",fontSize:"13px",fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}},"🔍 找圖");
-    const clearImgBtn=h("button",{type:"button",style:{width:"38px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"14px",cursor:"pointer",flexShrink:0},onClick:()=>{imgI.value="";refreshPreview();}},"✕");
+    // 這筆商品目前的照片編號。拍新的 → 換成 pending；按 ✕ → 清成空字串（存檔時一起清掉）
+    let phId=it.ph||"";
+    const clearImgBtn=h("button",{type:"button",title:"清掉網址／照片",style:{width:"38px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"14px",cursor:"pointer",flexShrink:0},onClick:()=>{imgI.value="";phId="";if(S.modal)S.modal._photo=null;editPhotoUI.setStatus("");refreshPreview();}},"✕");
     const imgRow=h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}},imgI,findBtn,clearImgBtn);
-    const imgPreview=h("div",{style:{marginTop:"6px",width:"80px",height:"80px",borderRadius:"10px",background:"#f8fafc",border:"1px solid var(--border)",overflow:"hidden",display:it.img?"block":"none"}});
+    const imgPreview=h("div",{style:{marginTop:"6px",width:"80px",height:"80px",borderRadius:"10px",background:"#f8fafc",border:"1px solid var(--border)",overflow:"hidden",display:itemHasImg(it)?"block":"none"}});
     const candBox=h("div",{style:{display:"none",flexWrap:"wrap",gap:"6px",marginTop:"8px"}});
-    const refreshPreview=()=>{const v=normalizeImgUrl(imgI.value);imgPreview.innerHTML="";if(!v){imgPreview.style.display="none";return;}imgPreview.style.display="block";const img=h("img",{src:v,style:{width:"100%",height:"100%",objectFit:"cover"}});img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"載入失敗"));};imgPreview.appendChild(img);};
+    // 預覽優先序：剛拍還沒存的照片 > 網址 > 已存的照片
+    const refreshPreview=()=>{
+      const pend=S.modal&&S.modal._photo;
+      const url=normalizeImgUrl(imgI.value);
+      imgPreview.innerHTML="";
+      if(!pend&&!url&&!phId){imgPreview.style.display="none";return;}
+      imgPreview.style.display="block";
+      if(!pend&&!url){imgPreview.appendChild(itemImgEl({ph:phId},{width:"100%",height:"100%",objectFit:"cover"},()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"載入失敗"));}));return;}
+      const img=h("img",{src:pend?pend.t:url,style:{width:"100%",height:"100%",objectFit:"cover"}});
+      img.onerror=()=>{imgPreview.innerHTML="";imgPreview.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",padding:"8px",textAlign:"center"}},"載入失敗"));};
+      imgPreview.appendChild(img);
+    };
     refreshPreview();
     imgI.addEventListener("input",refreshPreview);
     // 圖片獵人：找圖 → 點候選圖直接填入網址
@@ -1583,7 +1847,11 @@ function renderDetailModal(){
       }catch(e){candBox.innerHTML="";candBox.appendChild(h("div",{style:{fontSize:"12px",color:"var(--red)",width:"100%"}},"搜尋失敗："+e.message));}
       findBtn.disabled=false;findBtn.textContent="🔍 找圖";
     };
-    box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"圖片 URL"),imgRow,imgPreview,candBox));
+    // 手機拍照／相簿：拍好先掛在 S.modal._photo，按「儲存」才真的上傳（取消就不會留下沒人用的照片）
+    const editPhotoUI=photoBtnRow(p=>{if(S.modal)S.modal._photo=p;imgI.value="";refreshPreview();});
+    box.appendChild(h("div",{style:{marginBottom:"10px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"圖片（貼網址、找圖，或直接用手機拍）"),imgRow,editPhotoUI.row,editPhotoUI.status,imgPreview,candBox));
+    if(S.modal&&S.modal._photo){editPhotoUI.setStatus("✅ 已拍好照片 — 按下方「儲存」才會存進去","var(--green)");refreshPreview();}
+    else if(phId)editPhotoUI.setStatus("📷 目前用的是手機拍的照片（再拍一張就會換掉）","var(--sub)");
     const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"80px",resize:"vertical",fontFamily:"inherit"}});
     dscI.value=it.dsc||"";
     box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述"),dscI));
@@ -1596,6 +1864,8 @@ function renderDetailModal(){
     // Track initial values so 取消 can warn before discarding unsaved edits. Without this an accidental tap on 取消 silently throws away description rewrites — particularly painful since the modal is wide and the button is close to the right edge.
     const _initN=it.n,_initB=it.b,_initC=it.c,_initZ=origZ,_initImg=it.img||"",_initDsc=it.dsc||"",_initRp=(it.rp!==undefined&&it.rp!==null&&it.rp!=='')?String(it.rp):"",_initCost=(it.cost!=null&&it.cost!=='')?String(it.cost):"",_initPrice=(it.price!=null&&it.price!=='')?String(it.price):"";
     const isDirty=()=>{
+      if(S.modal&&S.modal._photo)return true;      // 拍好還沒儲存的照片
+      if(phId!==(it.ph||""))return true;           // 照片被 ✕ 清掉
       if(nI.value.trim()!==_initN)return true;
       const curB=bSel.value==="__newB"?bcInp.value.trim():(bSel.value||_initB);
       if(curB!==_initB)return true;
@@ -1611,7 +1881,19 @@ function renderDetailModal(){
     };
     const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
     btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(isDirty()&&!confirm("有未儲存的變更，確定放棄？"))return;S.modal={t:"detail",id:it.id,back};render();}},"取消"));
-    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(isReservedKey(newB)||isReservedKey(newC)||isReservedKey(newN)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:imgI.value.trim(),dsc:dscI.value.trim(),rp:rpI.value.trim(),cost:costI.value.trim(),price:priceI.value.trim()});if(ok){const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
+    const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(isReservedKey(newB)||isReservedKey(newC)||isReservedKey(newN)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";
+    // 照片：剛拍的先上傳拿編號；有填網址就以網址為準（兩者只留一個）
+    const _oldPh=it.ph||"";let _newPh=phId;const _pend=S.modal&&S.modal._photo;
+    if(_pend){
+      this.textContent="上傳照片中…";
+      try{_newPh=await uploadPhoto(_pend,newN);}
+      catch(e){this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";editPhotoUI.setStatus("⚠ 照片上傳失敗："+(e&&e.message||"請重試"),"var(--red)");return;}
+      if(S.modal)S.modal._photo=null;
+      this.textContent="儲存中…";
+    }
+    const _url=imgI.value.trim();if(_url)_newPh="";
+    const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:_newPh?"":_url,ph:_newPh,dsc:dscI.value.trim(),rp:rpI.value.trim(),cost:costI.value.trim(),price:priceI.value.trim()});if(ok){
+      if(_oldPh&&_oldPh!==_newPh)fbPhotoDropIfUnused(_oldPh,it.id);   /* 換掉/清掉的舊照片，沒別人用就刪 */ const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{if(_pend&&_newPh)fbPhotoDropIfUnused(_newPh,it.id);this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
     btnRow.appendChild(saveBtn);
     box.appendChild(btnRow);
     box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&e.target.tagName!=="BUTTON"&&!saveBtn.disabled){e.preventDefault();saveBtn.click();}});
@@ -1621,17 +1903,24 @@ function renderDetailModal(){
 
 function renderLightboxModal(){
   if(!S.modal||S.modal.t!=="lightbox")return null;
-  const src=S.modal.src;const fromModal=S.modal.fromModal;
+  const phId=S.modal.ph||"";
+  // 自己拍的照片沒有網址：先放縮圖頂著，大圖抓完再換
+  const src=S.modal.src||(phId?(photoThumbCached(phId)||""):"");
+  const fromModal=S.modal.fromModal;
   const back=()=>{S.modal=fromModal||null;render();};
   const wrap=h("div",{style:{position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,.9)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"},onClick:back});
   const img=h("img",{src,style:{maxWidth:"95vw",maxHeight:"95vh",objectFit:"contain",display:"block"}});
+  if(phId)photoFullLoad(phId).then(d=>{img.src=d;}).catch(()=>{img.onerror&&img.onerror();});
   // Without onerror, a dead image URL shows a broken-image icon and the user has no idea why the modal looks empty.
-  img.onerror=()=>{img.remove();wrap.insertBefore(h("div",{style:{color:"#fff",fontSize:"15px",textAlign:"center",padding:"20px",background:"rgba(220,38,38,.85)",borderRadius:"12px"}},"⚠ 圖片載入失敗",h("div",{style:{fontSize:"11px",marginTop:"6px",opacity:.8,wordBreak:"break-all"}},src)),wrap.firstChild);};
+  img.onerror=()=>{img.remove();wrap.insertBefore(h("div",{style:{color:"#fff",fontSize:"15px",textAlign:"center",padding:"20px",background:"rgba(220,38,38,.85)",borderRadius:"12px"}},"⚠ 圖片載入失敗",h("div",{style:{fontSize:"11px",marginTop:"6px",opacity:.8,wordBreak:"break-all"}},phId?"（手機拍的照片讀不到，可能已被換掉）":src)),wrap.firstChild);};
   wrap.appendChild(img);
   wrap.appendChild(h("button",{style:{position:"absolute",top:"20px",right:"20px",width:"40px",height:"40px",borderRadius:"50%",border:"none",background:"rgba(255,255,255,.2)",color:"#fff",fontSize:"20px",cursor:"pointer",backdropFilter:"blur(4px)"},onClick:e=>{e.stopPropagation();back();}},"✕"));
-  const openA=h("a",{href:src,target:"_blank",rel:"noopener",style:{position:"absolute",bottom:"24px",left:"50%",transform:"translateX(-50%)",padding:"8px 16px",borderRadius:"20px",background:"rgba(255,255,255,.15)",color:"#fff",fontSize:"12px",fontWeight:600,textDecoration:"none",backdropFilter:"blur(4px)"}},"🔍 開新分頁看原圖");
-  openA.addEventListener("click",e=>e.stopPropagation());
-  wrap.appendChild(openA);
+  // 自己拍的照片是 data URI，瀏覽器擋掉 data: 開新分頁 → 那顆鈕只在有真的網址時才出現
+  if(!phId){
+    const openA=h("a",{href:src,target:"_blank",rel:"noopener",style:{position:"absolute",bottom:"24px",left:"50%",transform:"translateX(-50%)",padding:"8px 16px",borderRadius:"20px",background:"rgba(255,255,255,.15)",color:"#fff",fontSize:"12px",fontWeight:600,textDecoration:"none",backdropFilter:"blur(4px)"}},"🔍 開新分頁看原圖");
+    openA.addEventListener("click",e=>e.stopPropagation());
+    wrap.appendChild(openA);
+  }
   return wrap;
 }
 
@@ -2179,7 +2468,7 @@ function renderExportModal(){
   const csvDownload=()=>{
     const zoneItems=S.items.filter(x=>(x.z||"店內")===expZone);
     const rows=[["品牌","分類","商品名","數量","區域","圖片","敘述","進價","售價","叫貨門檻"]];
-    zoneItems.forEach(it=>rows.push([it.b,it.c,it.n,it.q,it.z||"店內",it.img||"",(it.dsc||"").replace(/\n/g," "),it.cost??"",it.price??"",it.rp??""]));
+    zoneItems.forEach(it=>rows.push([it.b,it.c,it.n,it.q,it.z||"店內",it.img||(it.ph?"（手機拍的照片）":""),(it.dsc||"").replace(/\n/g," "),it.cost??"",it.price??"",it.rp??""]));
     // CSV formula injection: Excel/Sheets execute cells beginning with = + - @ \t \r when opened. Prefix with apostrophe to force text interpretation.
     const esc=v=>{let s=String(v);if(/^[=+\-@\t\r]/.test(s))s="'"+s;return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
     const csv="\ufeff"+rows.map(r=>r.map(esc).join(",")).join("\r\n");
@@ -2357,7 +2646,7 @@ function _findDupGroupsRaw(items){
 // 建議保留哪一個：有圖 > 名稱較長（較完整）> 庫存較多
 function dupRecommendKeep(items){
   return [...items].sort((a,b)=>{
-    const ai=a.img?1:0,bi=b.img?1:0;if(ai!==bi)return bi-ai;
+    const ai=itemHasImg(a)?1:0,bi=itemHasImg(b)?1:0;if(ai!==bi)return bi-ai;
     const al=(a.n||"").length,bl=(b.n||"").length;if(al!==bl)return bl-al;
     return (b.q||0)-(a.q||0);
   })[0];
@@ -2378,7 +2667,7 @@ function renderMain(){
     return{c,its};})};});
   // 零庫存/要叫貨都只算「非倉庫」，跟點開的清單一致（原本首頁算全部含倉庫→數字對不上）
   const _sz=x=>(x.z||'店內')!=='倉庫';
-  const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>_sz(x)&&x.q===0).length,l:items.filter(x=>_sz(x)&&x.q>0&&x.q<=reorderTh(x)).length,m:items.filter(x=>!x.img||!x.dsc).length};
+  const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>_sz(x)&&x.q===0).length,l:items.filter(x=>_sz(x)&&x.q>0&&x.q<=reorderTh(x)).length,m:items.filter(x=>!itemHasImg(x)||!x.dsc).length};
   const root=h("div",{style:{minHeight:"100vh"}});
   // Header
   root.appendChild(h("header",{style:{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)",background:"rgba(255,255,255,.94)",backdropFilter:"saturate(160%) blur(10px)","-webkit-backdrop-filter":"saturate(160%) blur(10px)",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(15,23,42,.05)"}},
@@ -3144,15 +3433,15 @@ function renderMain(){
   // Missing data modal
   if(S.modal&&S.modal.t==="missing"){
     const filter=S.modal.filter||"all";
-    const baseList=(S.items||[]).filter(x=>!x.img||!x.dsc);
-    const list=filter==="img"?baseList.filter(x=>!x.img):filter==="dsc"?baseList.filter(x=>!x.dsc):baseList;
+    const baseList=(S.items||[]).filter(x=>!itemHasImg(x)||!x.dsc);
+    const list=filter==="img"?baseList.filter(x=>!itemHasImg(x)):filter==="dsc"?baseList.filter(x=>!x.dsc):baseList;
     const byBrand=Object.create(null);list.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
     const box=h("div",{className:"modal-box",style:{maxWidth:"520px"}});
     box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},
       h("h3",{style:{fontSize:"16px",fontWeight:700}},"🟡 缺資料清單"),
       h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:()=>{S.modal=null;render();}},"✕")));
     // Filter tabs
-    const cntAll=baseList.length,cntImg=baseList.filter(x=>!x.img).length,cntDsc=baseList.filter(x=>!x.dsc).length;
+    const cntAll=baseList.length,cntImg=baseList.filter(x=>!itemHasImg(x)).length,cntDsc=baseList.filter(x=>!x.dsc).length;
     const tabRow=h("div",{style:{display:"flex",gap:"6px",marginBottom:"10px"}});
     [["all","全部",cntAll],["img","🖼 缺圖片",cntImg],["dsc","📝 缺敘述",cntDsc]].forEach(([k,l,n])=>{
       const active=filter===k;
@@ -3164,10 +3453,19 @@ function renderMain(){
       const bcol=gc(brand);const bis=byBrand[brand];
       box.appendChild(h("div",{style:{padding:"8px 12px",background:bcol+"10",borderRadius:"8px",marginBottom:"4px",marginTop:"6px",fontWeight:700,fontSize:"13px",color:bcol,display:"flex",justifyContent:"space-between"}},brand,h("span",{style:{fontWeight:500,fontSize:"11px",color:"var(--sub)"}},bis.length+"項")));
       bis.forEach(it=>{
+        // 缺圖的直接給一顆相機鍵：拿手機站在貨架前一台台拍，不用每筆點進編輯視窗
+        const _shootSt=h("div",{style:{fontSize:"10px",marginTop:"2px",display:"none"}});
+        const _shoot=(!isPreview()&&!itemHasImg(it))?h("button",{type:"button",title:"用手機拍一張",style:{padding:"6px 10px",borderRadius:"8px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"12px",fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"},onClick:async function(e){
+          e.stopPropagation();
+          if(this.disabled)return;this.disabled=true;this.style.opacity=".6";
+          const ok=await quickPhotoFor(it,true,(t,c)=>{_shootSt.style.display=t?"block":"none";_shootSt.style.color=c||"var(--sub)";_shootSt.textContent=t||"";});
+          if(ok)render();else{this.disabled=false;this.style.opacity="";}
+        }},"📷 拍"):null;
         box.appendChild(h("div",{style:{padding:"8px 12px 8px 20px",fontSize:"13px",display:"flex",alignItems:"center",gap:"8px",borderBottom:"1px solid #f1f5f9",cursor:"pointer"},onClick:()=>{S.modal={t:"detail",id:it.id,edit:true,back:{t:"missing",filter:filter}};render();}},
-          h("span",{style:{width:"28px",height:"28px",borderRadius:"6px",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}},it.img?h("img",{src:it.img,style:{width:"100%",height:"100%",objectFit:"cover"}}):h("span",{style:{fontSize:"12px",color:"#cbd5e1"}},"📷")),
-          h("div",{style:{flex:1,minWidth:0}},h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),h("div",{style:{fontSize:"10px",color:"var(--sub)"}},it.c+" · "+(it.z||"店內"))),
-          h("div",{style:{display:"flex",gap:"4px",flexShrink:0}},!it.img?h("span",{style:{fontSize:"10px",padding:"2px 6px",borderRadius:"6px",background:"#fef3c7",color:"#b45309",fontWeight:600}},"缺圖"):null,!it.dsc?h("span",{style:{fontSize:"10px",padding:"2px 6px",borderRadius:"6px",background:"#fef3c7",color:"#b45309",fontWeight:600}},"缺敘述"):null),
+          h("span",{style:{width:"28px",height:"28px",borderRadius:"6px",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}},itemHasImg(it)?itemImgEl(it,{width:"100%",height:"100%",objectFit:"cover"}):h("span",{style:{fontSize:"12px",color:"#cbd5e1"}},"📷")),
+          h("div",{style:{flex:1,minWidth:0}},h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),h("div",{style:{fontSize:"10px",color:"var(--sub)"}},it.c+" · "+(it.z||"店內")),_shootSt),
+          h("div",{style:{display:"flex",gap:"4px",flexShrink:0}},!itemHasImg(it)?h("span",{style:{fontSize:"10px",padding:"2px 6px",borderRadius:"6px",background:"#fef3c7",color:"#b45309",fontWeight:600}},"缺圖"):null,!it.dsc?h("span",{style:{fontSize:"10px",padding:"2px 6px",borderRadius:"6px",background:"#fef3c7",color:"#b45309",fontWeight:600}},"缺敘述"):null),
+          _shoot,
           h("span",{style:{fontSize:"11px",color:"var(--blue)",flexShrink:0}},"✏️")
         ));});
     });
@@ -3190,10 +3488,10 @@ function renderMain(){
         g.items.forEach(it=>{
           const isKeep=it.id===keep.id;
           const rowEl=h("div",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"6px",borderRadius:"8px",marginBottom:"4px",background:isKeep?"#f0fdf4":"#fff",border:isKeep?"2px solid var(--green)":"1px solid #f1f5f9"}},
-            h("span",{style:{width:"34px",height:"34px",borderRadius:"6px",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}},it.img?h("img",{src:it.img,style:{width:"100%",height:"100%",objectFit:"cover"}}):h("span",{style:{fontSize:"12px",color:"#cbd5e1"}},"📷")),
+            h("span",{style:{width:"34px",height:"34px",borderRadius:"6px",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}},itemHasImg(it)?itemImgEl(it,{width:"100%",height:"100%",objectFit:"cover"}):h("span",{style:{fontSize:"12px",color:"#cbd5e1"}},"📷")),
             h("div",{style:{flex:1,minWidth:0}},
               h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
-              h("div",{style:{fontSize:"10px",color:"var(--sub)"}},it.c+" · "+(it.z||"店內")+" · 庫存 "+(it.q||0)+(it.img?"":" · 無圖"))),
+              h("div",{style:{fontSize:"10px",color:"var(--sub)"}},it.c+" · "+(it.z||"店內")+" · 庫存 "+(it.q||0)+(itemHasImg(it)?"":" · 無圖"))),
             isKeep?h("span",{style:{fontSize:"11px",color:"var(--green)",fontWeight:700,flexShrink:0}},"建議保留"):h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"12px",fontWeight:700,cursor:"pointer",flexShrink:0},onClick:()=>{S.modal={t:"del-confirm",id:it.id,back:{t:"dup"}};render();}},"✕ 刪除"));
           gcard.appendChild(rowEl);
         });
