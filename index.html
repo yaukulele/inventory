@@ -1409,6 +1409,12 @@ function renderActionModal(){
   const _lastTagKey="inv_lastTag_"+(S.user||"_anon")+"_"+type;
   const lastTag=(()=>{try{return tags.length?(localStorage.getItem(_lastTagKey)||""):"";}catch(e){return "";}})();
   let selQ=type==="audit"?it.q:1,selN=tags.includes(lastTag)?lastTag:"",customT="";
+  /* 進貨要「先點過數量」才能送出（杰哥 2026-09-07：庫存有東西被無故加）。
+     原本進貨一開視窗就是：數量預設 1、備註自動帶上次的、確認鈕還會自動聚焦 ——
+     一個誤觸 Enter 或手機點擊穿透就直接 +1，而且備註看起來很正常，事後查不出是誤觸。
+     實際資料：209 筆進貨裡 +1 佔 109 筆(52%)，盤點往下修 176 筆 vs 往上修 85 筆。
+     出貨/盤點維持原樣：出貨每天要跑量不能拖慢，而且誤觸方向是「變少」，跟這次問題相反。 */
+  let qTouched=(type!=="in");
   const box=h("div",{className:"modal-box"});
   box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px",gap:"8px"}},h("h3",{style:{fontSize:"18px",fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:it.n},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px",flexShrink:0},onClick:closeAction},"✕")));
   box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--sub)",marginBottom:"12px",padding:"8px 12px",background:"#f8fafc",borderRadius:"8px"}},(type==="audit"?"系統庫存":"目前庫存")+"：",h("b",{style:{color:col,fontSize:"16px"}},String(it.q))));
@@ -1418,11 +1424,11 @@ function renderActionModal(){
   const qDiv=h("div",{style:{marginBottom:"12px"}});qDiv.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"6px",fontWeight:600}},"數量"));
   const prevEl=h("div",{style:{fontSize:"14px",color:"var(--sub)",marginBottom:"14px",padding:"8px 12px",background:"#f8fafc",borderRadius:"8px"}});
   // Re-read q from S.items each tick — another user's concurrent edit might have changed it after the modal opened, and the closure-cached it.q would otherwise lie to the user about the post-action result.
-  const updatePrev=()=>{const cur=S.items&&S.items.find(x=>x.id===it.id);const curQ=cur?(cur.q||0):it.q;const p=type==="in"?curQ+Math.max(1,selQ):type==="out"?Math.max(0,curQ-Math.min(curQ,Math.max(0,selQ))):Math.max(0,selQ);prevEl.innerHTML="";prevEl.appendChild(document.createTextNode((type==="audit"?"校正後":"操作後")+"："));prevEl.appendChild(h("b",{style:{color:col,fontSize:"18px"}},String(p)));if(type==="audit"&&p!==curQ){prevEl.appendChild(h("span",{style:{color:p>curQ?"var(--green)":"var(--red)",fontSize:"13px",marginLeft:"8px"}},"("+(p>curQ?"+":"")+(p-curQ)+")"));}if(confirmBtn){const oa=type==="out"?Math.min(curQ,Math.max(0,selQ)):selQ;confirmBtn.textContent=type==="in"?"確認進貨 +"+Math.max(1,selQ):type==="out"?"確認出貨 -"+oa:(p===curQ?"請選擇盤點數量":"確認盤點 "+curQ+"→"+p);if(type==="audit"){const same=(p===curQ);if(!tags.length){confirmBtn.disabled=same;confirmBtn.style.opacity=same?0.4:1;}}}};
+  const updatePrev=()=>{const cur=S.items&&S.items.find(x=>x.id===it.id);const curQ=cur?(cur.q||0):it.q;const p=type==="in"?curQ+Math.max(1,selQ):type==="out"?Math.max(0,curQ-Math.min(curQ,Math.max(0,selQ))):Math.max(0,selQ);prevEl.innerHTML="";prevEl.appendChild(document.createTextNode((type==="audit"?"校正後":"操作後")+"："));prevEl.appendChild(h("b",{style:{color:col,fontSize:"18px"}},String(p)));if(type==="audit"&&p!==curQ){prevEl.appendChild(h("span",{style:{color:p>curQ?"var(--green)":"var(--red)",fontSize:"13px",marginLeft:"8px"}},"("+(p>curQ?"+":"")+(p-curQ)+")"));}if(confirmBtn){const oa=type==="out"?Math.min(curQ,Math.max(0,selQ)):selQ;confirmBtn.textContent=type==="in"?(qTouched?"確認進貨 +"+Math.max(1,selQ):"請先選數量"):type==="out"?"確認出貨 -"+oa:(p===curQ?"請選擇盤點數量":"確認盤點 "+curQ+"→"+p);if(type==="audit"){const same=(p===curQ);if(!tags.length){confirmBtn.disabled=same;confirmBtn.style.opacity=same?0.4:1;}}if(type==="in"){const block=!qTouched||!selN;confirmBtn.disabled=block;confirmBtn.style.opacity=block?0.4:1;}}};
   if(type!=="audit"){
     const grid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",marginBottom:"8px"}});
-    [1,2,3,4,5,6,7,8,9].forEach(n=>{const dis=type==="out"&&n>it.q;grid.appendChild(h("button",{className:"num-btn"+(n===1?" active":""),disabled:dis,onClick:function(){selQ=n;grid.querySelectorAll("button").forEach((b,i)=>{if(i<9)b.className="num-btn"+((i+1)===n?" active":"");});updatePrev();}},String(n)));});
-    grid.appendChild(h("button",{className:"num-btn",onClick:function(){grid.style.display="none";const newInp=h("input",{type:"number",inputmode:"numeric",min:1,max:type==="out"?it.q:undefined,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||1;if(type==="out"&&selQ>it.q)selQ=it.q;updatePrev();}});qDiv.appendChild(newInp);setTimeout(()=>{newInp.focus();newInp.select();},50);}},"其他"));
+    [1,2,3,4,5,6,7,8,9].forEach(n=>{const dis=type==="out"&&n>it.q;grid.appendChild(h("button",{className:"num-btn"+(type==="in"?"":(n===1?" active":"")),disabled:dis,onClick:function(){selQ=n;qTouched=true;grid.querySelectorAll("button").forEach((b,i)=>{if(i<9)b.className="num-btn"+((i+1)===n?" active":"");});updatePrev();}},String(n)));});
+    grid.appendChild(h("button",{className:"num-btn",onClick:function(){grid.style.display="none";const newInp=h("input",{type:"number",inputmode:"numeric",min:1,max:type==="out"?it.q:undefined,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||1;if(type==="out"&&selQ>it.q)selQ=it.q;qTouched=true;updatePrev();}});qDiv.appendChild(newInp);setTimeout(()=>{newInp.focus();newInp.select();},50);}},"其他"));
     qDiv.appendChild(grid);
   }else{
     // Audit: center 14 number buttons around current qty (0..max), plus 其他
@@ -1440,7 +1446,7 @@ function renderActionModal(){
   const customInp=h("input",{className:"ipt",placeholder:"調貨對象",style:{marginTop:"8px",display:"none"},onInput:e=>{customT=e.target.value;}});
   if(tags.length){
     const tw=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"6px"}});
-    tags.forEach(t=>{tw.appendChild(h("button",{className:"tag-btn"+(t===selN?" active":""),onClick:function(){if(selN===t){selN="";this.className="tag-btn";try{localStorage.removeItem(_lastTagKey);}catch(e){}}else{selN=t;tw.querySelectorAll("button").forEach(b=>b.className="tag-btn");this.className="tag-btn active";try{localStorage.setItem(_lastTagKey,t);}catch(e){}}customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display=selN?"none":"block";confirmBtn.disabled=!selN;confirmBtn.style.opacity=selN?1:.4;}},t));});
+    tags.forEach(t=>{tw.appendChild(h("button",{className:"tag-btn"+(t===selN?" active":""),onClick:function(){if(selN===t){selN="";this.className="tag-btn";try{localStorage.removeItem(_lastTagKey);}catch(e){}}else{selN=t;tw.querySelectorAll("button").forEach(b=>b.className="tag-btn");this.className="tag-btn active";try{localStorage.setItem(_lastTagKey,t);}catch(e){}}customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display=selN?"none":"block";if(type==="in"){updatePrev();}else{confirmBtn.disabled=!selN;confirmBtn.style.opacity=selN?1:.4;}}},t));});
     nDiv.appendChild(tw);nDiv.appendChild(customInp);nDiv.appendChild(warnEl);
     // Reflect the pre-selected tag in initial UI state — without this 調貨 wouldn't show customInp until re-tap, and the * 必選 warning would mislead.
     if(selN){customInp.style.display=selN==="調貨"?"block":"none";warnEl.style.display="none";}
@@ -1448,15 +1454,16 @@ function renderActionModal(){
   box.appendChild(nDiv);
   updatePrev();box.appendChild(prevEl);
   // Audit must start disabled until user picks a number that differs from current qty. For in/out, also enabled if a pre-selected tag from localStorage is valid.
-  const canInit=(!tags.length&&type!=="audit")||(tags.length>0&&!!selN);
-  const initLabel=type==="in"?"確認進貨 +1":type==="out"?"確認出貨 -"+Math.min(it.q,1):"請選擇盤點數量";
+  const canInit=type==="in"?false:((!tags.length&&type!=="audit")||(tags.length>0&&!!selN));
+  const initLabel=type==="in"?"請先選數量":type==="out"?"確認出貨 -"+Math.min(it.q,1):"請選擇盤點數量";
   var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:function(){if(this.disabled)return;this.disabled=true;const ct=(customT||"").trim();const sn=(selN||"").trim();const fn=sn==="調貨"&&ct?"調貨："+ct:sn;doAction(type,it,selQ,fn);}},initLabel);
   box.appendChild(confirmBtn);
   // Skip TEXTAREA (newlines) and BUTTON (let focused button handle its own Enter — otherwise pressing Enter while focused on a num/tag button would submit confirm instead of selecting that option).
-  box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&e.target.tagName!=="BUTTON"&&!confirmBtn.disabled){e.preventDefault();confirmBtn.click();}});
+  // 進貨不吃 Enter 快捷 —— 這是「數量會變多」的動作，誤觸成本最高，一定要人真的按到那顆按鈕。
+  box.addEventListener("keydown",e=>{if(type!=="in"&&e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&e.target.tagName!=="BUTTON"&&!confirmBtn.disabled){e.preventDefault();confirmBtn.click();}});
   // Auto-focus the confirm button when it's already actionable (in/out without tag-required, or in/out with pre-selected last tag). Without focus, the box-level Enter handler never fires because the event originates outside the modal. Skipped for audit since it always starts disabled until user picks a different qty.
   // Skip the steal if the user has already focused another element inside the modal (e.g. clicked 「其他」 to type a custom qty) — don't yank their focus mid-flow.
-  if(canInit&&type!=="audit")setTimeout(()=>{if(!confirmBtn.disabled&&(!document.activeElement||document.activeElement===document.body||!box.contains(document.activeElement)))confirmBtn.focus();},80);
+  if(canInit&&type!=="audit"&&type!=="in")setTimeout(()=>{if(!confirmBtn.disabled&&(!document.activeElement||document.activeElement===document.body||!box.contains(document.activeElement)))confirmBtn.focus();},80);
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeAction}),box);
 }
 
@@ -2608,6 +2615,19 @@ async function importCsv(text){
   });
   if(!toAdd.length)return{added:0,skipped,bad};
   await new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=arrFromVal(cur)||[];const ex=new Set(arr.map(x=>x&&(x.b+"|"+x.n)));const fresh=toAdd.filter(x=>!ex.has(x.b+"|"+x.n));return fresh.length?[...arr,...fresh]:cur;},(err,committed,snap)=>{if(err)return reject(err);const a=arrFromVal(snap&&snap.val());if(a&&S.items)S.items=mergeWithPending(a.filter(x=>x).map(sanitizeItem));saveCache();resolve();},false);});
+  /* 匯入的品項也要寫紀錄（杰哥 2026-09-07）。
+     原本匯入只寫一筆「活動紀錄」，品項本身沒有任何異動紀錄 ——
+     結果對帳檢查驗不到它們（現有 154 項就是這樣），數量從哪來也查不出。
+     一次寫太多筆會把 2000 筆上限吃光，所以超過 50 筆就只寫摘要。 */
+  try{
+    if(toAdd.length<=50){
+      for(const it of toAdd){
+        appendLog({id:uid(),iid:it.id,u:S.user,a:"➕",n:it.n,b:it.b,d:"CSV匯入 初始"+(it.q||0),pq:0,nq:it.q||0,t:ts()});
+      }
+    }else{
+      appendLog({id:uid(),iid:toAdd[0].id,u:S.user,a:"➕",n:"CSV 匯入 "+toAdd.length+" 筆",b:toAdd[0].b||"",d:"CSV匯入（筆數過多，僅記摘要）",pq:0,nq:toAdd[0].q||0,t:ts()});
+    }
+  }catch(e){console.error("import log failed:",e);}
   logActivity("CSV匯入","CSV 匯入新增 "+toAdd.length+" 筆");
   render();
   return{added:toAdd.length,skipped,bad};
