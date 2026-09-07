@@ -61,7 +61,7 @@ button{font-family:inherit;touch-action:manipulation}
 .num-btn.active{border-color:var(--blue);background:var(--blue-light);color:var(--blue)}
 .num-btn:disabled{opacity:.25;cursor:default}
 .stat-card{background:#fff;border-radius:12px;padding:12px;border:1px solid var(--border);box-shadow:var(--shadow)}
-.tab-btn{padding:11px 14px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;color:var(--sub);border-bottom:2.5px solid transparent;transition:all .15s;touch-action:manipulation}
+.tab-btn{padding:11px 14px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;color:var(--sub);border-bottom:2.5px solid transparent;transition:all .15s;touch-action:manipulation;white-space:nowrap}
 .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
 .brand-hdr{display:flex;align-items:center;gap:8px;padding:14px 14px;cursor:pointer;user-select:none;border-bottom:1px solid #f1f5f9;transition:background .1s;touch-action:manipulation}
 .brand-hdr:active{background:#f8fafc}
@@ -78,7 +78,7 @@ button{font-family:inherit;touch-action:manipulation}
   .modal-box{padding:16px;border-radius:14px}
   .row{gap:2px;padding:9px 8px}
   .circle-btn{width:30px;height:30px;font-size:14px}
-  .tab-btn{padding:11px 10px;font-size:12px}
+  .tab-btn{padding:11px 7px;font-size:12px}
 }
 @media(max-width:360px){
   .circle-btn{width:28px;height:28px;font-size:13px}
@@ -606,7 +606,7 @@ async function startRealtimeSync(){
 }
 
 
-async function doAction(type,it,qty,note){
+async function doAction(type,it,qty,note,opts){
   // Mid-flight logout (or any path that null'd S.items) would crash on findIndex below — bail out instead.
   if(!S.items)return {ok:false};
   const back=S.modal&&S.modal.back||null;
@@ -631,7 +631,8 @@ async function doAction(type,it,qty,note){
   // Undo only for in/out (where reverse action is unambiguous server-relative). Audit absolute-set has no clean inverse.
   // Undo flag prevents recursive undo — any note containing 撤銷 (with or without parens) is treated as an undo action and gets no further undo button.
   // Audit now supports undo too — sets q back to the original rq via another audit. Useful when user mistypes the count.
-  const undoOpts=(!note||note.indexOf("撤銷")<0)?{
+  // noUndo：調貨這種「兩邊同時動」的操作不給撤銷 —— 撤銷只會加回我們這邊，對方不會跟著退，帳就對不起來。
+  const undoOpts=((!note||note.indexOf("撤銷")<0)&&!(opts&&opts.noUndo))?{
     label:"↶ 撤銷",
     // If the user logged out while the toast was still on screen, S.items is null and a naive .find throws TypeError — bail out cleanly.
     fn:()=>{
@@ -686,6 +687,254 @@ async function doAction(type,it,qty,note){
   appendLog(S.logs.find(l=>l.id===logEntry.id)||logEntry);
   return {ok:true};
 }
+/* ── 合作店家「立米特」（杰哥 2026-09-08）──────────────────────────
+   他們的庫存**不在**這個 Firebase 裡。原因寫在 2026-09-07 的討論：
+   這個資料庫是「知道網址就能讀全部」的，把外部店家放進來等於把我們的
+   全部庫存＋撈單的客戶資料一起交出去。所以他們那份放在 momo-integration
+   的伺服器上，這個分頁是打 API 去看、去調貨。
+
+   跨網域（這頁在 github.io）＋ cookie 是 SameSite=lax 送不過來，
+   所以用一支只開得了合作店家 API 的連線碼，存在這台裝置的 localStorage。
+   刻意不是 MOMO 那把 API_TOKEN —— 那把可以改平台商品，不該放進公開頁面。 */
+const PARTNER_API="https://momo-integration-production.up.railway.app";
+const PARTNER_ID="limit";
+const PARTNER_NAME="立米特";
+function partnerToken(){try{return localStorage.getItem("ya_partner_ops")||"";}catch(e){return "";}}
+function setPartnerToken(v){try{if(v)localStorage.setItem("ya_partner_ops",v);else localStorage.removeItem("ya_partner_ops");}catch(e){}}
+async function partnerApi(path,opts){
+  const o=opts||{};
+  try{
+    const r=await fetch(PARTNER_API+path,{
+      method:o.method||"GET",
+      headers:{"Content-Type":"application/json","x-partner-ops":partnerToken(),"x-ya-user":encodeURIComponent(S.user||"")},
+      body:o.body?JSON.stringify(o.body):undefined
+    });
+    const j=await r.json().catch(()=>({ok:false,error:"回應不是 JSON"}));
+    if(r.status===401)return {ok:false,error:"連線碼不對或已更換，請重新輸入",badToken:true};
+    return j;
+  }catch(e){return {ok:false,error:"連不上伺服器（"+e.message+"）"};}
+}
+async function loadPartner(force){
+  if(!partnerToken())return;
+  if(S.partner&&S.partner.loading)return;
+  if(S.partner&&S.partner.state&&!force)return;
+  S.partner={...(S.partner||{}),loading:true};render();
+  const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/state");
+  S.partner={loading:false,state:r&&r.ok?r:null,err:(r&&r.ok)?null:((r&&r.error)||"讀取失敗"),badToken:!!(r&&r.badToken)};
+  render();
+}
+function ntw(n){return "$"+(Number(n)||0).toLocaleString();}
+// 對方那邊的時間是 UTC 的 ISO 字串，直接切字串在台灣早上八點後會顯示成前一天
+function pDate(iso){const d=new Date(iso);if(isNaN(d))return String(iso||"").slice(0,10);
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+
+function renderPartnerTab(content){
+  // 還沒設定連線碼 —— 每台裝置輸入一次就好
+  if(!partnerToken()){
+    const c=h("div",{className:"card",style:{padding:"16px"}});
+    c.appendChild(h("div",{style:{fontSize:"15px",fontWeight:700,marginBottom:"6px"}},"🤝 "+PARTNER_NAME));
+    c.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",lineHeight:1.7,marginBottom:"12px"}},
+      "他們的庫存放在我們自己的伺服器（不在這個資料庫裡），要先輸入一次連線碼才看得到。這台裝置輸入過就會記住。"));
+    const inp=h("input",{className:"ipt",placeholder:"貼上連線碼",style:{marginBottom:"10px"}});
+    const btn=h("button",{style:{width:"100%",padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"}},"連線");
+    btn.onclick=async()=>{
+      const v=inp.value.trim();if(!v){showToast("請先貼上連線碼");return;}
+      setPartnerToken(v);S.partner=null;await loadPartner(true);
+      if(S.partner&&S.partner.badToken){setPartnerToken("");showToast("⚠ 連線碼不對");render();}
+    };
+    c.appendChild(inp);c.appendChild(btn);content.appendChild(c);return;
+  }
+  const P=S.partner||{};
+  if(!P.state&&!P.loading&&!P.err)setTimeout(()=>loadPartner(),0);
+  if(P.err){
+    const e=h("div",{className:"card",style:{padding:"16px"}});
+    e.appendChild(h("div",{style:{fontSize:"13px",color:"var(--red)",fontWeight:600,marginBottom:"10px"}},"⚠ "+P.err));
+    e.appendChild(h("button",{style:{padding:"9px 14px",borderRadius:"9px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer",marginRight:"8px"},onClick:()=>loadPartner(true)},"重試"));
+    e.appendChild(h("button",{style:{padding:"9px 14px",borderRadius:"9px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{setPartnerToken("");S.partner=null;render();}},"重新輸入連線碼"));
+    content.appendChild(e);return;
+  }
+  if(!P.state){content.appendChild(h("div",{style:{textAlign:"center",padding:"40px",color:"var(--sub)",fontSize:"13px"}},"⏳ 讀取"+PARTNER_NAME+"的庫存…"));return;}
+  const st=P.state,bal=st.balance||{},tot=st.totals||{};
+
+  // 摘要
+  const sum=h("div",{className:"card",style:{padding:"14px",marginBottom:"12px"}});
+  const grid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:"8px",textAlign:"center"}});
+  [["品項",String(tot.itemCount||0),"var(--text)"],["總數量",String(tot.qty||0),"var(--text)"],
+   ["尚未收款",ntw(bal.due),"var(--red)"],["對方說已付（待確認）",ntw(bal.pending),"var(--orange)"]].forEach(function(row){
+    grid.appendChild(h("div",{style:{background:"#f8fafc",borderRadius:"10px",padding:"10px 6px"}},
+      h("div",{style:{fontSize:"11px",color:"var(--sub)"}},row[0]),
+      h("div",{style:{fontSize:"19px",fontWeight:800,color:row[2],lineHeight:1.4}},row[1])));
+  });
+  sum.appendChild(grid);
+  const btnRow=h("div",{style:{display:"flex",gap:"8px",marginTop:"12px",flexWrap:"wrap"}});
+  if(!isPreview())btnRow.appendChild(h("button",{style:{flex:1,minWidth:"140px",padding:"11px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"transfer",picks:{}};render();}},"📦 調貨過去"));
+  btnRow.appendChild(h("button",{style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>loadPartner(true)},P.loading?"⏳":"🔄 重新整理"));
+  sum.appendChild(btnRow);
+  content.appendChild(sum);
+
+  // 帳務：雙向確認
+  const led=st.ledger||[];
+  const lc=h("div",{className:"card",style:{marginBottom:"12px"}});
+  lc.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px"}},"💰 貨款"));
+  if(!led.length)lc.appendChild(h("div",{style:{padding:"14px",fontSize:"12px",color:"var(--sub)"}},"還沒有任何帳務紀錄。"));
+  led.slice(0,25).forEach(e=>{
+    const isPay=e.kind==="payment";
+    const done=e.status==="confirmed"||e.confirmedAt;
+    const row=h("div",{style:{padding:"10px 14px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}});
+    row.appendChild(h("div",{style:{flex:1,minWidth:"140px"}},
+      h("div",{style:{fontSize:"13px",fontWeight:600}},(isPay?"付款 ":"應收 ")+ntw(e.amount)),
+      h("div",{style:{fontSize:"11px",color:"var(--sub)"}},pDate(e.t)+(e.note?" · "+e.note:""))));
+    if(isPay){
+      row.appendChild(h("span",{style:{fontSize:"11px",fontWeight:700,padding:"3px 9px",borderRadius:"10px",background:done?"#f0fdf4":"#fff7ed",color:done?"var(--green)":"var(--orange)"}},done?"已收款":"對方說已付"));
+      if(!isPreview()){
+        const b=h("button",{style:{padding:"6px 11px",borderRadius:"8px",border:done?"1px solid var(--border)":"none",background:done?"#fff":"var(--blue)",color:done?"var(--sub)":"#fff",fontSize:"12px",fontWeight:700,cursor:"pointer"}},done?"取消確認":"✓ 確認收到");
+        b.onclick=async function(){
+          if(done&&!confirm("要把這筆退回『待確認』嗎？尚未收款會加回去。"))return;
+          this.disabled=true;this.style.opacity=".5";
+          const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/ledger/"+e.id+"/confirm",{method:"POST",body:{undo:!!done}});
+          if(!r.ok){showToast("⚠ "+(r.error||"操作失敗"));this.disabled=false;this.style.opacity="";return;}
+          showToast(done?"已退回待確認":"✅ 已確認收到，尚未收款 "+ntw(r.balance&&r.balance.due));
+          loadPartner(true);
+        };
+        row.appendChild(b);
+      }
+    }
+    lc.appendChild(row);
+  });
+  content.appendChild(lc);
+
+  // 他們的庫存
+  const items=(st.items||[]).slice().sort((a,b)=>(a.b||"").localeCompare(b.b||"")||(a.n||"").localeCompare(b.n||""));
+  const ic=h("div",{className:"card"});
+  ic.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px"}},"📦 "+PARTNER_NAME+"的庫存"));
+  if(!items.length)ic.appendChild(h("div",{style:{padding:"14px",fontSize:"12px",color:"var(--sub)"}},"還沒有庫存。用上面的「調貨過去」把貨撥給他們。"));
+  items.forEach(it=>{
+    const row=h("div",{style:{padding:"9px 14px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px"}});
+    row.appendChild(h("span",{style:{width:"4px",height:"22px",borderRadius:"2px",background:gc(it.b),flexShrink:0}}));
+    row.appendChild(h("div",{style:{flex:1,minWidth:0}},
+      h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+      h("div",{style:{fontSize:"10.5px",color:"var(--sub)"}},(it.b||"")+(it.c?" / "+it.c:"")+" · "+(it.src==="own"?"他們自己進的":"我們調過去的 進價 "+ntw(it.cost)))));
+    row.appendChild(h("span",{style:{fontSize:"15px",fontWeight:800,color:it.q===0?"var(--red)":"var(--blue)",flexShrink:0}},"× "+it.q));
+    ic.appendChild(row);
+  });
+  content.appendChild(ic);
+}
+
+/* 調貨視窗：勾我們的商品 → 我們減、他們加，同時記一筆應收。
+   價錢預設帶那筆貨當初記的進價（杰哥 2026-09-08 拍板「可」），送出前還能改，
+   沒填過進價的就自己打一次。順序刻意是「先加他們、成功了才扣我們」——
+   反過來萬一斷線，貨就會憑空消失。 */
+function renderTransferModal(){
+  if(!S.modal||S.modal.t!=="transfer")return null;
+  const picks=S.modal.picks||{};
+  const kw=(S.modal.kw||"").trim().toLowerCase();
+  const box=h("div",{className:"modal-box",style:{maxWidth:"560px"}});
+  const close=()=>{S.modal=null;render();};
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"12px"}},
+    h("h3",{style:{fontSize:"18px",fontWeight:700,flex:1}},"📦 調貨給 "+PARTNER_NAME),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
+
+  const picked=Object.keys(picks);
+  if(picked.length){
+    const pc=h("div",{style:{border:"1px solid var(--border)",borderRadius:"12px",marginBottom:"12px",overflow:"hidden"}});
+    pc.appendChild(h("div",{style:{padding:"8px 12px",background:"#f8fafc",fontSize:"12px",fontWeight:700,color:"var(--sub)"}},"要調過去的（"+picked.length+" 項）"));
+    let total=0;
+    picked.forEach(id=>{
+      const it=(S.items||[]).find(x=>x.id===id);if(!it)return;
+      const p=picks[id];total+=(p.q||0)*(p.cost||0);
+      const row=h("div",{style:{padding:"9px 12px",borderTop:"1px solid #f1f5f9"}});
+      row.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px",marginBottom:"6px"}},
+        h("div",{style:{flex:1,minWidth:0,fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+        h("button",{style:{background:"none",border:"none",color:"var(--red)",fontSize:"14px",cursor:"pointer",flexShrink:0},onClick:()=>{const np={...picks};delete np[id];S.modal={...S.modal,picks:np};render();}},"✕")));
+      row.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginBottom:"6px"}},"庫存 "+(it.q||0)+"（"+(it.z||"店內")+"）"));
+      // 數量／單價各佔一半，標籤在上面 —— 之前擠成一行，單價會被推到下一行看起來像壞掉
+      const f=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}});
+      const qi=h("input",{className:"ipt",type:"number",inputmode:"numeric",min:"1",max:String(it.q||0),style:{width:"78px",padding:"6px 8px",fontSize:"13px"}});
+      qi.value=String(p.q||1);
+      qi.addEventListener("change",function(){
+        let v=parseInt(this.value,10)||1;if(v<1)v=1;if(v>(it.q||0))v=(it.q||0);
+        S.modal={...S.modal,picks:{...picks,[id]:{...p,q:v}}};render();
+      });
+      const ci=h("input",{className:"ipt",type:"number",inputmode:"numeric",min:"0",style:{width:"96px",padding:"6px 8px",fontSize:"13px"}});
+      ci.value=String(p.cost||0);
+      ci.addEventListener("change",function(){
+        const v=Math.max(0,parseInt(this.value,10)||0);
+        S.modal={...S.modal,picks:{...picks,[id]:{...p,cost:v}}};render();
+      });
+      qi.style.width="100%";ci.style.width="100%";
+      f.appendChild(h("div",{},h("div",{style:{fontSize:"11px",color:"var(--sub)",fontWeight:700,marginBottom:"3px"}},"數量"),qi));
+      f.appendChild(h("div",{},h("div",{style:{fontSize:"11px",color:"var(--sub)",fontWeight:700,marginBottom:"3px"}},"單價（預設帶進價）"),ci));
+      row.appendChild(f);
+      if(!p.cost)row.appendChild(h("div",{style:{fontSize:"11px",color:"var(--orange)",marginTop:"4px"}},"⚠ 這筆沒有記進價，單價留 0 就不會產生應收"));
+      pc.appendChild(row);
+    });
+    pc.appendChild(h("div",{style:{padding:"10px 12px",borderTop:"1px solid var(--border)",background:"#f8fafc",display:"flex",justifyContent:"space-between",fontSize:"14px",fontWeight:800}},
+      h("span",{},"這次應收合計"),h("span",{style:{color:"var(--blue)"}},ntw(total))));
+    box.appendChild(pc);
+  }
+
+  const si=h("input",{className:"ipt",placeholder:"搜尋要調的商品（品名／品牌／分類）",style:{marginBottom:"8px"}});
+  si.value=S.modal.kw||"";
+  si.addEventListener("input",function(){clearTimeout(window._tfTimer);const v=this.value;window._tfTimer=setTimeout(()=>{S.modal={...S.modal,kw:v};render();},150);});
+  box.appendChild(si);
+
+  const pool=(S.items||[]).filter(x=>(x.q||0)>0&&!picks[x.id]);
+  const hits=kw?pool.filter(x=>((x.n||"")+" "+(x.b||"")+" "+(x.c||"")).toLowerCase().includes(kw)).slice(0,40):[];
+  const listBox=h("div",{style:{maxHeight:"240px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"10px",marginBottom:"12px"}});
+  if(!kw)listBox.appendChild(h("div",{style:{padding:"18px 12px",textAlign:"center",fontSize:"12px",color:"var(--sub)"}},"打字搜尋要調過去的商品"));
+  else if(!hits.length)listBox.appendChild(h("div",{style:{padding:"18px 12px",textAlign:"center",fontSize:"12px",color:"var(--sub)"}},"沒有符合又有庫存的商品"));
+  hits.forEach(it=>{
+    const row=h("div",{style:{padding:"8px 12px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"}});
+    row.onclick=()=>{S.modal={...S.modal,picks:{...picks,[it.id]:{q:1,cost:Math.max(0,parseInt(it.cost,10)||0)}}};render();};
+    row.appendChild(h("span",{style:{width:"4px",height:"22px",borderRadius:"2px",background:gc(it.b),flexShrink:0}}));
+    row.appendChild(h("div",{style:{flex:1,minWidth:0}},
+      h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+      h("div",{style:{fontSize:"10.5px",color:"var(--sub)"}},(it.b||"")+" / "+(it.c||"")+" · "+(it.z||"店內")+" · 庫存 "+(it.q||0)+((parseInt(it.cost,10)||0)?" · 進價 "+ntw(it.cost):" · 沒填進價"))));
+    row.appendChild(h("span",{style:{fontSize:"18px",color:"var(--green)",flexShrink:0}},"＋"));
+    listBox.appendChild(row);
+  });
+  box.appendChild(listBox);
+
+  const noteI=h("input",{className:"ipt",placeholder:"備註（會寫進雙方紀錄，例：9/8 第一批）",style:{marginBottom:"12px"}});
+  noteI.value=S.modal.note||"";
+  noteI.addEventListener("change",function(){S.modal={...S.modal,note:this.value};});
+  box.appendChild(noteI);
+
+  const go=h("button",{disabled:!picked.length||!!S.modal.busy,style:{width:"100%",padding:"13px",borderRadius:"11px",border:"none",background:picked.length?"var(--green)":"#e2e8f0",color:picked.length?"#fff":"var(--sub)",fontSize:"15px",fontWeight:700,cursor:picked.length?"pointer":"default"}},S.modal.busy?"⏳ 調貨中…":"確認調貨");
+  go.onclick=async function(){
+    if(!picked.length||S.modal.busy)return;
+    const lines=[],ours=[];
+    picked.forEach(id=>{
+      const it=(S.items||[]).find(x=>x.id===id);if(!it)return;
+      const p=picks[id];const q=Math.min(p.q||1,it.q||0);
+      if(q<1)return;
+      lines.push({n:it.n,b:it.b,c:it.c,q:q,cost:p.cost||0,price:parseInt(it.price,10)||0});
+      ours.push({it:it,q:q});
+    });
+    if(!lines.length){showToast("⚠ 沒有可調的數量");return;}
+    const total=lines.reduce((s,l)=>s+l.q*l.cost,0);
+    const pcs=lines.reduce((s,l)=>s+l.q,0);
+    if(!confirm("確定把 "+lines.length+" 項（共 "+pcs+" 件）調給"+PARTNER_NAME+"？這次應收 "+ntw(total)+"。我們的庫存會同步扣掉。"))return;
+    S.modal={...S.modal,busy:true};render();
+    const note=(S.modal.note||"").trim();
+    const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/transfer",{method:"POST",body:{lines:lines,note:note||("調貨 "+dateStr())}});
+    if(!r||!r.ok){S.modal={...S.modal,busy:false};render();showToast("⚠ 調貨失敗："+((r&&r.error)||"未知錯誤")+"（我們的庫存沒有動）");return;}
+    // 他們那邊成功了才扣我們的。noUndo：撤銷只會加回我們這邊、對方不會跟著退，帳會對不起來。
+    const failed=[];
+    for(const o of ours){
+      const cur=(S.items||[]).find(x=>x.id===o.it.id)||o.it;
+      const res=await doAction("out",cur,o.q,"調貨→"+PARTNER_NAME,{noUndo:true});
+      if(!res||!res.ok)failed.push(o.it.n);
+    }
+    S.modal=null;
+    if(failed.length)showToast("⚠ 已調給對方，但我們這邊這幾項沒扣成功，請手動出貨："+failed.join("、"));
+    else showToast("✅ 已調給"+PARTNER_NAME+" "+pcs+" 件，應收 "+ntw(total));
+    loadPartner(true);
+  };
+  box.appendChild(go);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:()=>{if(!S.modal.busy)close();}}),box);
+}
+
 function normalizeImgUrl(url){
   if(!url)return "";
   url=url.trim();
@@ -2715,10 +2964,10 @@ function renderMain(){
       h("button",{style:{fontSize:"12px",color:"var(--sub)",background:"#fff",border:"1px solid var(--border)",borderRadius:"8px",padding:"6px 12px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"dup"};render();}},"🔁 檢查重複品項")));
   }
   // Tabs — log tab shows a small today-count badge so users can see "12 things happened today" at a glance.
-  const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 16px",borderBottom:"1px solid var(--border)",background:"#fff"}});
+  const tabBar=h("div",{style:{display:"flex",alignItems:"center",padding:"0 16px",borderBottom:"1px solid var(--border)",background:"#fff",overflowX:"auto",scrollbarWidth:"none"}});
   const todayStr=(()=>{const d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0");})();
   const todayLogCount=(S.logs||[]).filter(l=>dateOnly(l.t)===todayStr).length;
-  [{k:"store",l:"🏪 店內"},{k:"warehouse",l:"🏭 倉庫"},{k:"log",l:"📜 紀錄",badge:todayLogCount},{k:"stats",l:"📊 統計"}].forEach(t=>{
+  [{k:"store",l:"🏪 店內"},{k:"warehouse",l:"🏭 倉庫"},{k:"partner",l:"🤝 立米特"},{k:"log",l:"📜 紀錄",badge:todayLogCount},{k:"stats",l:"📊 統計"}].forEach(t=>{
     const btn=h("button",{className:"tab-btn"+(S.tab===t.k?" active":""),onClick:()=>{if(S.tab!==t.k){S.tab=t.k;S._skipScrollRestore=true;render();}}},t.l);
     if(t.badge&&t.badge>0){btn.appendChild(h("span",{style:{display:"inline-block",marginLeft:"4px",padding:"1px 7px",borderRadius:"10px",background:S.tab===t.k?"var(--blue)":"#cbd5e1",color:"#fff",fontSize:"10px",fontWeight:700,verticalAlign:"middle",lineHeight:1.3}},String(t.badge>99?"99+":t.badge)));}
     tabBar.appendChild(btn);
@@ -2915,6 +3164,8 @@ function renderMain(){
       }
       content.appendChild(empty);
     }
+  }else if(S.tab==="partner"){
+    renderPartnerTab(content);
   }else if(S.tab==="log"){
     // Search bar (row 1)
     const hasFilter=S.logSearch||S.logDateFrom||S.logDateTo||S.logBrand||S.logAction;
@@ -3418,6 +3669,7 @@ function renderMain(){
   const am=renderActionModal();if(am)root.appendChild(am);
   const adm=renderAddModal();if(adm)root.appendChild(adm);
   const em=renderExportModal();if(em)root.appendChild(em);
+  const tfm=renderTransferModal();if(tfm)root.appendChild(tfm);
   const dm=renderDetailModal();if(dm)root.appendChild(dm);
   const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
   const bdcm=renderBulkDelConfirmModal();if(bdcm)root.appendChild(bdcm);
