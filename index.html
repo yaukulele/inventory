@@ -815,9 +815,65 @@ function renderPartnerTab(content){
       h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
       h("div",{style:{fontSize:"10.5px",color:"var(--sub)"}},(it.b||"")+(it.c?" / "+it.c:"")+" · "+(it.src==="own"?"他們自己進的":"我們調過去的 進價 "+ntw(it.cost)))));
     row.appendChild(h("span",{style:{fontSize:"15px",fontWeight:800,color:it.q===0?"var(--red)":"var(--blue)",flexShrink:0}},"× "+it.q));
+    // 進價只有我們改得動 —— 店家那頁按了會被伺服器擋（updateItem isAdmin:false）
+    if(!isPreview())row.appendChild(h("button",{title:"改進價／建議售價",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",cursor:"pointer"},onClick:()=>{S.modal={t:"pitem",id:it.id};render();}},"✏️"));
     ic.appendChild(row);
   });
   content.appendChild(ic);
+}
+
+/* 改店家品項的進價／建議售價（只有我們這邊做得到）。
+   ⚠ 這裡改的是「這批貨現在記多少錢」，**不會回頭去改已經記過的應收**。
+   應收是調貨當下用「數量 × 當時的進價」算好存起來的一筆數字，
+   改品項不會動到它 —— 不然過去每一筆帳都會跟著浮動，對不完。
+   進價打錯要修帳，得另外在貨款那邊做調整（目前還沒有這個功能，已列給杰哥）。 */
+function renderPartnerItemModal(){
+  if(!S.modal||S.modal.t!=="pitem")return null;
+  const st=(S.partner&&S.partner.state)||null;
+  const it=st&&(st.items||[]).find(x=>x.id===S.modal.id);
+  const close=()=>{S.modal=null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"420px"}});
+  if(!it){
+    box.appendChild(h("div",{style:{fontSize:"14px",marginBottom:"12px"}},"找不到這個品項，請重新整理。"));
+    box.appendChild(h("button",{style:{width:"100%",padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:close},"關閉"));
+    return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
+  }
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"4px"}},
+    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1}},"✏️ 改價"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
+  box.appendChild(h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"2px"}},it.n));
+  box.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginBottom:"12px"}},
+    (it.b||"")+(it.c?" / "+it.c:"")+" · 庫存 "+it.q+" · "+(it.src==="own"?"他們自己進的":"我們調過去的")));
+
+  const warn=h("div",{style:{background:"#fff7ed",border:"1px solid #fdba74",borderRadius:"10px",padding:"9px 11px",fontSize:"11.5px",color:"#9a3412",lineHeight:1.7,marginBottom:"12px"}},
+    "改這裡只會改「這批貨現在記多少錢」，已經記過的應收不會跟著變 —— 調貨當下就用當時的進價算成一筆帳存起來了。進價打錯要修帳，要另外處理。");
+  box.appendChild(warn);
+
+  const mk=(label,val,hint)=>{
+    const w=h("div",{style:{marginBottom:"10px"}});
+    w.appendChild(h("div",{style:{fontSize:"12px",fontWeight:600,color:"var(--sub)",marginBottom:"4px"}},label));
+    const i=h("input",{className:"ipt",type:"number",inputmode:"numeric",min:"0"});
+    i.value=String(val||0);
+    w.appendChild(i);
+    if(hint)w.appendChild(h("div",{style:{fontSize:"10.5px",color:"var(--sub)",marginTop:"3px"}},hint));
+    box.appendChild(w);
+    return i;
+  };
+  const costI=mk("進價（我們給他們的價）",it.cost,it.src==="own"?"這是他們自己進的貨，填了也不會產生應收":"");
+  const priceI=mk("建議售價",it.price,"給他們賣的參考價，不影響帳");
+
+  const go=h("button",{style:{width:"100%",padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer",marginTop:"4px"}},"儲存");
+  go.onclick=async function(){
+    const cost=Math.max(0,parseInt(costI.value,10)||0);
+    const price=Math.max(0,parseInt(priceI.value,10)||0);
+    if(cost===(it.cost||0)&&price===(it.price||0)){showToast("沒有改動");return;}
+    this.disabled=true;this.style.opacity=".5";this.textContent="⏳ 儲存中…";
+    const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/item/"+it.id,{method:"PUT",body:{cost:cost,price:price}});
+    if(!r||!r.ok){this.disabled=false;this.style.opacity="";this.textContent="儲存";showToast("⚠ "+((r&&r.error)||"存不進去"));return;}
+    S.modal=null;showToast("✅ 已更新（帳務金額沒有變動）");loadPartner(true);
+  };
+  box.appendChild(go);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
 }
 
 /* 調貨視窗：勾我們的商品 → 我們減、他們加，同時記一筆應收。
@@ -3670,6 +3726,7 @@ function renderMain(){
   const adm=renderAddModal();if(adm)root.appendChild(adm);
   const em=renderExportModal();if(em)root.appendChild(em);
   const tfm=renderTransferModal();if(tfm)root.appendChild(tfm);
+  const pim=renderPartnerItemModal();if(pim)root.appendChild(pim);
   const dm=renderDetailModal();if(dm)root.appendChild(dm);
   const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
   const bdcm=renderBulkDelConfirmModal();if(bdcm)root.appendChild(bdcm);
