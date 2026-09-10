@@ -472,7 +472,39 @@ function fbLoadUsersCached(){if(_usersPromise)return _usersPromise;_usersPromise
 let _initialFbLoadPromise=null;
 function fbLoadInitial(){if(_initialFbLoadPromise)return _initialFbLoadPromise;_initialFbLoadPromise=fbLoad();return _initialFbLoadPromise;}
 function resetLoginPrefetch(){_usersPromise=null;_initialFbLoadPromise=null;}
-// User accounts. Plaintext passwords (admin needs to see them per user requirement). Seeded on first load if /inventory/users is empty.
+/* ── 密碼加密（杰哥 2026-09-10）──
+   這個資料庫是 `.read` 全開的：不用帳密、知道網址就 curl 得到 inventory/users，
+   所以密碼存明文＝直接公開。改成只存 salt + SHA-256(salt|密碼)。
+
+   要說清楚這件事**不會**帶來什麼：它不會讓登入變得擋得住。這個登入是前端比對，
+   懂的人開開發者工具就能繞過，真正的門是 Firebase 規則（另外處理）。
+   它擋掉的是**密碼外流真正的傷害**——員工在銀行／LINE／Google 用同一組密碼。
+   撿到一串雜湊沒辦法拿去別的地方試。
+
+   相容做法：舊帳號還是明文 → 比對得過就當場升級成加密，使用者完全無感。
+   代價（杰哥要知道）：**管理員以後看不到密碼原文了**，改成可以「重設」。
+   雜湊本來就是單向的，要能看到原文就等於沒加密，兩者無法並存。 */
+const _pwEnc = new TextEncoder();
+function _pwSalt(){const a=new Uint8Array(16);crypto.getRandomValues(a);return Array.from(a).map(x=>x.toString(16).padStart(2,"0")).join("");}
+async function _pwHash(salt,pw){
+  const buf=await crypto.subtle.digest("SHA-256",_pwEnc.encode(String(salt)+"|"+String(pw)));
+  return Array.from(new Uint8Array(buf)).map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+async function pwFields(pw){const salt=_pwSalt();return {salt,hash:await _pwHash(salt,pw),pass:null};}
+async function pwVerify(rec,entered){
+  if(!rec)return false;
+  if(rec.hash&&rec.salt){try{return (await _pwHash(rec.salt,entered))===rec.hash;}catch(e){return false;}}
+  return String(rec.pass||"")===String(entered);   // 還沒升級的舊帳號
+}
+function pwIsLegacy(rec){return !!(rec&&!rec.hash&&rec.pass!=null);}
+// 登入成功當下順手升級；失敗不影響登入（下次再試）
+async function pwUpgrade(username,rec,entered){
+  if(!pwIsLegacy(rec))return false;
+  try{ const f=await pwFields(entered); return await fbSetUserField(username,f); }
+  catch(e){ console.error("pwUpgrade failed:",e); return false; }
+}
+
+// User accounts. 密碼存 salt+hash（舊資料若還是明文，登入成功時會自動升級）。Seeded on first load if /inventory/users is empty.
 async function fbLoadUsers(){
   try{
     await authReady;
@@ -482,7 +514,12 @@ async function fbLoadUsers(){
     const users=snap.val();
     if(!users||typeof users!=="object"||!Object.keys(users).length){
       // First-time setup: seed default users. Same timeout guard — offline first-login would otherwise hang on dbU.set forever.
-      const seed=Object.fromEntries(Object.entries(SEED_USERS).map(([k,v])=>[k,{...v,createdAt:Date.now()}]));
+      // 種子帳號也直接存加密的，不要再種出一批明文
+      const seed={};
+      for(const [k,v] of Object.entries(SEED_USERS)){
+        const f=await pwFields(v.pass);
+        seed[k]={role:v.role,salt:f.salt,hash:f.hash,createdAt:Date.now()};
+      }
       await Promise.race([dbU.set(seed),tm(8000)]);
       return seed;
     }
@@ -1805,7 +1842,9 @@ function renderLogin(){
     if(!users){errorEl.textContent="⚠ 連線失敗，請重試";reset();return;}
     const userRecord=users[pickedUser];
     if(!userRecord){errorEl.textContent="⚠ 帳號不存在";reset();return;}
-    if((userRecord.pass||"")!==enteredPass){errorEl.textContent="⚠ 密碼錯誤";reset();return;}
+    if(!(await pwVerify(userRecord,enteredPass))){errorEl.textContent="⚠ 密碼錯誤";reset();return;}
+    // 舊的明文帳號 → 登入成功順手換成加密（使用者無感）
+    if(pwIsLegacy(userRecord)){pwUpgrade(pickedUser,userRecord,enteredPass).then(okk=>{if(okk)_usersPromise=null;});}
     // Success
     S.user=pickedUser;
     S.role=userRecord.role||"user";
@@ -1845,8 +1884,8 @@ function renderLogin(){
     // 直接讀最新的 users（不走 cache）— 密碼可能剛在別台被改過
     const users=await fbLoadUsers().catch(()=>null);
     if(!users||!users[u])return done("⚠ 連線失敗或找不到帳號",false);
-    if((users[u].pass||"")!==o)return done("⚠ 目前密碼錯誤",false);
-    const ok=await fbSetUserField(u,{pass:n});
+    if(!(await pwVerify(users[u],o)))return done("⚠ 目前密碼錯誤",false);
+    const ok=await fbSetUserField(u,await pwFields(n));
     if(!ok)return done("⚠ 儲存失敗，請重試",false);
     _usersPromise=null;  // 清掉登入用的 users 快取，否則接著登入會拿到剛被換掉的舊密碼
     try{localStorage.setItem("inv_pass",n);}catch(e){}
@@ -2537,8 +2576,8 @@ function renderAccountModal(){
     this.disabled=true;this.textContent="儲存中…";
     const users=await fbLoadUsers();
     if(!users||!users[S.user]){pwMsg.textContent="⚠ 找不到帳號資料";this.disabled=false;this.textContent="💾 儲存新密碼";return;}
-    if((users[S.user].pass||"")!==oldPw){pwMsg.textContent="⚠ 目前密碼錯誤";this.disabled=false;this.textContent="💾 儲存新密碼";return;}
-    const ok=await fbSetUserField(S.user,{pass:newPw});
+    if(!(await pwVerify(users[S.user],oldPw))){pwMsg.textContent="⚠ 目前密碼錯誤";this.disabled=false;this.textContent="💾 儲存新密碼";return;}
+    const ok=await fbSetUserField(S.user,await pwFields(newPw));
     if(!ok){pwMsg.textContent="⚠ 儲存失敗";this.disabled=false;this.textContent="💾 儲存新密碼";return;}
     try{localStorage.setItem("inv_pass",newPw);}catch(e){}
     logActivity("改自己密碼");
@@ -2556,6 +2595,36 @@ function renderAccountModal(){
     rdSave.onclick=async function(){const v=parseInt(rdInp.value,10);if(!isFinite(v)||v<0){showToast("請輸入 0 以上的整數");return;}this.disabled=true;this.textContent="儲存中…";try{await dbSet.child("reorderDefault").set(v);S.settings.reorderDefault=v;logActivity("設定叫貨門檻","全店叫貨門檻設為 "+v);showToast("✅ 全店叫貨門檻設為 "+v);render();}catch(e){this.disabled=false;this.textContent="儲存";showToast("⚠ 儲存失敗，請重試");}};
     box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"16px"}},rdInp,rdSave));
     box.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,marginBottom:"8px"}},"👥 管理所有帳號"));
+    /* 一鍵把還沒加密的密碼補上（杰哥 2026-09-10）。
+       登入時本來就會自動升級，但那要等每個人各自登入一次 ——
+       在那之前明文還攤在資料庫裡。這顆按鈕現在就全部處理掉。
+       不會有人被鎖在外面：明文還在，是拿它算雜湊，密碼本身沒有變。 */
+    if(S.users){
+      const legacyNames=Object.keys(S.users).filter(k=>pwIsLegacy(S.users[k]));
+      if(legacyNames.length){
+        const mw=h("div",{style:{border:"1px solid #fdba74",background:"#fff7ed",borderRadius:"10px",padding:"10px",marginBottom:"10px"}});
+        mw.appendChild(h("div",{style:{fontSize:"12px",fontWeight:700,color:"#9a3412",marginBottom:"4px"}},"⚠ 還有 "+legacyNames.length+" 個帳號的密碼是明文"));
+        mw.appendChild(h("div",{style:{fontSize:"11px",color:"#9a3412",lineHeight:1.6,marginBottom:"8px"}},
+          legacyNames.join("、")+"。這幾個人下次登入會自動轉成加密，也可以現在一次處理掉。密碼不會變，不會有人被鎖在外面。"));
+        const mb=h("button",{style:{width:"100%",padding:"10px",borderRadius:"9px",border:"none",background:"var(--orange)",color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer"}},"🔒 現在全部加密");
+        mb.onclick=async function(){
+          if(!confirm("要把 "+legacyNames.length+" 個帳號的密碼轉成加密嗎？\n密碼本身不會變，大家照原本的密碼登入。"))return;
+          this.disabled=true;this.style.opacity=".5";this.textContent="⏳ 處理中…";
+          let done=0,fail=0;
+          for(const nm of legacyNames){
+            const rec=S.users[nm];
+            const okk=await fbSetUserField(nm,await pwFields(rec.pass));
+            okk?done++:fail++;
+          }
+          _usersPromise=null;
+          logActivity("把 "+done+" 個帳號的密碼轉成加密");
+          showToast(fail?("✅ 完成 "+done+" 個，失敗 "+fail+" 個"):("✅ "+done+" 個帳號的密碼都加密了"));
+          render();
+        };
+        mw.appendChild(mb);
+        box.appendChild(mw);
+      }
+    }
     if(!S.users){
       const loadBtn=h("button",{style:{width:"100%",padding:"10px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"13px",cursor:"pointer",marginBottom:"10px"}},"📋 載入帳號清單");
       loadBtn.onclick=async function(){this.disabled=true;this.textContent="載入中…";const u=await fbLoadUsers();if(u){S.users=u;render();}else{this.disabled=false;this.textContent="📋 載入帳號清單";}};
@@ -2567,7 +2636,9 @@ function renderAccountModal(){
         const row=h("div",{style:{padding:"10px 12px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px",fontSize:"13px"}});
         row.appendChild(h("div",{style:{flex:1,minWidth:0}},
           h("div",{style:{fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:uname},uname,h("span",{style:{marginLeft:"6px",fontSize:"10px",padding:"1px 6px",borderRadius:"6px",background:udata.role==="admin"?"#dcfce7":"#f1f5f9",color:udata.role==="admin"?"#15803d":"var(--sub)",fontWeight:600}},udata.role==="admin"?"管理員":"使用者")),
-          h("div",{style:{fontSize:"11px",color:"var(--sub)",fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:udata.pass||""},"密碼：",h("b",{style:{color:"var(--orange)"}},udata.pass||"(未設定)"))
+          // 密碼已加密＝單向，看不到原文（這正是加密的意義）。要幫人換密碼就直接在下面重設。
+          h("div",{style:{fontSize:"11px",color:"var(--sub)",fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:pwIsLegacy(udata)?"這個帳號還是舊的明文，下次登入會自動轉成加密":"已加密，看不到原文；要換密碼請直接重設"},
+            "密碼：",h("b",{style:{color:pwIsLegacy(udata)?"var(--red)":"var(--sub)"}},pwIsLegacy(udata)?"⚠ 還沒加密":"🔒 已加密"))
         ));
         // Edit pass button
         row.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,flexShrink:0},onClick:()=>{S.modal={t:"account-edit",target:uname,back:S.modal};render();}},"改密"));
@@ -2666,7 +2737,8 @@ function renderAccountEditModal(){
     msg.textContent="";
     const np=newI.value;
     const oldRec=S.users&&S.users[target]||{};
-    const pwChanged=np.length>0&&(oldRec.pass||"")!==np;
+    // 加密之後比不出「新密碼跟舊的一樣」，所以只要有填就當成要改
+    const pwChanged=np.length>0;
     const roleChanged=(oldRec.role||"user")!==roleSel.value;
     // Previously required password every time even when admin only wanted to flip the role — forced admins to look up the current pass before demoting. Allow empty newI to mean "keep password unchanged".
     if(!pwChanged&&!roleChanged){msg.textContent="⚠ 沒有變更";return;}
@@ -2677,7 +2749,7 @@ function renderAccountEditModal(){
     }
     this.disabled=true;this.textContent="儲存中…";
     const patch={role:roleSel.value};
-    if(pwChanged)patch.pass=np;
+    if(pwChanged)Object.assign(patch,await pwFields(np));
     const ok=await fbSetUserField(target,patch);
     if(!ok){msg.textContent="⚠ 儲存失敗";this.disabled=false;this.textContent="💾 儲存";return;}
     if(target===S.user){
@@ -4272,7 +4344,8 @@ async function tryAutoLogin(){
   if(!users)return bail();
   const rec=users[u];
   // 密碼在別的裝置被改過 → 清掉存的舊密碼，讓人手動輸入新的
-  if(!rec||(rec.pass||"")!==p){try{localStorage.removeItem("inv_pass");}catch(e){}return bail();}
+  if(!rec||!(await pwVerify(rec,p))){try{localStorage.removeItem("inv_pass");}catch(e){}return bail();}
+  if(pwIsLegacy(rec))pwUpgrade(u,rec,p);
   if(S.phase==="ready")return;  // 使用者在這段等待中已手動登入完成，不要重跑一次
   S.user=u;S.role=rec.role||"user";S.users=users;
   _mnPrompted=false;
