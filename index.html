@@ -768,6 +768,8 @@ function renderPartnerTab(content){
   sum.appendChild(grid);
   const btnRow=h("div",{style:{display:"flex",gap:"8px",marginTop:"12px",flexWrap:"wrap"}});
   if(!isPreview())btnRow.appendChild(h("button",{style:{flex:1,minWidth:"140px",padding:"11px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"transfer",picks:{}};render();}},"📦 調貨過去"));
+  if(!isPreview())btnRow.appendChild(h("button",{title:"帳算錯了、要折讓，補一筆修正（可以是負數）",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"padjust"};render();}},"✏️ 調整帳款"));
+  if(!isPreview())btnRow.appendChild(h("button",{title:"把庫存＋帳務下載成一個檔案存起來（伺服器每天也會自己備一份）",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:function(){downloadPartnerBackup(this);}},"⬇️ 下載備份"));
   btnRow.appendChild(h("button",{style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>loadPartner(true)},P.loading?"⏳":"🔄 重新整理"));
   sum.appendChild(btnRow);
   content.appendChild(sum);
@@ -779,12 +781,33 @@ function renderPartnerTab(content){
   if(!led.length)lc.appendChild(h("div",{style:{padding:"14px",fontSize:"12px",color:"var(--sub)"}},"還沒有任何帳務紀錄。"));
   led.slice(0,25).forEach(e=>{
     const isPay=e.kind==="payment";
+    const isAdj=e.kind==="adjust";
     const done=e.status==="confirmed"||e.confirmedAt;
-    const row=h("div",{style:{padding:"10px 14px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}});
+    const row=h("div",{style:{padding:"10px 14px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap",opacity:e.voided?".55":"1"}});
+    const label=(isPay?"付款 ":isAdj?"調整 ":"應收 ")+(isAdj&&e.amount<0?"−"+ntw(Math.abs(e.amount)):ntw(e.amount));
     row.appendChild(h("div",{style:{flex:1,minWidth:"140px"}},
-      h("div",{style:{fontSize:"13px",fontWeight:600}},(isPay?"付款 ":"應收 ")+ntw(e.amount)),
-      h("div",{style:{fontSize:"11px",color:"var(--sub)"}},pDate(e.t)+(e.note?" · "+e.note:""))));
-    if(isPay){
+      h("div",{style:{fontSize:"13px",fontWeight:600,textDecoration:e.voided?"line-through":"none"}},label),
+      h("div",{style:{fontSize:"11px",color:"var(--sub)"}},pDate(e.t)+(e.note?" · "+e.note:"")+(e.voided?"　已作廢"+(e.voidReason?"（"+e.voidReason+"）":"")+(e.voidedBy?" by "+e.voidedBy:""):""))));
+    // 作廢／取消作廢 —— 帳不用刪的，作廢後金額不算但紀錄留著
+    if(!isPreview()){
+      const vb=h("button",{style:{padding:"6px 11px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:e.voided?"var(--sub)":"var(--red)",fontSize:"12px",fontWeight:700,cursor:"pointer"}},e.voided?"取消作廢":"作廢");
+      vb.onclick=async function(){
+        let reason="";
+        if(e.voided){ if(!confirm("要把這筆恢復嗎？金額會重新算進帳裡。"))return; }
+        else{
+          reason=prompt("作廢「"+label+"」的原因？（會留在紀錄上）","");
+          if(reason===null)return;
+          if(!reason.trim()){showToast("⚠ 一定要寫原因");return;}
+        }
+        this.disabled=true;this.style.opacity=".5";
+        const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/ledger/"+e.id+"/void",{method:"POST",body:{reason:reason,undo:!!e.voided}});
+        if(!r||!r.ok){this.disabled=false;this.style.opacity="";showToast("⚠ "+((r&&r.error)||"操作失敗"));return;}
+        showToast(e.voided?"已恢復，尚未收款 "+ntw(r.balance&&r.balance.due):"已作廢，尚未收款 "+ntw(r.balance&&r.balance.due));
+        loadPartner(true);
+      };
+      row.appendChild(vb);
+    }
+    if(isPay&&!e.voided){
       row.appendChild(h("span",{style:{fontSize:"11px",fontWeight:700,padding:"3px 9px",borderRadius:"10px",background:done?"#f0fdf4":"#fff7ed",color:done?"var(--green)":"var(--orange)"}},done?"已收款":"對方說已付"));
       if(!isPreview()){
         const b=h("button",{style:{padding:"6px 11px",borderRadius:"8px",border:done?"1px solid var(--border)":"none",background:done?"#fff":"var(--blue)",color:done?"var(--sub)":"#fff",fontSize:"12px",fontWeight:700,cursor:"pointer"}},done?"取消確認":"✓ 確認收到");
@@ -820,6 +843,62 @@ function renderPartnerTab(content){
     ic.appendChild(row);
   });
   content.appendChild(ic);
+}
+
+/* 調整帳款（杰哥 2026-09-10）：帳算錯了、要折讓，補一筆修正。
+   刻意用「再記一筆」而不是回頭改原本那筆 —— 原始交易要留著，
+   不然事後看不出「當初記了多少、後來為什麼變了」。金額可以是負的。 */
+function renderPartnerAdjustModal(){
+  if(!S.modal||S.modal.t!=="padjust")return null;
+  const close=()=>{S.modal=null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"420px"}});
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"10px"}},
+    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1}},"✏️ 調整帳款"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
+  box.appendChild(h("div",{style:{background:"#f8fafc",borderRadius:"10px",padding:"9px 11px",fontSize:"11.5px",color:"var(--sub)",lineHeight:1.7,marginBottom:"12px"}},
+    "填正數＝應收要加（少算了）；填負數＝應收要減（多算了、折讓）。原本那筆不會被改掉，這裡是另外補一筆修正紀錄。整筆記錯的話用那一列的「作廢」比較乾淨。"));
+  box.appendChild(h("div",{style:{fontSize:"12px",fontWeight:600,color:"var(--sub)",marginBottom:"4px"}},"金額（可以是負數）"));
+  const amtI=h("input",{className:"ipt",type:"number",inputmode:"numeric",placeholder:"例：-900"});
+  box.appendChild(amtI);
+  box.appendChild(h("div",{style:{fontSize:"12px",fontWeight:600,color:"var(--sub)",margin:"10px 0 4px"}},"原因（必填）"));
+  const noteI=h("input",{className:"ipt",placeholder:"例：FP-30X 進價打錯，多算 900"});
+  box.appendChild(noteI);
+  const go=h("button",{style:{width:"100%",padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer",marginTop:"14px"}},"記一筆");
+  go.onclick=async function(){
+    const amount=parseInt(amtI.value,10);
+    const note=(noteI.value||"").trim();
+    if(!amount){showToast("⚠ 金額不能是 0 或空白");return;}
+    if(!note){showToast("⚠ 一定要寫原因");return;}
+    if(!confirm("要記一筆調整 "+(amount<0?"−":"+")+ntw(Math.abs(amount))+" 嗎？\n原因："+note))return;
+    this.disabled=true;this.style.opacity=".5";this.textContent="⏳ 記錄中…";
+    const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/ledger",{method:"POST",body:{kind:"adjust",amount:amount,note:note}});
+    if(!r||!r.ok){this.disabled=false;this.style.opacity="";this.textContent="記一筆";showToast("⚠ "+((r&&r.error)||"記不進去"));return;}
+    S.modal=null;showToast("✅ 已記錄，尚未收款 "+ntw(r.balance&&r.balance.due));loadPartner(true);
+  };
+  box.appendChild(go);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
+}
+
+/* 下載一份完整備份存到自己電腦 —— 伺服器每天也會自己備一份（保留 30 天），
+   但那份跟正式資料在同一顆磁碟，整顆掛掉就一起沒了。這顆按鈕才是真的異地備份。
+   不能用單純的連結，因為要帶連線碼的 header，所以走 fetch → blob。 */
+async function downloadPartnerBackup(btn){
+  const old=btn.textContent;btn.disabled=true;btn.textContent="⏳ 產生中…";
+  try{
+    const r=await fetch(PARTNER_API+"/api/ya/partner/"+PARTNER_ID+"/export",{
+      headers:{"x-partner-ops":partnerToken(),"x-ya-user":encodeURIComponent(S.user||"")}});
+    if(!r.ok){showToast("⚠ 下載失敗（"+r.status+"）");return;}
+    const txt=await r.text();
+    const url=URL.createObjectURL(new Blob([txt],{type:"application/json"}));
+    const a=document.createElement("a");
+    // dateStr() 是 "09/10"，斜線不能當檔名 —— 這裡另外組 YYYY-MM-DD
+    const _d=new Date(),_fn=_d.getFullYear()+"-"+String(_d.getMonth()+1).padStart(2,"0")+"-"+String(_d.getDate()).padStart(2,"0");
+    a.href=url;a.download=PARTNER_ID+"-backup-"+_fn+".json";
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+    showToast("✅ 已下載（"+Math.round(txt.length/1024)+" KB）");
+  }catch(e){showToast("⚠ 下載失敗："+e.message);}
+  finally{btn.disabled=false;btn.textContent=old;}
 }
 
 /* 改店家品項的進價／建議售價（只有我們這邊做得到）。
@@ -3727,6 +3806,7 @@ function renderMain(){
   const em=renderExportModal();if(em)root.appendChild(em);
   const tfm=renderTransferModal();if(tfm)root.appendChild(tfm);
   const pim=renderPartnerItemModal();if(pim)root.appendChild(pim);
+  const pam=renderPartnerAdjustModal();if(pam)root.appendChild(pam);
   const dm=renderDetailModal();if(dm)root.appendChild(dm);
   const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
   const bdcm=renderBulkDelConfirmModal();if(bdcm)root.appendChild(bdcm);
