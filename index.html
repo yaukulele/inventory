@@ -768,6 +768,8 @@ function renderPartnerTab(content){
   sum.appendChild(grid);
   const btnRow=h("div",{style:{display:"flex",gap:"8px",marginTop:"12px",flexWrap:"wrap"}});
   if(!isPreview())btnRow.appendChild(h("button",{style:{flex:1,minWidth:"140px",padding:"11px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"transfer",picks:{}};render();}},"📦 調貨過去"));
+  if(!isPreview())btnRow.appendChild(h("button",{title:"對方直接匯款／給現金（沒在他們那頁按已付款）時，我們自己登記",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"ppay"};render();}},"💵 登記收款"));
+  if(!isPreview())btnRow.appendChild(h("button",{title:"貼上 Excel 一次匯入期初庫存（一輩子大概只按一次）",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer",color:"var(--sub)"},onClick:()=>{S.modal={t:"pimport"};render();}},"📥 匯期初"));
   if(!isPreview())btnRow.appendChild(h("button",{title:"帳算錯了、要折讓，補一筆修正（可以是負數）",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"padjust"};render();}},"✏️ 調整帳款"));
   if(!isPreview())btnRow.appendChild(h("button",{title:"把庫存＋帳務下載成一個檔案存起來（伺服器每天也會自己備一份）",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:function(){downloadPartnerBackup(this);}},"⬇️ 下載備份"));
   btnRow.appendChild(h("button",{style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>loadPartner(true)},P.loading?"⏳":"🔄 重新整理"));
@@ -843,6 +845,135 @@ function renderPartnerTab(content){
     ic.appendChild(row);
   });
   content.appendChild(ic);
+}
+
+/* 登記收款（本來只有 /partners 有）。杰哥 2026-09-10：「三個網址太多」→ 搬過來。
+   跟「✓ 確認收到」的差別：那個是對方先按了「我付款了」、我們確認；
+   這個是對方沒按（直接匯款/給現金），我們自己補登記，**登記完直接算已收**。 */
+function renderPartnerPayModal(){
+  if(!S.modal||S.modal.t!=="ppay")return null;
+  const st=(S.partner&&S.partner.state)||null;
+  const due=(st&&st.balance&&st.balance.due)||0;
+  const close=()=>{S.modal=null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"400px"}});
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"10px"}},
+    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1}},"💵 登記收款"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
+  box.appendChild(h("div",{style:{background:"#f8fafc",borderRadius:"10px",padding:"9px 11px",fontSize:"11.5px",color:"var(--sub)",lineHeight:1.7,marginBottom:"12px"}},
+    "目前尚未收款 "+ntw(due)+"。這裡登記的會直接算「已收到」（不用再確認一次）。如果是對方自己在他們那頁按了「已付款」，請改用那一列的「✓ 確認收到」。"));
+  box.appendChild(h("div",{style:{fontSize:"12px",fontWeight:600,color:"var(--sub)",marginBottom:"4px"}},"收到多少"));
+  const amtI=h("input",{className:"ipt",type:"number",inputmode:"numeric",min:"1",placeholder:"例：20000"});
+  box.appendChild(amtI);
+  box.appendChild(h("div",{style:{fontSize:"12px",fontWeight:600,color:"var(--sub)",margin:"10px 0 4px"}},"備註（選填）"));
+  const noteI=h("input",{className:"ipt",placeholder:"例：9/10 匯款 尾號1234"});
+  box.appendChild(noteI);
+  const go=h("button",{style:{width:"100%",padding:"12px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer",marginTop:"14px"}},"登記");
+  go.onclick=async function(){
+    const amount=parseInt(amtI.value,10)||0;
+    if(!(amount>0)){showToast("⚠ 金額要大於 0");return;}
+    if(!confirm("要登記收到 "+ntw(amount)+" 嗎？登記後尚未收款會變成 "+ntw(due-amount)+"。"))return;
+    this.disabled=true;this.style.opacity=".5";this.textContent="⏳ 登記中…";
+    const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/ledger",{method:"POST",body:{kind:"payment",amount:amount,note:(noteI.value||"").trim()}});
+    if(!r||!r.ok){this.disabled=false;this.style.opacity="";this.textContent="登記";showToast("⚠ "+((r&&r.error)||"登記失敗"));return;}
+    S.modal=null;showToast("✅ 已登記，尚未收款 "+ntw(r.balance&&r.balance.due));loadPartner(true);
+  };
+  box.appendChild(go);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
+}
+
+/* 貼上 Excel 匯期初（本來只有 /partners 有）。
+   **欄位一律用標題列對，不靠位置** —— 杰哥那份是「項次｜日期｜產品名稱｜數量｜進價｜合計｜建議售價｜備註」，
+   照位置對會把「項次」當品名，整批歪掉。
+   2026-09-10 他第一次匯的時候進價整欄沒對到（11 項 cost 全 0、帳 0 筆），
+   所以預覽一定要**明講對到哪幾欄**，沒對到進價就跳紅字擋人。 */
+function _pParsePaste(text){
+  const lines=String(text||"").split(/\r?\n/).filter(l=>l.trim());
+  if(!lines.length)return {rows:[],map:null,head:[]};
+  const split=l=> l.indexOf("\t")>=0 ? l.split("\t") : l.split(",");
+  const head=split(lines[0]).map(x=>String(x||"").trim());
+  const isHeader=head.some(h=>/產品名稱|品名|品項/.test(h))&&head.some(h=>/數量/.test(h));
+  let map,start;
+  if(isHeader){
+    map={};
+    head.forEach((h,i)=>{
+      if(map.n===undefined&&/產品名稱|品名|品項/.test(h))map.n=i;
+      else if(map.q===undefined&&/數量/.test(h))map.q=i;
+      else if(map.cost===undefined&&/進價|成本|單價/.test(h))map.cost=i;
+      else if(map.price===undefined&&/建議售價|售價/.test(h))map.price=i;
+      else if(map.note===undefined&&/備註/.test(h))map.note=i;
+      else if(map.b===undefined&&/品牌/.test(h))map.b=i;
+    });
+    start=1;
+  }else{ map={n:0,q:1,cost:2,price:3,note:4}; start=0; }
+  const num=v=>{const k=parseInt(String(v==null?"":v).replace(/[^0-9-]/g,""),10);return isNaN(k)?0:Math.max(0,k)};
+  const rows=[];
+  for(let i=start;i<lines.length;i++){
+    const c=split(lines[i]);
+    const name=String(c[map.n]==null?"":c[map.n]).trim();
+    if(!name)continue;
+    rows.push({n:name,
+      b:map.b!==undefined?String(c[map.b]||"").trim():"",
+      q:map.q!==undefined?num(c[map.q]):0,
+      cost:map.cost!==undefined?num(c[map.cost]):0,
+      price:map.price!==undefined?num(c[map.price]):0,
+      note:map.note!==undefined?String(c[map.note]||"").trim():""});
+  }
+  return {rows,map,head,isHeader};
+}
+function renderPartnerImportModal(){
+  if(!S.modal||S.modal.t!=="pimport")return null;
+  const close=()=>{S.modal=null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"620px"}});
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"8px"}},
+    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1}},"📥 匯入期初庫存"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
+  box.appendChild(h("div",{style:{background:"#fff7ed",border:"1px solid #fdba74",borderRadius:"10px",padding:"9px 11px",fontSize:"11.5px",color:"#9a3412",lineHeight:1.7,marginBottom:"10px"}},
+    "⚠ 這是「一輩子按一次」的功能。系統判斷重複是看『品名＋進價』，同一批貨用不同進價再匯一次，數量會變兩倍。已經匯過就別再按。"));
+  box.appendChild(h("div",{style:{fontSize:"12px",fontWeight:600,color:"var(--sub)",marginBottom:"4px"}},"從 Excel 整片複製貼上（含第一行標題）"));
+  const ta=h("textarea",{className:"ipt",style:{height:"140px",fontFamily:"monospace",fontSize:"11px",resize:"vertical"},placeholder:"項次\t日期\t產品名稱\t數量\t進價\t合計\t建議售價\t備註"});
+  box.appendChild(ta);
+  const prev=h("div",{style:{marginTop:"10px"}});
+  box.appendChild(prev);
+  const mkChk=()=>{const w=h("label",{style:{display:"flex",alignItems:"center",gap:"6px",fontSize:"12px",margin:"10px 0",cursor:"pointer"}});
+    const c=h("input",{type:"checkbox"});c.checked=true;w.appendChild(c);
+    w.appendChild(h("span",{},"同時產生期初應收（數量 × 進價的總額）"));return {w,c};};
+  const chk=mkChk();
+  let PARSED=null;
+  const pv=h("button",{style:{width:"100%",padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer",marginTop:"10px"}},"先預覽");
+  const go=h("button",{disabled:true,style:{width:"100%",padding:"12px",borderRadius:"10px",border:"none",background:"#e2e8f0",color:"var(--sub)",fontSize:"14px",fontWeight:700,cursor:"default",marginTop:"8px"}},"確認匯入");
+  pv.onclick=()=>{
+    const r=_pParsePaste(ta.value);
+    PARSED=r;
+    prev.innerHTML="";
+    if(!r.rows.length){prev.appendChild(h("div",{style:{fontSize:"12px",color:"var(--red)"}},"沒有解析到任何資料。"));go.disabled=true;go.style.background="#e2e8f0";go.style.color="var(--sub)";return;}
+    const names={n:"品名",q:"數量",cost:"進價",price:"建議售價",note:"備註",b:"品牌"};
+    const got=Object.keys(r.map||{}).map(k=>names[k]+"→第"+(r.map[k]+1)+"欄").join("、");
+    prev.appendChild(h("div",{style:{fontSize:"12px",fontWeight:700,marginBottom:"4px"}},"對到的欄位："+(got||"（無）")));
+    const noCost=r.map&&r.map.cost===undefined;
+    if(noCost)prev.appendChild(h("div",{style:{fontSize:"12px",color:"var(--red)",fontWeight:700,marginBottom:"4px"}},"⚠ 沒有對到「進價」那一欄 —— 這樣匯進去每一項的進價都會是 0、帳也會是 0。請確認標題列有「進價／成本／單價」再貼一次。"));
+    const total=r.rows.reduce((s,x)=>s+x.q*x.cost,0);
+    prev.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"6px"}},
+      "共 "+r.rows.length+" 項、"+r.rows.reduce((s,x)=>s+x.q,0)+" 件，期初應收合計 "+ntw(total)));
+    const tb=h("div",{style:{maxHeight:"180px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"8px"}});
+    r.rows.slice(0,20).forEach(x=>tb.appendChild(h("div",{style:{padding:"6px 10px",borderBottom:"1px solid #f1f5f9",fontSize:"11.5px",display:"flex",gap:"8px"}},
+      h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},x.n),
+      h("span",{style:{color:"var(--sub)"}},"× "+x.q),
+      h("span",{style:{color:x.cost?"var(--text)":"var(--red)",fontWeight:600}},ntw(x.cost)))));
+    if(r.rows.length>20)tb.appendChild(h("div",{style:{padding:"6px 10px",fontSize:"11px",color:"var(--sub)"}},"…另外還有 "+(r.rows.length-20)+" 項"));
+    prev.appendChild(tb);
+    go.disabled=false;go.style.background="var(--blue)";go.style.color="#fff";go.style.cursor="pointer";
+  };
+  go.onclick=async function(){
+    if(!PARSED||!PARSED.rows.length)return;
+    const total=PARSED.rows.reduce((s,x)=>s+x.q*x.cost,0);
+    if(!confirm("要匯入 "+PARSED.rows.length+" 項嗎？"+(chk.c.checked?("\n同時會產生一筆期初應收 "+ntw(total)+"。"):"\n不會產生應收。")))return;
+    this.disabled=true;this.style.opacity=".5";this.textContent="⏳ 匯入中…";
+    const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/import",{method:"POST",body:{rows:PARSED.rows,makeCharge:!!chk.c.checked}});
+    if(!r||!r.ok){this.disabled=false;this.style.opacity="";this.textContent="確認匯入";showToast("⚠ "+((r&&r.error)||"匯入失敗"));return;}
+    S.modal=null;showToast("✅ 匯入 "+r.added+" 項（略過重複 "+r.skipped+"）"+(r.ledger?"，期初應收 "+ntw(r.total):""));loadPartner(true);
+  };
+  box.appendChild(chk.w);box.appendChild(pv);box.appendChild(go);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
 }
 
 /* 調整帳款（杰哥 2026-09-10）：帳算錯了、要折讓，補一筆修正。
@@ -3807,6 +3938,8 @@ function renderMain(){
   const tfm=renderTransferModal();if(tfm)root.appendChild(tfm);
   const pim=renderPartnerItemModal();if(pim)root.appendChild(pim);
   const pam=renderPartnerAdjustModal();if(pam)root.appendChild(pam);
+  const ppm=renderPartnerPayModal();if(ppm)root.appendChild(ppm);
+  const pmm=renderPartnerImportModal();if(pmm)root.appendChild(pmm);
   const dm=renderDetailModal();if(dm)root.appendChild(dm);
   const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
   const bdcm=renderBulkDelConfirmModal();if(bdcm)root.appendChild(bdcm);
