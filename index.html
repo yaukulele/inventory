@@ -842,6 +842,32 @@ function renderPartnerTab(content){
   sum.appendChild(btnRow);
   content.appendChild(sum);
 
+  /* 待批價（杰哥 2026-09-16）：有貨過去了卻還沒算錢，一定要一眼看得到，
+     不然就會變成期初那 11 項那樣 —— 放了一個禮拜都沒人發現帳是 0。
+     做法跟撈單系統的「補貨中」提示條同一套。 */
+  const pend=(st.batches||[]).filter(b=>b&&b.status==="pending");
+  if(pend.length){
+    const pc=h("div",{className:"card",style:{marginBottom:"12px",border:"1px solid #fca5a5",background:"#fff5f5"}});
+    const pq=pend.reduce((t,b)=>t+(b.lines||[]).reduce((x,l)=>x+(l.q||0),0),0);
+    pc.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid #fecaca",fontWeight:800,fontSize:"14px",color:"var(--red)"}},
+      "⚠ 有 "+pend.length+" 批、共 "+pq+" 件還沒批價（這些還沒算進帳）"));
+    pend.forEach(b=>{
+      const q=(b.lines||[]).reduce((x,l)=>x+(l.q||0),0);
+      const row=h("div",{style:{padding:"10px 14px",borderBottom:"1px solid #fee2e2",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}});
+      row.appendChild(h("div",{style:{flex:1,minWidth:"150px"}},
+        h("div",{style:{fontSize:"13px",fontWeight:600}},pDate(b.t)+"　"+(b.lines||[]).length+" 項 / "+q+" 件"),
+        h("div",{style:{fontSize:"11px",color:"var(--sub)",overflow:"hidden",textOverflow:"ellipsis"}},
+          (b.note||"")+"　"+(b.lines||[]).map(l=>l.n+"×"+l.q).join("、").slice(0,70))));
+      if(!isPreview()){
+        const bb=h("button",{style:{padding:"8px 14px",borderRadius:"9px",border:"none",background:"var(--red)",color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer"}},"填價");
+        bb.onclick=()=>{S.modal={t:"pprice",batch:b,vals:{}};render();};
+        row.appendChild(bb);
+      }
+      pc.appendChild(row);
+    });
+    content.appendChild(pc);
+  }
+
   // 帳務：雙向確認
   const led=st.ledger||[];
   const lc=h("div",{className:"card",style:{marginBottom:"12px"}});
@@ -904,13 +930,65 @@ function renderPartnerTab(content){
     row.appendChild(h("span",{style:{width:"4px",height:"22px",borderRadius:"2px",background:gc(it.b),flexShrink:0}}));
     row.appendChild(h("div",{style:{flex:1,minWidth:0}},
       h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
-      h("div",{style:{fontSize:"10.5px",color:"var(--sub)"}},(it.b||"")+(it.c?" / "+it.c:"")+" · "+(it.src==="own"?"他們自己進的":"我們調過去的 進價 "+ntw(it.cost)))));
+      h("div",{style:{fontSize:"10.5px",color:it.cost===null&&it.src!=="own"?"var(--red)":"var(--sub)"}},
+        (it.b||"")+(it.c?" / "+it.c:"")+" · "
+        +(it.src==="own" ? "他們自己進的"
+          : it.cost===null ? "我們調過去的・⚠ 還沒定價"
+          : "我們調過去的 進價 "+ntw(it.cost)))));
     row.appendChild(h("span",{style:{fontSize:"15px",fontWeight:800,color:it.q===0?"var(--red)":"var(--blue)",flexShrink:0}},"× "+it.q));
     // 進價只有我們改得動 —— 店家那頁按了會被伺服器擋（updateItem isAdmin:false）
     if(!isPreview())row.appendChild(h("button",{title:"改進價／建議售價",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",cursor:"pointer"},onClick:()=>{S.modal={t:"pitem",id:it.id};render();}},"✏️"));
     ic.appendChild(row);
   });
   content.appendChild(ic);
+}
+
+/* 批價視窗（杰哥 2026-09-16）：一批一次填完 → 產生一筆應收。
+   單價**預設留白**（杰哥指定）—— 不預先帶成本價，免得人沒看清楚就按下去。 */
+function renderPartnerPriceModal(){
+  if(!S.modal||S.modal.t!=="pprice")return null;
+  const b=S.modal.batch||{}; const lines=b.lines||[];
+  const vals=S.modal.vals||{};
+  const close=()=>{S.modal=null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"560px"}});
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"6px"}},
+    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1}},"💲 批價"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
+  box.appendChild(h("div",{style:{fontSize:"11.5px",color:"var(--sub)",marginBottom:"10px",lineHeight:1.7}},
+    pDate(b.t)+"　"+(b.note||"")+"　—— 填完會產生一筆應收（數量 × 單價 加總）。留白＝0 元，不會算錢。"));
+  let total=0;
+  const tot=h("div",{style:{fontSize:"15px",fontWeight:800,textAlign:"right",padding:"10px 2px"}});
+  const recalc=()=>{
+    total=lines.reduce((s,l)=>s+(l.q||0)*(parseInt(vals[l.n],10)||0),0);
+    tot.textContent="合計 "+ntw(total);
+  };
+  const tb=h("div",{style:{border:"1px solid var(--border)",borderRadius:"10px",overflow:"hidden",marginBottom:"6px"}});
+  tb.appendChild(h("div",{style:{display:"flex",gap:"8px",padding:"7px 10px",background:"#f8fafc",fontSize:"11px",fontWeight:700,color:"var(--sub)"}},
+    h("div",{style:{flex:1}},"品項"),h("div",{style:{width:"48px",textAlign:"center"}},"數量"),h("div",{style:{width:"104px"}},"單價")));
+  lines.forEach(l=>{
+    const row=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",padding:"7px 10px",borderTop:"1px solid #f1f5f9"}});
+    row.appendChild(h("div",{style:{flex:1,minWidth:0,fontSize:"12.5px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},l.n));
+    row.appendChild(h("div",{style:{width:"48px",textAlign:"center",fontSize:"12.5px",color:"var(--sub)"}},"× "+l.q));
+    const i=h("input",{className:"ipt",type:"number",inputmode:"numeric",min:"0",placeholder:"留白＝0",style:{width:"104px",padding:"6px 8px",fontSize:"13px"}});
+    i.value=vals[l.n]!==undefined?vals[l.n]:"";
+    i.addEventListener("input",function(){vals[l.n]=this.value;recalc();});
+    row.appendChild(i);
+    tb.appendChild(row);
+  });
+  box.appendChild(tb);
+  recalc(); box.appendChild(tot);
+  const go=h("button",{style:{width:"100%",padding:"12px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"}},"確認批價");
+  go.onclick=async function(){
+    const prices=lines.map(l=>({n:l.n,cost:parseInt(vals[l.n],10)||0}));
+    const t=prices.reduce((s,p,i)=>s+(lines[i].q||0)*p.cost,0);
+    if(!confirm(t>0 ? ("確定批價嗎？會產生一筆應收 "+ntw(t)+"。") : "所有單價都是 0，確定嗎？（不會產生應收）"))return;
+    this.disabled=true;this.style.opacity=".5";this.textContent="⏳ 處理中…";
+    const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/batches/"+b.id+"/price",{method:"POST",body:{prices:prices}});
+    if(!r||!r.ok){this.disabled=false;this.style.opacity="";this.textContent="確認批價";showToast("⚠ "+((r&&r.error)||"批價失敗"));return;}
+    S.modal=null;showToast("✅ 批價完成，尚未收款 "+ntw(r.balance&&r.balance.due));loadPartner(true);
+  };
+  box.appendChild(go);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
 }
 
 /* 登記收款（本來只有 /partners 有）。杰哥 2026-09-10：「三個網址太多」→ 搬過來。
@@ -1234,6 +1312,19 @@ function renderTransferModal(){
   noteI.addEventListener("change",function(){S.modal={...S.modal,note:this.value};});
   box.appendChild(noteI);
 
+  /* 「價格之後再算」（杰哥 2026-09-16）：現場調貨的人不一定知道批價，
+     要他當場查會卡住出貨。勾了就先把貨送過去、不記帳，之後在「待批價」那邊一次填。 */
+  const deferWrap=h("label",{style:{display:"flex",alignItems:"flex-start",gap:"8px",margin:"10px 0 2px",cursor:"pointer",padding:"10px",border:"1px solid var(--border)",borderRadius:"10px",background:S.modal.defer?"#fff7ed":"#fff"}});
+  const deferCb=h("input",{type:"checkbox",style:{marginTop:"2px"}});
+  deferCb.checked=!!S.modal.defer;
+  deferCb.addEventListener("change",function(){S.modal={...S.modal,defer:this.checked};render();});
+  deferWrap.appendChild(deferCb);
+  deferWrap.appendChild(h("div",{},
+    h("div",{style:{fontSize:"13px",fontWeight:700}},"價格之後再算"),
+    h("div",{style:{fontSize:"11px",color:"var(--sub)",lineHeight:1.6}},
+      "貨馬上過去，但先不記帳。之後在上面「待批價」那邊一次填價，填完才產生應收。")));
+  box.appendChild(deferWrap);
+
   const go=h("button",{disabled:!picked.length||!!S.modal.busy,style:{width:"100%",padding:"13px",borderRadius:"11px",border:"none",background:picked.length?"var(--green)":"#e2e8f0",color:picked.length?"#fff":"var(--sub)",fontSize:"15px",fontWeight:700,cursor:picked.length?"pointer":"default"}},S.modal.busy?"⏳ 調貨中…":"確認調貨");
   go.onclick=async function(){
     if(!picked.length||S.modal.busy)return;
@@ -1248,10 +1339,13 @@ function renderTransferModal(){
     if(!lines.length){showToast("⚠ 沒有可調的數量");return;}
     const total=lines.reduce((s,l)=>s+l.q*l.cost,0);
     const pcs=lines.reduce((s,l)=>s+l.q,0);
-    if(!confirm("確定把 "+lines.length+" 項（共 "+pcs+" 件）調給"+PARTNER_NAME+"？這次應收 "+ntw(total)+"。我們的庫存會同步扣掉。"))return;
+    const defer=!!S.modal.defer;
+    if(!confirm(defer
+      ? ("確定把 "+lines.length+" 項（共 "+pcs+" 件）調給"+PARTNER_NAME+"？\n\n這次**不記帳**，會進「待批價」等您之後填價。我們的庫存一樣會扣掉。")
+      : ("確定把 "+lines.length+" 項（共 "+pcs+" 件）調給"+PARTNER_NAME+"？這次應收 "+ntw(total)+"。我們的庫存會同步扣掉。")))return;
     S.modal={...S.modal,busy:true};render();
     const note=(S.modal.note||"").trim();
-    const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/transfer",{method:"POST",body:{lines:lines,note:note||("調貨 "+dateStr())}});
+    const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/transfer",{method:"POST",body:{lines:lines,note:note||("調貨 "+dateStr()),deferPrice:defer}});
     if(!r||!r.ok){S.modal={...S.modal,busy:false};render();showToast("⚠ 調貨失敗："+((r&&r.error)||"未知錯誤")+"（我們的庫存沒有動）");return;}
     // 他們那邊成功了才扣我們的。noUndo：撤銷只會加回我們這邊、對方不會跟著退，帳會對不起來。
     const failed=[];
@@ -1262,7 +1356,8 @@ function renderTransferModal(){
     }
     S.modal=null;
     if(failed.length)showToast("⚠ 已調給對方，但我們這邊這幾項沒扣成功，請手動出貨："+failed.join("、"));
-    else showToast("✅ 已調給"+PARTNER_NAME+" "+pcs+" 件，應收 "+ntw(total));
+    else showToast(defer ? ("✅ 已調給"+PARTNER_NAME+" "+pcs+" 件，等您批價（還沒記帳）")
+                         : ("✅ 已調給"+PARTNER_NAME+" "+pcs+" 件，應收 "+ntw(total)));
     loadPartner(true);
   };
   box.appendChild(go);
@@ -4067,6 +4162,7 @@ function renderMain(){
   const pam=renderPartnerAdjustModal();if(pam)root.appendChild(pam);
   const ppm=renderPartnerPayModal();if(ppm)root.appendChild(ppm);
   const pmm=renderPartnerImportModal();if(pmm)root.appendChild(pmm);
+  const ppr=renderPartnerPriceModal();if(ppr)root.appendChild(ppr);
   const dm=renderDetailModal();if(dm)root.appendChild(dm);
   const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
   const bdcm=renderBulkDelConfirmModal();if(bdcm)root.appendChild(bdcm);
