@@ -1,2 +1,8 @@
 backups/
 backup.log
+
+# 過夜開發用的暫存/測試產物（工具本身有進版控，產物不用）
+_t_profile/
+_check.js
+_index.html.bak
+_backfill_unreachable.txt

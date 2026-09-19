@@ -1378,6 +1378,13 @@ function normalizeImgUrl(url){
   return url;
 }
 
+// 這個網址是不是我們自己主機上的圖（官網 / 自家網域）。
+// 是的話就不用再抓一份存進資料庫 —— 我們自己的圖不會被別人換掉，
+// 而且每張存進 Firebase 都是實打實的空間。
+function isOwnImgUrl(u){
+  return /^https?:\/\/([a-z0-9-]+\.)*yamusic\.com\.tw\//i.test(String(u||"").trim());
+}
+
 // ===================== 手機拍照上傳 =====================
 // 為什麼照片不直接存進 items：items 是「一整包」載入的陣列（現在約 124KB，470 筆），
 // 每個人一開頁就整包下載。把 base64 照片塞進去會膨脹到好幾 MB，每次同步都重傳一次，手機吃不消。
@@ -1504,6 +1511,29 @@ async function compressPhoto(file){
   if(!_phValid(d))throw new Error("壓縮失敗");
   return {t,d,w:big.width,h:big.height,bytes:Math.round(d.length*0.75)};
 }
+// 圖片獵人（找圖 API ＋ 圖片代理）。代理是我們自己的服務，已開跨網域，
+// 用它才拿得到別人網站的圖 —— 瀏覽器直接 fetch 會被 CORS 擋，
+// 就算 fetch 得到，畫進 canvas 也會因為跨來源污染而讀不出 dataURL。
+const IMG_FINDER="https://product-image-finder-production-1e1b.up.railway.app";
+// 把一個圖片網址抓回來、壓成跟拍照一樣的格式（{t,d,w,h,bytes}）。
+// 失敗就 throw，呼叫端自己決定要不要退回「只存網址」。
+async function photoFromUrl(url){
+  const u=normalizeImgUrl(url);
+  if(!u)throw new Error("這不是有效的圖片網址");
+  // 已經是我們自己存的照片就不用再抓一次
+  const r=await fetch(IMG_FINDER+"/api/proxy?url="+encodeURIComponent(u));
+  if(!r.ok){
+    let msg="抓不到這張圖（"+r.status+"）";
+    try{const j=await r.json();if(j&&j.error)msg="抓不到這張圖："+j.error;}catch(e){}
+    throw new Error(msg);
+  }
+  const blob=await r.blob();
+  if(!blob||!blob.size)throw new Error("抓回來是空的");
+  if(!/^image\//.test(blob.type||""))throw new Error("對方回的不是圖片（可能擋了外連）");
+  const name=(u.split("?")[0].split("/").pop()||"img")+"";
+  return await compressPhoto(new File([blob],name,{type:blob.type}));
+}
+
 // 拍/選一張 → 壓縮好（還沒上傳）。使用者按取消回傳 null
 async function grabPhoto(cam){
   const f=await pickPhotoFile(cam);
@@ -2209,7 +2239,6 @@ function renderAddModal(){
   const clearImgBtn=h("button",{type:"button",title:"清掉網址／照片",style:{width:"38px",height:"38px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"14px",cursor:"pointer",flexShrink:0},onClick:()=>{imgI.value="";dupPh="";if(S.modal)S.modal._photo=null;addPhotoUI.setStatus("");refreshAddPreview();}},"✕");
   const imgRow=h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}},imgI,findBtn,clearImgBtn);
   const candBox=h("div",{style:{display:"none",flexWrap:"wrap",gap:"6px",marginTop:"8px"}});
-  const IMG_FINDER="https://product-image-finder-production-1e1b.up.railway.app";
   findBtn.onclick=async()=>{
     const brand=(selB&&selB==="__newB")?bcI.value.trim():(selB||"");
     const nm=(nI.value||"").trim();
@@ -2228,7 +2257,23 @@ function renderAddModal(){
       res.forEach(x=>{
         const t=h("img",{src:x.url,loading:"lazy",title:x.title||x.src||"",style:{width:"66px",height:"66px",objectFit:"cover",borderRadius:"8px",border:"2px solid transparent",cursor:"pointer",background:"#f1f5f9"}});
         t.onerror=()=>t.remove();
-        t.onclick=()=>{imgI.value=x.url;refreshAddPreview();Array.from(candBox.querySelectorAll("img")).forEach(i=>i.style.border="2px solid transparent");t.style.border="2px solid var(--blue)";};
+        t.onclick=async()=>{
+          Array.from(candBox.querySelectorAll("img")).forEach(i=>i.style.border="2px solid transparent");
+          t.style.border="2px solid var(--blue)";
+          addPhotoUI.setStatus("下載這張圖中…","var(--sub)");
+          try{
+            const p=await photoFromUrl(x.url);
+            if(S.modal)S.modal._photo=p;
+            imgI.value="";dupPh="";
+            addPhotoUI.setStatus("✅ 圖已抓下來（按「新增商品」才會存）","var(--green)");
+          }catch(e){
+            // 抓不回來就退回舊行為（只記網址），但要講清楚差別，不要假裝成功
+            imgI.value=x.url;
+            if(S.modal)S.modal._photo=null;
+            addPhotoUI.setStatus("⚠ 抓不下來，先用連結："+(e&&e.message||"")+"（對方改圖我們會跟著變）","var(--orange)");
+          }
+          refreshAddPreview();
+        };
         candBox.appendChild(t);
       });
     }catch(e){candBox.innerHTML="";candBox.appendChild(h("div",{style:{fontSize:"12px",color:"var(--red)",width:"100%"}},"搜尋失敗："+e.message));}
@@ -2292,7 +2337,15 @@ function renderAddModal(){
   };
   const submitBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const n=nI.value.trim();if(!n){alert("請輸入名稱");return;}let brand=selB;if(brand==="__newB"){brand=bcI.value.trim();if(!brand){alert("請輸入新品牌名稱");return;}}if(!brand){alert("請選擇品牌");return;}let cat=ccI.style.display!=="none"?ccI.value.trim():selC;if(!cat||cat==="__new"){alert("請選擇分類");return;}if(isReservedKey(brand)||isReservedKey(cat)||isReservedKey(n)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}const dup=S.items.some(x=>x.b===brand&&x.n.toLowerCase()===n.toLowerCase());if(dup&&!confirm("「"+brand+" / "+n+"」已存在，還是要新增？"))return;this.disabled=true;const initQ=Math.max(0,parseInt(qI.value)||0);
     // 有拍照的話先把照片存上去拿到編號，再建商品（照片存失敗就不新增，免得建出一筆指著不存在照片的商品）
-    let phId="";const pend=S.modal&&S.modal._photo;
+    let phId="";let pend=S.modal&&S.modal._photo;
+    // 手動貼的外部網址也抓回來存成自己的照片（跟找圖同一條路）。
+    // 抓不到就照舊存網址 —— 不能因為對方擋外連就讓人連商品都建不了。
+    let _urlFallback=imgI.value.trim();
+    if(!pend&&_urlFallback&&!isOwnImgUrl(_urlFallback)){
+      this.textContent="下載圖片中…";
+      try{pend=await photoFromUrl(_urlFallback);_urlFallback="";}
+      catch(e){showToast("⚠ 圖抓不下來，先存連結："+(e&&e.message||""));}
+    }
     if(pend){
       this.textContent="上傳照片中…";
       try{phId=await uploadPhoto(pend,n);}
@@ -2300,7 +2353,7 @@ function renderAddModal(){
       if(S.modal)S.modal._photo=null;
     }
     const finalPh=phId||dupPh;
-    doAdd({z:zS.value,b:brand,c:cat,n,q:initQ,img:finalPh?"":imgI.value.trim(),ph:finalPh,dsc:dscI.value.trim()});}},"新增商品");
+    doAdd({z:zS.value,b:brand,c:cat,n,q:initQ,img:finalPh?"":_urlFallback,ph:finalPh,dsc:dscI.value.trim()});}},"新增商品");
   box.appendChild(submitBtn);
   box.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&e.target.tagName!=="TEXTAREA"&&e.target.tagName!=="BUTTON"&&!submitBtn.disabled){e.preventDefault();submitBtn.click();}});
   // Auto-focus name input so the user can start typing immediately (especially after the "再加一個" continuation flow). Skipped in dup mode — the dup branch above sets its own focus+select timer at 80ms (selecting the cloned name for easy replacement).
@@ -2508,8 +2561,7 @@ function renderDetailModal(){
     };
     refreshPreview();
     imgI.addEventListener("input",refreshPreview);
-    // 圖片獵人：找圖 → 點候選圖直接填入網址
-    const IMG_FINDER="https://product-image-finder-production-1e1b.up.railway.app";
+    // 圖片獵人：找圖 → 點候選圖會把圖抓回來存成我們自己的照片
     findBtn.onclick=async()=>{
       const brand=(bSel&&bSel.value&&bSel.value!=="__newB")?bSel.value:(it.b||"");
       const nm=(nI.value||it.n||"").trim();
@@ -2528,7 +2580,22 @@ function renderDetailModal(){
         res.forEach(x=>{
           const t=h("img",{src:x.url,loading:"lazy",title:x.title||x.src||"",style:{width:"66px",height:"66px",objectFit:"cover",borderRadius:"8px",border:"2px solid transparent",cursor:"pointer",background:"#f1f5f9"}});
           t.onerror=()=>t.remove();
-          t.onclick=()=>{imgI.value=x.url;refreshPreview();Array.from(candBox.querySelectorAll("img")).forEach(i=>i.style.border="2px solid transparent");t.style.border="2px solid var(--blue)";};
+          t.onclick=async()=>{
+            Array.from(candBox.querySelectorAll("img")).forEach(i=>i.style.border="2px solid transparent");
+            t.style.border="2px solid var(--blue)";
+            editPhotoUI.setStatus("下載這張圖中…","var(--sub)");
+            try{
+              const p=await photoFromUrl(x.url);
+              if(S.modal)S.modal._photo=p;
+              imgI.value="";
+              editPhotoUI.setStatus("✅ 圖已抓下來（按「儲存」才會存進去）","var(--green)");
+            }catch(e){
+              imgI.value=x.url;
+              if(S.modal)S.modal._photo=null;
+              editPhotoUI.setStatus("⚠ 抓不下來，先用連結："+(e&&e.message||"")+"（對方改圖我們會跟著變）","var(--orange)");
+            }
+            refreshPreview();
+          };
           candBox.appendChild(t);
         });
       }catch(e){candBox.innerHTML="";candBox.appendChild(h("div",{style:{fontSize:"12px",color:"var(--red)",width:"100%"}},"搜尋失敗："+e.message));}
@@ -2582,7 +2649,14 @@ function renderDetailModal(){
     btnRow.appendChild(h("button",{style:{padding:"12px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"14px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(isDirty()&&!confirm("有未儲存的變更，確定放棄？"))return;S.modal={t:"detail",id:it.id,back};render();}},"取消"));
     const saveBtn=h("button",{style:{padding:"12px",borderRadius:"10px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:async function(){if(this.disabled)return;const newN=nI.value.trim();if(!newN){alert("名稱不可空");return;}let newB=bSel.value||it.b;if(newB==="__newB"){newB=bcInp.value.trim();if(!newB){alert("請輸入新品牌名稱");return;}}let newC=cSel.value;if(newC==="__new"){newC=ccInp.value.trim();if(!newC){alert("請輸入新分類名稱");return;}}if(!newC){alert("請選擇分類");return;}if(isReservedKey(newB)||isReservedKey(newC)||isReservedKey(newN)){alert("⚠ 名稱不可使用保留字（__proto__/constructor/toString 等）");return;}if(newN!==it.n||newB!==it.b){const dup=S.items.some(x=>x.id!==it.id&&x.b===newB&&x.n.toLowerCase()===newN.toLowerCase());if(dup&&!confirm("「"+newB+" / "+newN+"」已存在，還是要改成同名？"))return;}this.disabled=true;this.style.opacity="0.6";this.textContent="儲存中…";
     // 照片：剛拍的先上傳拿編號；有填網址就以網址為準（兩者只留一個）
-    const _oldPh=it.ph||"";let _newPh=phId;const _pend=S.modal&&S.modal._photo;
+    const _oldPh=it.ph||"";let _newPh=phId;let _pend=S.modal&&S.modal._photo;
+    // 手動貼的外部網址也抓回來（跟找圖同一條路）；抓不到就照舊存網址。
+    let _typedUrl=imgI.value.trim();
+    if(!_pend&&_typedUrl&&_typedUrl!==(it.img||"")&&!isOwnImgUrl(_typedUrl)){
+      this.textContent="下載圖片中…";
+      try{_pend=await photoFromUrl(_typedUrl);_typedUrl="";}
+      catch(e){showToast("⚠ 圖抓不下來，先存連結："+(e&&e.message||""));}
+    }
     if(_pend){
       this.textContent="上傳照片中…";
       try{_newPh=await uploadPhoto(_pend,newN);}
@@ -2590,7 +2664,7 @@ function renderDetailModal(){
       if(S.modal)S.modal._photo=null;
       this.textContent="儲存中…";
     }
-    const _url=imgI.value.trim();if(_url)_newPh="";
+    const _url=_typedUrl;if(_url)_newPh="";
     // ⚠ cost 刻意**不**放進 doUpdateMeta —— 那支是寫進公開資料庫的。成本價另外走保險箱。
     if(canSeeCost()){
       const cr=await saveCost(it,costI.value.trim(),tprI.value.trim());
@@ -2632,6 +2706,118 @@ function renderLightboxModal(){
 // Everyone (logged-in users) can change their own password. Admins additionally see all accounts (with passwords),
 // can edit other users' passwords, add new accounts, delete accounts, and view the activity log.
 // Read-only preview users only see "登出" affordance.
+// 外部圖片一鍵抓回來。狀態放在 S._imgfix，整頁重畫也不會斷。
+function imgFixTargets(includeOwn){
+  return (S.items||[]).filter(it=>{
+    if(!it||it.ph)return false;                       // 已經是自己的照片
+    const u=(it.img||"").trim();
+    if(!u||!/^https?:\/\//i.test(u))return false;
+    if(!includeOwn&&isOwnImgUrl(u))return false;
+    return true;
+  });
+}
+
+function renderImgFixModal(){
+  if(!S.modal||S.modal.t!=="imgfix")return null;
+  if(!isAdmin()||isPreview()){S.modal=null;return null;}
+  const st=S._imgfix||(S._imgfix={running:false,stop:false,ok:0,fail:0,total:0,cur:"",fails:[]});
+  const closeFn=()=>{if(st.running){if(!confirm("正在抓圖，關掉會停下來（已轉好的會留著）。確定？"))return;st.stop=true;}S.modal=null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"520px"}});
+  box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},
+    h("h3",{style:{fontSize:"18px",fontWeight:700}},"🖼 把外部圖片抓回來"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px"},onClick:closeFn},"✕")
+  ));
+
+  box.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",lineHeight:1.7,marginBottom:"12px"}},
+    "現在有些商品的圖只是「別人網站的連結」。對方換圖、改網址或把檔案刪掉，我們這邊的圖就跟著變或不見。",
+    h("br"),
+    "抓回來之後存成我們自己的照片，就固定住了。"));
+
+  // 現況
+  const all=(S.items||[]);
+  const ownN=all.filter(it=>it&&!it.ph&&isOwnImgUrl(it.img||"")).length;
+  const extN=imgFixTargets(false).length;
+  const phN=all.filter(it=>it&&it.ph).length;
+  const noN=all.filter(it=>!itemHasImg(it)).length;
+  const stat=(label,val,color)=>h("div",{style:{flex:1,textAlign:"center",padding:"10px 6px",background:"#f8fafc",borderRadius:"10px"}},
+    h("div",{style:{fontSize:"19px",fontWeight:800,color:color||"var(--text)",lineHeight:1.1}},String(val)),
+    h("div",{style:{fontSize:"10px",color:"var(--sub)",marginTop:"3px"}},label));
+  box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"12px"}},
+    stat("外部連結",extN,extN?"var(--orange)":"var(--sub)"),
+    stat("我們官網",ownN,"var(--sub)"),
+    stat("自己的照片",phN,"var(--green)"),
+    stat("沒有圖",noN,"var(--sub)")));
+
+  const incOwn=h("input",{type:"checkbox"});
+  box.appendChild(h("label",{style:{display:"flex",gap:"8px",alignItems:"flex-start",fontSize:"12px",color:"var(--sub)",marginBottom:"12px",cursor:"pointer",lineHeight:1.6}},
+    incOwn,h("span",{},"連指向我們官網的 ",h("b",{},String(ownN))," 張也一起抓（預設不抓 —— 那是我們自己的主機，不會被別人換掉，抓下來只是多佔空間）")));
+
+  const prog=h("div",{style:{fontSize:"13px",fontWeight:600,marginBottom:"8px",minHeight:"20px"}});
+  const bar=h("div",{style:{height:"8px",borderRadius:"99px",background:"#e2e8f0",overflow:"hidden",marginBottom:"10px"}});
+  const barIn=h("div",{style:{height:"100%",width:"0%",background:"var(--green)",transition:"width .2s"}});
+  bar.appendChild(barIn);
+  const failBox=h("div",{style:{maxHeight:"150px",overflowY:"auto",fontSize:"11px",color:"var(--red)",lineHeight:1.6,marginBottom:"10px"}});
+  const paint=()=>{
+    if(st.total){
+      const doneN=st.ok+st.fail;
+      barIn.style.width=Math.round(doneN/st.total*100)+"%";
+      prog.textContent=(st.running?"進行中 ":"已停止 ")+doneN+" / "+st.total+
+        "　✅ "+st.ok+"　⚠ "+st.fail+(st.cur?("　— "+st.cur):"");
+    }else{prog.textContent="";}
+    failBox.innerHTML="";
+    st.fails.slice(-40).forEach(f=>failBox.appendChild(h("div",{},"⚠ "+f)));
+  };
+  paint();
+  box.appendChild(prog);box.appendChild(bar);box.appendChild(failBox);
+
+  const goBtn=h("button",{style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"var(--green)",color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer"}});
+  const stopBtn=h("button",{style:{width:"100%",padding:"11px",borderRadius:"12px",border:"1px solid var(--red)",background:"#fff",color:"var(--red)",fontSize:"14px",fontWeight:700,cursor:"pointer",marginTop:"8px",display:"none"}},"停止");
+  stopBtn.onclick=()=>{st.stop=true;stopBtn.textContent="停止中…";};
+
+  const run=async()=>{
+    const list=imgFixTargets(incOwn.checked);
+    if(!list.length){showToast("沒有需要抓的圖");return;}
+    if(!confirm("要把 "+list.length+" 張外部圖抓回來存成我們自己的照片嗎？\n可以隨時按停止，已經轉好的會留著。"))return;
+    st.running=true;st.stop=false;st.ok=0;st.fail=0;st.total=list.length;st.fails=[];
+    goBtn.style.display="none";stopBtn.style.display="block";stopBtn.textContent="停止";
+    incOwn.disabled=true;
+    for(const it of list){
+      if(st.stop)break;
+      st.cur=it.n||"";paint();
+      try{
+        const p=await photoFromUrl(it.img);
+        const id=await uploadPhoto(p,it.n);
+        const ok=await doUpdateMeta(it.id,{ph:id,img:""});
+        if(ok){st.ok++;}
+        else{fbPhotoDropIfUnused(id,it.id);st.fail++;st.fails.push((it.n||it.id)+"：存檔失敗");}
+      }catch(e){
+        st.fail++;st.fails.push((it.n||it.id)+"："+((e&&e.message)||"抓不到"));
+      }
+      paint();
+      await new Promise(r=>setTimeout(r,350));   // 代理有速率限制，別一次灌爆
+    }
+    st.running=false;st.cur="";paint();
+    incOwn.disabled=false;
+    goBtn.style.display="block";stopBtn.style.display="none";
+    logActivity("圖片轉存","把 "+st.ok+" 張外部圖抓回來存成自己的照片"+(st.fail?("，"+st.fail+" 張失敗"):""));
+    showToast(st.stop?("已停止：成功 "+st.ok+" 張"):("✅ 完成：成功 "+st.ok+" 張"+(st.fail?("，"+st.fail+" 張要手動處理"):"")));
+    render();
+  };
+  goBtn.textContent=extN||incOwn.checked?"開始抓回來":"目前沒有外部連結的圖";
+  goBtn.onclick=run;
+  incOwn.addEventListener("change",()=>{const n=imgFixTargets(incOwn.checked).length;goBtn.textContent=n?("開始抓回來（"+n+" 張）"):"目前沒有要抓的圖";});
+  if(extN)goBtn.textContent="開始抓回來（"+extN+" 張）";
+  box.appendChild(goBtn);box.appendChild(stopBtn);
+  if(st.running){goBtn.style.display="none";stopBtn.style.display="block";}
+
+  box.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginTop:"12px",lineHeight:1.7}},
+    "抓不下來的通常是對方擋外連（防盜連）。那幾筆可以自己拍一張、或換一張找得到的圖。",
+    h("br"),
+    "提醒：抓下來只解決「圖會變、圖會不見」，不會讓別人的圖變成我們可以任意使用的圖。"));
+
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeFn}),box);
+}
+
 function renderAccountModal(){
   if(!S.modal||S.modal.t!=="account")return null;
   const closeFn=()=>{S.modal=S.modal.back||null;render();};
@@ -3428,6 +3614,7 @@ function renderMain(){
       h("button",{className:"hdr-btn-export",style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid #fbbf2444",background:"#fffbeb",color:"#b45309",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"export"};render();}},h("span",{className:"lbl"},"📋 匯出"),h("span",{className:"icon"},"📋")),
       (()=>{const syncBtn=h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:"3px"},onClick:doSync,title:S.lastSyncAt?new Date(S.lastSyncAt).toLocaleString():"同步 Firebase"});syncBtn.appendChild(h("span",{},"🔄"));if(S.lastSyncAt){const diffSec=Math.floor((Date.now()-S.lastSyncAt)/1000);let label;if(diffSec<10)label="剛剛";else if(diffSec<60)label=diffSec+"秒前";else if(diffSec<3600)label=Math.floor(diffSec/60)+"分前";else if(diffSec<86400)label=Math.floor(diffSec/3600)+"時前";else label=Math.floor(diffSec/86400)+"天前";syncBtn.appendChild(h("span",{id:"syncLabel",style:{fontSize:"10px",color:diffSec>3600?"var(--orange)":"var(--sub)",fontWeight:500}},label));}return syncBtn;})(),
       h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"account"};render();},title:"帳號設定（改密碼）"},"🔐 密碼"),
+      (isAdmin()&&!isPreview())?h("button",{style:{padding:"6px 8px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--blue)",fontSize:"11px",cursor:"pointer",fontWeight:600},onClick:()=>{S.modal={t:"imgfix"};render();},title:"把外部圖片抓回來存成自己的"},"🖼 圖片"):null,
       h("button",{style:{padding:"6px 10px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"11px",cursor:"pointer"},onClick:()=>doInvLogout()},"登出"))
   ));
   // Stats — accent strip on top to make actionable cards visually distinct, plus a small hint icon when card is clickable
@@ -4193,6 +4380,7 @@ function renderMain(){
   }
   const lbm=renderLightboxModal();if(lbm)root.appendChild(lbm);
   const acm=renderAccountModal();if(acm)root.appendChild(acm);
+  const ifm=renderImgFixModal();if(ifm)root.appendChild(ifm);
   const aem=renderAccountEditModal();if(aem)root.appendChild(aem);
   const bmm=renderBulkMoveModal();if(bmm)root.appendChild(bmm);
   // Missing data modal
