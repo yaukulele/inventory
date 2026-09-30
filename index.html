@@ -761,6 +761,38 @@ function costOf(it){ const v=it&&S.costs&&S.costs[it.id]; return (v&&v.cost!=nul
 // 調貨價沒填就退回成本價（杰哥：「調貨給他們的價錢也不一定是店內成本價」，但多數時候一樣）
 function tpriceOf(it){ const v=it&&S.costs&&S.costs[it.id]; if(v&&v.tprice!=null)return v.tprice; return costOf(it); }
 function canSeeCost(){ return !!partnerToken() && !isPreview(); }
+/* ── 建議售價（杰哥 2026-09-30：「希望能方便看到商品的建議售價」）──
+   庫存裡手填售價的只有 5 件，所以主要來源是價目表（ya-pricelist，同一個 Firebase 的 /pricelist/products，
+   5664 支、每支都有 priceSuggest）。優先順序：
+     1) it.price  手填的（編輯資料裡那格，會蓋過價目表）
+     2) it.plc    手動連到的價目表那一支（存的是價目表的 key，價目表調價這邊會跟著變）
+     3) 自動對到：品牌相同 + 型號去掉空白/橫線後「完全相等」才算（M1≠M1E、MG-30≠MG-300，不做子字串）
+   只拿建議售價，不顯示價目表的經銷價。 */
+let PL=null,_plIdx=null,_plLoading=null,_plFail=false;
+const _plN=s=>String(s||"").replace(/[\s\-_/．.]/g,"").toUpperCase();
+const _plB=s=>String(s||"").replace(/\s/g,"").toUpperCase();
+function loadPL(){
+  if(PL||_plLoading)return _plLoading||Promise.resolve(PL);
+  _plLoading=authReady.then(()=>db.ref("pricelist/products").once("value")).then(snap=>{
+    const v=snap.val()||{};const idx={};
+    Object.keys(v).forEach(k=>{const p=v[k];if(!p)return;const key=_plB(p.brand)+"|"+_plN(p.code||k);(idx[key]=idx[key]||[]).push(k);});
+    PL=v;_plIdx=idx;_plFail=false;render();return PL;
+  }).catch(e=>{console.warn("價目表讀不到",e);_plFail=true;_plLoading=null;render();return null;});
+  return _plLoading;
+}
+function plSug(p){const v=Number(p&&p.priceSuggest);return isFinite(v)&&v>0?v:0;}
+function sugOf(it){
+  if(!it)return null;
+  if(Number(it.price)>0)return{v:Number(it.price),src:"hand"};
+  if(!PL){if(!_plFail)loadPL();return null;}
+  if(it.plc&&PL[it.plc])return{v:plSug(PL[it.plc]),src:"link",k:it.plc,p:PL[it.plc]};
+  const ks=_plIdx[_plB(it.b)+"|"+_plN(it.n)];
+  if(ks){
+    const ps=ks.filter(k=>plSug(PL[k])>0);
+    if(ps.length&&new Set(ps.map(k=>plSug(PL[k]))).size===1)return{v:plSug(PL[ps[0]]),src:"auto",k:ps[0],p:PL[ps[0]]};
+  }
+  return null;
+}
 let _costsLoading=false;
 async function loadCosts(force){
   if(!canSeeCost()){ S.costs=null; return; }
@@ -1666,12 +1698,14 @@ async function doUpdateMeta(id,patch){
     if("dsc" in patch){if(patch.dsc)next.dsc=patch.dsc;else delete next.dsc;}
     if("rp" in patch){const rp=parseInt(patch.rp,10);if(patch.rp!==""&&patch.rp!=null&&isFinite(rp)&&rp>=0)next.rp=rp;else delete next.rp;}
     ["cost","price"].forEach(k=>{if(k in patch){const n=Number(patch[k]);if(patch[k]!==""&&patch[k]!=null&&isFinite(n)&&n>=0)next[k]=n;else delete next[k];}});
+    // plc = 連到價目表的哪一支（價目表的 key）
+    if("plc" in patch){if(patch.plc)next.plc=String(patch.plc);else delete next.plc;}
     if("b" in patch&&patch.b)next.b=patch.b;
     if("c" in patch&&patch.c)next.c=patch.c;
     if("n" in patch&&patch.n)next.n=patch.n;
     if("z" in patch&&patch.z)next.z=patch.z;
     const _eq=(a,b)=>(a==null?"":a)===(b==null?"":b);
-    if((cur.img||"")===(next.img||"")&&(cur.ph||"")===(next.ph||"")&&(cur.dsc||"")===(next.dsc||"")&&_eq(cur.rp,next.rp)&&_eq(cur.cost,next.cost)&&_eq(cur.price,next.price)&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
+    if((cur.img||"")===(next.img||"")&&(cur.ph||"")===(next.ph||"")&&(cur.dsc||"")===(next.dsc||"")&&_eq(cur.rp,next.rp)&&_eq(cur.cost,next.cost)&&_eq(cur.price,next.price)&&(cur.plc||"")===(next.plc||"")&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
     return next;
   }).catch(e=>{console.error(e);return{committed:false};});
   if(noChange)return true;
@@ -2078,7 +2112,13 @@ function renderRow(it){
   row.appendChild(thumb);
   // Name (clickable) + missing indicators
   const nameWrap=h("div",{style:{flex:1,minWidth:0,overflow:"hidden",cursor:"pointer",display:"flex",alignItems:"center",gap:"4px"},onClick:()=>{S.modal={t:"detail",id:it.id};render();}});
-  nameWrap.appendChild(h("span",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1},title:it.n},...highlightText(it.n,S.search)));
+  {
+    // 品名下面一行小字帶建議售價（有才顯示）
+    const sg=sugOf(it);
+    const nm=h("span",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"},title:it.n},...highlightText(it.n,S.search));
+    nameWrap.appendChild(h("div",{style:{flex:1,minWidth:0}},nm,
+      sg&&sg.v?h("div",{style:{fontSize:"11px",fontWeight:700,color:"#15803d",lineHeight:1.2,marginTop:"1px"}},ntw(sg.v)):null));
+  }
   if(!itemHasImg(it)||!it.dsc){
     // Clicking the orange dot is a shortcut to "fill missing info" — opens straight into edit mode instead of detail-view-then-edit. Stop propagation so the parent nameWrap's plain-detail click doesn't fire.
     // Inline-block + padding widens the hit area without disturbing flex layout (negative margins were pulling the bounding box into the name span).
@@ -2361,6 +2401,90 @@ function renderAddModal(){
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:closeAdd}),box);
 }
 
+/* 詳情頁最上面那張「建議售價」卡。 */
+function sugCard(it,pv){
+  if(!PL&&!_plFail)loadPL();
+  const sg=sugOf(it);
+  const wrap=h("div",{style:{display:"flex",alignItems:"center",gap:"10px",padding:"12px 14px",borderRadius:"12px",marginBottom:"12px",background:sg&&sg.v?"#f0fdf4":"#f8fafc",border:"1px solid "+(sg&&sg.v?"#bbf7d0":"var(--border)")}});
+  const left=h("div",{style:{flex:1,minWidth:0}});
+  left.appendChild(h("div",{style:{fontSize:"11px",fontWeight:700,color:"var(--sub)",marginBottom:"2px"}},"建議售價"));
+  let srcTxt="";
+  if(sg&&sg.v){
+    left.appendChild(h("div",{style:{fontSize:"24px",fontWeight:800,color:"#15803d",letterSpacing:".5px",lineHeight:1.2}},ntw(sg.v)));
+    srcTxt=sg.src==="hand"?"手填的":("價目表 "+(sg.p.code||sg.k)+(sg.src==="auto"?"（型號自動對到）":""));
+    const np=sg.p&&sg.p.newPrice;
+    if(sg.src!=="hand"&&np&&Number(np.sug)>0&&Number(np.sug)!==sg.v)
+      left.appendChild(h("div",{style:{fontSize:"11.5px",fontWeight:700,color:"#b45309",marginTop:"2px"}},"新價 "+ntw(Number(np.sug))+(np.eff?"（"+np.eff+" 起）":"")));
+  }else if(sg&&sg.src==="link"){
+    left.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,color:"var(--sub)"}},"價目表這支沒填建議售價"));
+    srcTxt="價目表 "+(sg.p.code||sg.k);
+  }else{
+    left.appendChild(h("div",{style:{fontSize:"14px",fontWeight:700,color:"var(--sub)"}},!PL&&!_plFail?"讀取價目表中…":_plFail?"價目表讀不到（網路？）":"還沒有"));
+  }
+  if(srcTxt)left.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginTop:"2px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},srcTxt));
+  wrap.appendChild(left);
+  if(!pv&&PL){
+    const has=sg&&sg.v;
+    wrap.appendChild(h("button",{style:{flexShrink:0,padding:"8px 12px",borderRadius:"10px",border:"1px solid "+(has?"var(--border)":"var(--blue)"),background:has?"#fff":"var(--blue)",color:has?"var(--sub)":"#fff",fontSize:"12.5px",fontWeight:700,cursor:"pointer"},
+      onClick:()=>{S.modal={t:"plpick",id:it.id,back:S.modal};render();}},has?"換一支":"從價目表找"));
+  }
+  return wrap;
+}
+/* 從價目表挑一支連起來。搜尋框打字只重畫清單，不整頁 render（不然每打一個字就失焦）。 */
+function renderPLPickModal(){
+  if(!S.modal||S.modal.t!=="plpick")return null;
+  const it=S.items.find(x=>x.id===S.modal.id);
+  const back=S.modal.back||null;
+  const close=()=>{S.modal=back;render();};
+  if(!it){close();return null;}
+  if(!PL)loadPL();
+  const box=h("div",{className:"modal-box",style:{maxWidth:"480px"}});
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"4px",gap:"8px"}},
+    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"從價目表找 ─ "+it.n),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",flexShrink:0},onClick:close},"✕")));
+  box.appendChild(h("div",{style:{fontSize:"11.5px",color:"var(--sub)",marginBottom:"10px",lineHeight:1.6}},"點一支就連起來，之後價目表調價這邊會跟著變。打型號就好，空白和橫線不用管。"));
+  const q0=(String(it.n).split(/\s+/)[0]||"");
+  const inp=h("input",{className:"ipt",type:"search",placeholder:"型號或品名，例如 SLG200S",value:q0,style:{marginBottom:"10px"}});
+  box.appendChild(inp);
+  const list=h("div",{style:{maxHeight:"52vh",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"10px"}});
+  box.appendChild(list);
+  const pick=async(k)=>{
+    list.style.opacity=".5";list.style.pointerEvents="none";
+    // 連價目表時把手填的清掉，不然手填的會蓋過去、看起來像沒換
+    const ok=await doUpdateMeta(it.id,{plc:k||"",price:""});
+    if(ok){showToast(k?"✅ 已連到價目表 "+((PL[k]&&PL[k].code)||k):"✅ 已取消連結");close();}
+    else{list.style.opacity="";list.style.pointerEvents="";}
+  };
+  const draw=()=>{
+    list.innerHTML="";
+    if(!PL){list.appendChild(h("div",{style:{padding:"20px",textAlign:"center",color:"var(--sub)",fontSize:"13px"}},_plFail?"價目表讀不到（網路？）":"讀取價目表中…"));return;}
+    const raw=inp.value.trim();const q=_plN(raw);
+    if(!q){list.appendChild(h("div",{style:{padding:"20px",textAlign:"center",color:"var(--sub)",fontSize:"13px"}},"打個型號開始找"));return;}
+    const ib=_plB(it.b);
+    const hits=[];
+    for(const k in PL){const p=PL[k];if(!p)continue;
+      const c=_plN(p.code||k);
+      if(c.includes(q)||(raw.length>=2&&String(p.note||"").includes(raw)))hits.push({k,p,c});
+    }
+    // 排序：同品牌 → 型號完全一樣 → 開頭就是這個型號 → 有填建議售價 → 價錢高的（主機通常比琴罩/配件貴，會排在前面）
+    hits.sort((a,b)=>((_plB(b.p.brand)===ib)-(_plB(a.p.brand)===ib))||((a.c===q?0:1)-(b.c===q?0:1))||((b.c.startsWith(q))-(a.c.startsWith(q)))||(plSug(b.p)-plSug(a.p))||a.c.localeCompare(b.c));
+    if(!hits.length){list.appendChild(h("div",{style:{padding:"20px",textAlign:"center",color:"var(--sub)",fontSize:"13px"}},"價目表找不到「"+raw+"」，換個寫法試試（例如只打數字那段）"));return;}
+    hits.slice(0,60).forEach(({k,p})=>{
+      const v=plSug(p),cur=it.plc===k;
+      list.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"10px",padding:"10px 12px",borderBottom:"1px solid #f1f5f9",cursor:"pointer",background:cur?"var(--blue-light)":"#fff"},onClick:()=>pick(k)},
+        h("div",{style:{flex:1,minWidth:0}},
+          h("div",{style:{fontSize:"13.5px",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},(p.code||k)+(cur?"（目前連的）":"")),
+          h("div",{style:{fontSize:"11px",color:"var(--sub)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},[p.brand,p.note].filter(Boolean).join(" · "))),
+        h("div",{style:{flexShrink:0,fontSize:v?"14px":"11px",fontWeight:v?800:600,color:v?"#15803d":"#94a3b8",textAlign:"right"}},v?ntw(v):"沒填建議售價")));
+    });
+    if(hits.length>60)list.appendChild(h("div",{style:{padding:"10px",textAlign:"center",color:"var(--sub)",fontSize:"11.5px"}},"還有 "+(hits.length-60)+" 支，打長一點縮小範圍"));
+  };
+  inp.addEventListener("input",draw);
+  draw();
+  if(it.plc)box.appendChild(h("button",{style:{width:"100%",marginTop:"10px",padding:"10px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{if(confirm("取消這件商品跟價目表的連結？"))pick("");}},"取消連結"));
+  setTimeout(()=>{try{inp.focus();inp.select();}catch(e){}},50);
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
+}
 function renderDetailModal(){
   if(!S.modal||S.modal.t!=="detail")return null;
   const it=S.items.find(x=>x.id===S.modal.id);
@@ -2388,6 +2512,7 @@ function renderDetailModal(){
   ));
   const isEdit=S.modal.edit;
   if(!isEdit){
+    box.appendChild(sugCard(it,pv));
     if(itemHasImg(it)){const imgBox=h("div",{style:{width:"100%",aspectRatio:"1",maxHeight:"280px",borderRadius:"12px",overflow:"hidden",background:"#f8fafc",marginBottom:"12px",border:"1px solid var(--border)",cursor:"zoom-in",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>{S.modal=it.img?{t:"lightbox",src:it.img,fromModal:S.modal}:{t:"lightbox",ph:it.ph,fromModal:S.modal};render();}});const img=itemImgEl(it,{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"},()=>{imgBox.innerHTML="";imgBox.appendChild(h("div",{style:{padding:"40px 20px",textAlign:"center",color:"var(--red)",fontSize:"13px"}},"⚠ 圖片載入失敗"));});imgBox.appendChild(img);
       // 自己拍的照片：先秀縮圖（上面已填），大圖抓到再換掉，開視窗不會空一片
       if(it.ph&&!it.img)photoFullLoad(it.ph).then(d=>{img.src=d;}).catch(()=>{});
@@ -2616,8 +2741,8 @@ function renderDetailModal(){
     const _vc=costOf(it), _vt=(S.costs&&S.costs[it.id]&&S.costs[it.id].tprice!=null)?S.costs[it.id].tprice:null;
     const costI=h("input",{className:"ipt",type:"number",min:"0",inputmode:"decimal",placeholder:"成本價",value:_vc!=null?String(_vc):""});
     const tprI=h("input",{className:"ipt",type:"number",min:"0",inputmode:"decimal",placeholder:"沒填＝用成本價",value:_vt!=null?String(_vt):""});
-    const priceI=h("input",{className:"ipt",type:"number",min:"0",inputmode:"decimal",placeholder:"售價(選填)",value:(it.price!=null&&it.price!=='')?String(it.price):""});
-    box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"售價（選填）"),priceI));
+    const priceI=h("input",{className:"ipt",type:"number",min:"0",inputmode:"decimal",placeholder:"留空＝用價目表的建議售價",value:(it.price!=null&&it.price!=='')?String(it.price):""});
+    box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"建議售價（手填，會蓋過價目表）"),priceI));
     if(canSeeCost()){
       const cw=h("div",{style:{marginBottom:"14px",padding:"10px",border:"1px solid #fdba74",background:"#fff7ed",borderRadius:"10px"}});
       cw.appendChild(h("div",{style:{fontSize:"12px",fontWeight:700,color:"#9a3412",marginBottom:"2px"}},"🔒 成本價 / 給立米特的價"));
@@ -4351,6 +4476,7 @@ function renderMain(){
   const pmm=renderPartnerImportModal();if(pmm)root.appendChild(pmm);
   const ppr=renderPartnerPriceModal();if(ppr)root.appendChild(ppr);
   const dm=renderDetailModal();if(dm)root.appendChild(dm);
+  const plm=renderPLPickModal();if(plm)root.appendChild(plm);
   const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
   const bdcm=renderBulkDelConfirmModal();if(bdcm)root.appendChild(bdcm);
   // Keyboard shortcuts help modal — opened via "?" key.
@@ -4533,6 +4659,8 @@ function unlockBody(){if(document.body.dataset.locked!=="1")return;document.body
 let _renderQueued=false;
 function render(){
   // 成本保險箱：登入後第一次畫面就抓一次（編輯視窗、統計都要用，不是只有立米特分頁）
+  // 建議售價要用的價目表：登入後背景抓一次
+  if(S.phase==="ready"&&!PL&&!_plFail&&!_plLoading)setTimeout(()=>loadPL(),0);
   if(S.phase!=="login"&&canSeeCost()&&S.costs===null&&!_costsLoading)setTimeout(()=>loadCosts(),0);if(_renderQueued)return;_renderQueued=true;if(_listenerRenderTimer){clearTimeout(_listenerRenderTimer);_listenerRenderTimer=null;}queueMicrotask(()=>{_renderQueued=false;try{_render();}catch(e){console.error("render failed:",e);
     // If _render threw mid-flight, body may be left in fixed/locked state from a previous open modal, leaving the user unable to scroll until reload.
     try{unlockBody();}catch(e2){/* swallow */}
