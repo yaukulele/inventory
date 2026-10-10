@@ -771,13 +771,26 @@ function canSeeCost(){ return !!partnerToken() && !isPreview(); }
 let PL=null,_plIdx=null,_plLoading=null,_plFail=false;
 const _plN=s=>String(s||"").replace(/[\s\-_/．.]/g,"").toUpperCase();
 const _plB=s=>String(s||"").replace(/\s/g,"").toUpperCase();
+function _buildPlIdx(v){
+  const idx={};
+  Object.keys(v||{}).forEach(k=>{const p=v[k];if(!p)return;const key=_plB(p.brand)+"|"+_plN(p.code||k);(idx[key]=idx[key]||[]).push(k);});
+  _plIdx=idx;
+}
 function loadPL(){
   if(PL||_plLoading)return _plLoading||Promise.resolve(PL);
+  // C3（稽核 2026-10-10）：價目表 5664 支以前每次登入都整份重抓才顯示建議售價。
+  // 先吃 localStorage 快取秒出、不卡登入，再背景跟 Firebase 更新一次。資料結構不變，建議售價邏輯照舊。
+  try{
+    const c=JSON.parse(localStorage.getItem("ya_pl_cache")||"null");
+    if(c&&c.v&&(Date.now()-c.t)<24*3600*1000){PL=c.v;_buildPlIdx(PL);_plFail=false;}
+  }catch(_){}
   _plLoading=authReady.then(()=>db.ref("pricelist/products").once("value")).then(snap=>{
-    const v=snap.val()||{};const idx={};
-    Object.keys(v).forEach(k=>{const p=v[k];if(!p)return;const key=_plB(p.brand)+"|"+_plN(p.code||k);(idx[key]=idx[key]||[]).push(k);});
-    PL=v;_plIdx=idx;_plFail=false;render();return PL;
+    const v=snap.val()||{};
+    PL=v;_buildPlIdx(v);_plFail=false;
+    try{localStorage.setItem("ya_pl_cache",JSON.stringify({t:Date.now(),v}));}catch(_){/* 太大就不快取，退回每次抓 */}
+    render();return PL;
   }).catch(e=>{console.warn("價目表讀不到",e);_plFail=true;_plLoading=null;render();return null;});
+  if(PL)render(); // 有快取的話先用快取畫一次，不等網路
   return _plLoading;
 }
 function plSug(p){const v=Number(p&&p.priceSuggest);return isFinite(v)&&v>0?v:0;}
@@ -1700,12 +1713,14 @@ async function doUpdateMeta(id,patch){
     ["cost","price"].forEach(k=>{if(k in patch){const n=Number(patch[k]);if(patch[k]!==""&&patch[k]!=null&&isFinite(n)&&n>=0)next[k]=n;else delete next[k];}});
     // plc = 連到價目表的哪一支（價目表的 key）
     if("plc" in patch){if(patch.plc)next.plc=String(patch.plc);else delete next.plc;}
+    // sku = 商品編號 / 平台對照（MOMO goodsCode、PChome GroupId…），給庫存↔平台串接用（B1 稽核 2026-10-10）
+    if("sku" in patch){if(patch.sku)next.sku=String(patch.sku).trim();else delete next.sku;}
     if("b" in patch&&patch.b)next.b=patch.b;
     if("c" in patch&&patch.c)next.c=patch.c;
     if("n" in patch&&patch.n)next.n=patch.n;
     if("z" in patch&&patch.z)next.z=patch.z;
     const _eq=(a,b)=>(a==null?"":a)===(b==null?"":b);
-    if((cur.img||"")===(next.img||"")&&(cur.ph||"")===(next.ph||"")&&(cur.dsc||"")===(next.dsc||"")&&_eq(cur.rp,next.rp)&&_eq(cur.cost,next.cost)&&_eq(cur.price,next.price)&&(cur.plc||"")===(next.plc||"")&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
+    if((cur.img||"")===(next.img||"")&&(cur.ph||"")===(next.ph||"")&&(cur.dsc||"")===(next.dsc||"")&&_eq(cur.rp,next.rp)&&_eq(cur.cost,next.cost)&&_eq(cur.price,next.price)&&(cur.plc||"")===(next.plc||"")&&(cur.sku||"")===(next.sku||"")&&cur.b===next.b&&cur.c===next.c&&cur.n===next.n&&(cur.z||"店內")===(next.z||"店內")){noChange=true;return undefined;}
     return next;
   }).catch(e=>{console.error(e);return{committed:false};});
   if(noChange)return true;
@@ -2734,6 +2749,10 @@ function renderDetailModal(){
     const dscI=h("textarea",{className:"ipt",placeholder:"商品敘述、規格、備註…",style:{minHeight:"80px",resize:"vertical",fontFamily:"inherit"}});
     dscI.value=it.dsc||"";
     box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"敘述"),dscI));
+    // B1（稽核 2026-10-10）：商品編號／平台對照 —— 填 MOMO goodsCode 或 PChome GroupId，
+    // 讓庫存可以跟電商平台對起來（成本對照、缺貨仍上架偵測的基礎）。可空。
+    const skuI=h("input",{className:"ipt",placeholder:"MOMO/PChome 商品編號（對平台用，可空）",value:it.sku||""});
+    box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"商品編號／平台對照"),skuI));
     const _gdef=((S.settings&&S.settings.reorderDefault)!=null?S.settings.reorderDefault:2);
     const rpI=h("input",{className:"ipt",type:"number",min:"0",inputmode:"numeric",placeholder:"留空＝用全店預設（目前 "+_gdef+"）",value:(it.rp!==undefined&&it.rp!==null&&it.rp!=='')?String(it.rp):""});
     box.appendChild(h("div",{style:{marginBottom:"14px"}},h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"4px",fontWeight:600}},"叫貨門檻（庫存 ≤ 此數量就亮紅燈提醒叫貨）"),rpI));
@@ -2753,7 +2772,7 @@ function renderDetailModal(){
       box.appendChild(h("div",{style:{marginBottom:"14px",padding:"9px 11px",background:"#f8fafc",borderRadius:"10px",fontSize:"11px",color:"var(--sub)",lineHeight:1.6}},"🔒 成本價需要老闆的連線碼才看得到（在「立米特」分頁貼過就會記住）。"));
     }
     // Track initial values so 取消 can warn before discarding unsaved edits. Without this an accidental tap on 取消 silently throws away description rewrites — particularly painful since the modal is wide and the button is close to the right edge.
-    const _initN=it.n,_initB=it.b,_initC=it.c,_initZ=origZ,_initImg=it.img||"",_initDsc=it.dsc||"",_initRp=(it.rp!==undefined&&it.rp!==null&&it.rp!=='')?String(it.rp):"",_initCost=(it.cost!=null&&it.cost!=='')?String(it.cost):"",_initPrice=(it.price!=null&&it.price!=='')?String(it.price):"";
+    const _initN=it.n,_initB=it.b,_initC=it.c,_initZ=origZ,_initImg=it.img||"",_initDsc=it.dsc||"",_initRp=(it.rp!==undefined&&it.rp!==null&&it.rp!=='')?String(it.rp):"",_initCost=(it.cost!=null&&it.cost!=='')?String(it.cost):"",_initPrice=(it.price!=null&&it.price!=='')?String(it.price):"",_initSku=it.sku||"";
     const isDirty=()=>{
       if(S.modal&&S.modal._photo)return true;      // 拍好還沒儲存的照片
       if(phId!==(it.ph||""))return true;           // 照片被 ✕ 清掉
@@ -2768,6 +2787,7 @@ function renderDetailModal(){
       if(rpI.value.trim()!==_initRp)return true;
       if(costI.value.trim()!==_initCost)return true;
       if(priceI.value.trim()!==_initPrice)return true;
+      if(skuI.value.trim()!==_initSku)return true;
       return false;
     };
     const btnRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"6px"}});
@@ -2795,7 +2815,7 @@ function renderDetailModal(){
       const cr=await saveCost(it,costI.value.trim(),tprI.value.trim());
       if(cr&&!cr.ok)showToast("⚠ 成本價沒存進去："+(cr.error||"未知錯誤"));
     }
-    const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:_newPh?"":_url,ph:_newPh,dsc:dscI.value.trim(),rp:rpI.value.trim(),price:priceI.value.trim()});if(ok){
+    const ok=await doUpdateMeta(it.id,{n:newN,b:newB,c:newC,z:zS.value,img:_newPh?"":_url,ph:_newPh,dsc:dscI.value.trim(),rp:rpI.value.trim(),price:priceI.value.trim(),sku:skuI.value.trim()});if(ok){
       if(_oldPh&&_oldPh!==_newPh)fbPhotoDropIfUnused(_oldPh,it.id);   /* 換掉/清掉的舊照片，沒別人用就刪 */ const origZ=it.z||"店內";const newZ=zS.value||"店內";const zoneChanged=origZ!==newZ;showToast(zoneChanged?"已儲存（已搬到 "+newZ+"）":"已儲存");if(back)S.modal=back;else S.modal={t:"detail",id:it.id};render();}else{if(_pend&&_newPh)fbPhotoDropIfUnused(_newPh,it.id);this.disabled=false;this.style.opacity="";this.textContent="💾 儲存";}}},"💾 儲存");
     btnRow.appendChild(saveBtn);
     box.appendChild(btnRow);

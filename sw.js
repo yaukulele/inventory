@@ -5,7 +5,8 @@
 //  - 商品圖（catbox 等）：cache-first，捲動/重畫時免重抓
 //  - Firebase 即時資料庫 / 匿名登入流量：完全略過，交給 SDK，確保即時同步不受影響
 // 改版時把 VER 加一號，舊快取會自動清掉。
-const VER = "inv-v37";
+const VER = "inv-v38";
+const IMG_MAX = 300; // 商品圖快取上限（LRU），避免長期在裝置上無限長大（稽核 2026-10-10 C3）
 const SHELL = VER + "-shell";
 const CDN = VER + "-cdn";
 const IMG = VER + "-img";
@@ -45,6 +46,27 @@ async function cacheFirst(req, cacheName) {
   return r || fetch(req);
 }
 
+// 圖片用：cache-first ＋ 上限 LRU（Cache API 的 keys() 依插入順序，刪前面＝刪最舊）
+async function cacheFirstImg(req) {
+  const cache = await caches.open(IMG);
+  const cached = await cache.match(req);
+  if (cached) return cached;
+  const r = await fetch(req).catch(() => null);
+  if (r && (r.ok || r.type === "opaque")) {
+    await cache.put(req, r.clone());
+    trimCache(cache, IMG_MAX);
+  }
+  return r || fetch(req);
+}
+
+async function trimCache(cache, max) {
+  try {
+    const keys = await cache.keys();
+    const over = keys.length - max;
+    for (let i = 0; i < over; i++) await cache.delete(keys[i]);
+  } catch (_) { /* best effort */ }
+}
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
@@ -63,9 +85,9 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(cacheFirst(req, CDN));
     return;
   }
-  // Product images (catbox / yamusic / imgur / lh3 …)
+  // Product images (catbox / yamusic / imgur / lh3 …) — 有上限的 LRU 快取
   if (req.destination === "image") {
-    e.respondWith(cacheFirst(req, IMG));
+    e.respondWith(cacheFirstImg(req));
     return;
   }
   // everything else: default network
