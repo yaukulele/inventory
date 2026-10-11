@@ -781,9 +781,10 @@ function _buildPlIdx(v){
    還把 2.2MB 整包 JSON.stringify 進 localStorage（手機會頓一下，也吃掉同網域撈單系統的 localStorage 空間）。
    ① 只留建議售價／連結價目表會用到的欄位（brand、code、note、priceSuggest、newPrice 的 sug/eff）→ 約 0.6MB，
       也順便不把經銷價（成本）留在手機上。
-   ② 快取 6 小時內就直接用、不重抓；6～24 小時先用舊的，延後 4 秒再背景更新（不跟登入搶網路）。
+   ② 快取 10 分鐘內就直接用、不重抓；超過就先用舊的，延後 4 秒再背景更新（不跟登入搶網路）。
+      （原本過夜版設 6 小時，但價目表改價後店員要隔半天才看到新建議售價 → 改 10 分鐘，跟以前「每次登入都會更新」幾乎一樣）
    ③ 寫快取改在瀏覽器空閒時做。建議售價怎麼算完全沒變。 */
-const PL_TTL=6*3600*1000;
+const PL_TTL=10*60*1000;
 function _plCompact(v){
   const o={};
   Object.keys(v||{}).forEach(k=>{const p=v[k];if(!p||typeof p!=="object")return;
