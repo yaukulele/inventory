@@ -777,20 +777,38 @@ function _buildPlIdx(v){
   Object.keys(v||{}).forEach(k=>{const p=v[k];if(!p)return;const key=_plB(p.brand)+"|"+_plN(p.code||k);(idx[key]=idx[key]||[]).push(k);});
   _plIdx=idx;
 }
+/* 速度優化（2026-10-12 過夜）：價目表整份 2.2MB，原本每次登入都在背景重抓一次，
+   還把 2.2MB 整包 JSON.stringify 進 localStorage（手機會頓一下，也吃掉同網域撈單系統的 localStorage 空間）。
+   ① 只留建議售價／連結價目表會用到的欄位（brand、code、note、priceSuggest、newPrice 的 sug/eff）→ 約 0.6MB，
+      也順便不把經銷價（成本）留在手機上。
+   ② 快取 6 小時內就直接用、不重抓；6～24 小時先用舊的，延後 4 秒再背景更新（不跟登入搶網路）。
+   ③ 寫快取改在瀏覽器空閒時做。建議售價怎麼算完全沒變。 */
+const PL_TTL=6*3600*1000;
+function _plCompact(v){
+  const o={};
+  Object.keys(v||{}).forEach(k=>{const p=v[k];if(!p||typeof p!=="object")return;
+    const c={brand:p.brand,code:p.code,priceSuggest:p.priceSuggest};
+    if(p.note)c.note=p.note;
+    if(p.newPrice&&typeof p.newPrice==="object")c.newPrice={sug:p.newPrice.sug,eff:p.newPrice.eff};
+    o[k]=c;});
+  return o;
+}
+function _idle(fn){try{if(window.requestIdleCallback)return requestIdleCallback(fn,{timeout:5000});}catch(_){}return setTimeout(fn,1500);}
 function loadPL(){
   if(PL||_plLoading)return _plLoading||Promise.resolve(PL);
-  // C3（稽核 2026-10-10）：價目表 5664 支以前每次登入都整份重抓才顯示建議售價。
-  // 先吃 localStorage 快取秒出、不卡登入，再背景跟 Firebase 更新一次。資料結構不變，建議售價邏輯照舊。
+  let fresh=false;
   try{
     const c=JSON.parse(localStorage.getItem("ya_pl_cache")||"null");
-    if(c&&c.v&&(Date.now()-c.t)<24*3600*1000){PL=c.v;_buildPlIdx(PL);_plFail=false;}
+    if(c&&c.v&&(Date.now()-c.t)<24*3600*1000){PL=c.v;_buildPlIdx(PL);_plFail=false;fresh=c.c===1&&(Date.now()-c.t)<PL_TTL;}
   }catch(_){}
-  _plLoading=authReady.then(()=>db.ref("pricelist/products").once("value")).then(snap=>{
-    const v=snap.val()||{};
+  if(fresh){_plLoading=Promise.resolve(PL);render();return _plLoading;}
+  const fetchPL=()=>authReady.then(()=>db.ref("pricelist/products").once("value")).then(snap=>{
+    const v=_plCompact(snap.val()||{});
     PL=v;_buildPlIdx(v);_plFail=false;
-    try{localStorage.setItem("ya_pl_cache",JSON.stringify({t:Date.now(),v}));}catch(_){/* 太大就不快取，退回每次抓 */}
+    _idle(()=>{try{localStorage.setItem("ya_pl_cache",JSON.stringify({t:Date.now(),c:1,v}));}catch(_){/* 存不下就不快取，退回每次抓 */}});
     render();return PL;
   }).catch(e=>{console.warn("價目表讀不到",e);_plFail=true;_plLoading=null;render();return null;});
+  _plLoading=PL?new Promise(r=>setTimeout(r,4000)).then(fetchPL):fetchPL();
   if(PL)render(); // 有快取的話先用快取畫一次，不等網路
   return _plLoading;
 }
@@ -1489,10 +1507,24 @@ function photoFullLoad(id){
 function itemHasImg(it){return !!(it&&(it.img||it.ph));}
 // 商品圖 <img>：網址直接給 src；自拍照先看快取，沒有就背景抓完自己填進去
 // （不走 render()，因為 render 會整頁重畫，開著的編輯視窗會被洗掉）
+/* 速度優化（2026-10-12 過夜）：清單上的縮圖只有 28～34px，原本直接載原圖 —— 量到平均一張 327KB，
+   aNueNue 官網的 PNG 一張 2MB 以上，手機展開全部品項要下載幾十 MB。
+   改成透過 images.weserv.nl 縮成小 WebP（實測 2.2MB→7KB、yamusic 148KB→3KB）。
+   清單縮圖要 120px、商品詳情（最大 280px）要 600px；放大檢視（lightbox）仍然是原圖。
+   縮圖服務抓不到（例如 catbox 擋外部抓圖）就自動退回原圖，畫面不會破。 */
+const IMG_THUMB_SKIP=/catbox\.moe|gstatic\.com|weserv\.nl/i;
+function thumbUrl(u,w){
+  if(!u||typeof u!=="string"||!/^https?:\/\//i.test(u)||IMG_THUMB_SKIP.test(u))return u;
+  return "https://images.weserv.nl/?url="+encodeURIComponent(u)+"&w="+w+"&h="+w+"&fit=inside&we&output=webp&q=78";
+}
 function itemImgEl(it,style,onErr){
   const im=h("img",{style:style||{},loading:"lazy",decoding:"async"});
   im.onerror=()=>{if(onErr)onErr(im);};
-  if(it&&it.img){im.src=it.img;return im;}
+  if(it&&it.img){
+    const t=thumbUrl(it.img,(style&&style.maxWidth)?600:120);
+    if(t!==it.img)im.onerror=()=>{im.onerror=()=>{if(onErr)onErr(im);};im.src=it.img;};
+    im.src=t;return im;
+  }
   const c=it&&it.ph?photoThumbCached(it.ph):"";
   if(c){im.src=c;return im;}
   if(it&&it.ph)photoThumbLoad(it.ph).then(d=>{im.src=d;}).catch(()=>{if(onErr)onErr(im);});
@@ -1915,7 +1947,9 @@ async function postLogin(){
   // Reuse the chip-pick prefetch if available — saves an entire round trip when the user has been typing their password during the load.
   if(cached||prefetched){
     // Listener subscription is safe to start now; either we have items from cache or from the prefetch.
-    if(prefetched)startRealtimeSync();
+    // 速度優化（2026-10-12 過夜）：有快取的時候原本要等第一次 once() 讀完才掛 on()，
+    // Firebase 會把整份庫存（約 105KB）＋紀錄（約 30KB）再下載一次。現在一起掛，SDK 會合併成同一次下載。
+    startRealtimeSync();
     fbLoadInitial().then(()=>{
       // If user logged out while background fbLoad was running, don't yank them back to ready.
       if(S.phase==="login")return;
@@ -1926,6 +1960,9 @@ async function postLogin(){
     });
   }
   else{
+    // 冷啟也先掛即時同步（2026-10-12 過夜）：跟 fbLoad 的 once() 同時在跑，SDK 合併成一次下載；
+    // S.items 還沒來之前 listener 本身會略過（!S.items 就 return），不會亂動畫面。
+    startRealtimeSync();
     await fbLoadInitial();
     if(S.phase==="login")return;  // Same guard for non-cached path
     if(S.lastSyncAt===beforeSync)showToast("⚠ 同步失敗，使用預設清單");
