@@ -297,9 +297,10 @@ function arrFromVal(v){
 // Also coerce the string fields — a missing/non-string/empty b/c/n would crash gc() (charCodeAt loop) or break grouping (m[undefined] sets "undefined" key globally / m[""] groups orphans under empty-string brand).
 function sanitizeItem(x){
   if(!x||typeof x!=="object")return x;
-  if(typeof x.q!=="number"||!isFinite(x.q)||x.q<0){
+  // 2026-10-11 起允許負數（欠貨：先出貨、之後進貨補回）
+  if(typeof x.q!=="number"||!isFinite(x.q)||x.q!==Math.trunc(x.q)){
     const n=parseInt(x.q,10);
-    x.q=isFinite(n)&&n>=0?n:0;
+    x.q=isFinite(n)?n:0;
   }
   if(typeof x.b!=="string"||!x.b)x.b=String(x.b||"其他");
   if(typeof x.c!=="string"||!x.c)x.c=String(x.c||"?");
@@ -651,9 +652,9 @@ async function doAction(type,it,qty,note,opts){
   const idx=S.items.findIndex(x=>x.id===it.id);
   if(idx<0){S.modal=back;showToast("⚠ 此品項已被刪除");render();return {ok:false};}
   const orig=S.items[idx],rq=orig.q||0;
-  if(type==="out"&&rq<=0){S.modal=back;showToast("⚠ 庫存為 0，無法出貨");render();return {ok:false};}
-  const oa=type==="out"?Math.min(rq,amt):amt;
-  const optNq=type==="in"?rq+amt:type==="out"?Math.max(0,rq-oa):Math.max(0,amt);
+  // 出貨可以扣到負數（欠貨），之後進貨補回
+  const oa=amt;
+  const optNq=type==="in"?rq+amt:type==="out"?rq-oa:Math.max(0,amt);
   if(type==="audit"&&optNq===rq){S.modal=back;showToast("數量相同，無需盤點");render();return {ok:false};}
   // Optimistic: update locally, close modal, show toast — instant UI feedback
   _pendingItems.bump(it.id);
@@ -688,7 +689,7 @@ async function doAction(type,it,qty,note,opts){
     const tx=await fbTxItem(it.id,cur=>{
       serverRq=cur.q||0;
       if(type==="in"){serverNq=serverRq+amt;return{...cur,q:serverNq};}
-      if(type==="out"){if(serverRq<=0)return undefined;const o=Math.min(serverRq,amt);serverNq=Math.max(0,serverRq-o);return{...cur,q:serverNq};}
+      if(type==="out"){serverNq=serverRq-amt;return{...cur,q:serverNq};}
       serverNq=Math.max(0,amt);return{...cur,q:serverNq};
     });
     if(tx.missing)failReason="⚠ 此品項已被刪除";
@@ -715,7 +716,7 @@ async function doAction(type,it,qty,note,opts){
   if(serverRq!==rq||serverNq!==optNq){
     const lIdx=S.logs.findIndex(l=>l.id===logEntry.id);
     if(lIdx>=0){
-      const fixedOa=type==="out"?Math.min(serverRq,amt):oa;
+      const fixedOa=oa;
       const fixedDet=note?(note+(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:type==="audit"?" "+serverRq+"→"+serverNq:"")):(type==="in"?"+"+amt:type==="out"?"-"+fixedOa:"盤點 "+serverRq+"→"+serverNq);
       S.logs[lIdx]={...logEntry,pq:serverRq,nq:serverNq,d:fixedDet};
       saveCache();
@@ -980,7 +981,7 @@ function renderPartnerTab(content){
         +(it.src==="own" ? "他們自己進的"
           : it.cost===null ? "我們調過去的・⚠ 還沒定價"
           : "我們調過去的 進價 "+ntw(it.cost)))));
-    row.appendChild(h("span",{style:{fontSize:"15px",fontWeight:800,color:it.q===0?"var(--red)":"var(--blue)",flexShrink:0}},"× "+it.q));
+    row.appendChild(h("span",{style:{fontSize:"15px",fontWeight:800,color:it.q<=0?"var(--red)":"var(--blue)",flexShrink:0}},it.q<0?"欠 "+(-it.q):"× "+it.q));
     // 進價只有我們改得動 —— 店家那頁按了會被伺服器擋（updateItem isAdmin:false）
     if(!isPreview())row.appendChild(h("button",{title:"改進價／建議售價",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",cursor:"pointer"},onClick:()=>{S.modal={t:"pitem",id:it.id};render();}},"✏️"));
     ic.appendChild(row);
@@ -2101,8 +2102,8 @@ function highlightText(text,search){
   return nodes;
 }
 function renderRow(it){
-  const q=it.q,reorder=needsReorder(it),qColor=q===0?"var(--red)":reorder?"var(--orange)":"var(--text)";
-  const qBg=q===0?"#fef2f2":reorder?"#fff7ed":"#f0f9ff";
+  const q=it.q,reorder=needsReorder(it),qColor=q<=0?"var(--red)":reorder?"var(--orange)":"var(--text)";
+  const qBg=q<=0?"#fef2f2":reorder?"#fff7ed":"#f0f9ff";
   const pv=isPreview();
   const selMode=!!S._selectMode&&!pv;
   const checked=selMode&&S._sel&&S._sel.has(it.id);
@@ -2147,7 +2148,7 @@ function renderRow(it){
   row.appendChild(h("span",{style:{minWidth:"26px",padding:"2px 5px",borderRadius:"8px",background:qBg,color:qColor,fontWeight:700,fontSize:"14px",textAlign:"center",display:"inline-block",flexShrink:0}},String(q)));
   if(!pv){
     row.appendChild(h("button",{className:"circle-btn","aria-label":"進貨 "+it.n,title:"進貨",style:{background:"#dcfce7",color:"var(--green)"},onClick:()=>{S.modal={t:"in",it};render();}},"＋"));
-    row.appendChild(h("button",{className:"circle-btn","aria-label":"出貨 "+it.n,title:"出貨",style:{background:q===0?"#f1f5f9":"#fef3c7",color:q===0?"#cbd5e1":"var(--orange)",cursor:q===0?"default":"pointer"},disabled:q===0,onClick:()=>{if(q>0){S.modal={t:"out",it};render();}}},"－"));
+    row.appendChild(h("button",{className:"circle-btn","aria-label":"出貨 "+it.n,title:"出貨",style:{background:"#fef3c7",color:"var(--orange)",cursor:"pointer"},onClick:()=>{S.modal={t:"out",it};render();}},"－"));
     row.appendChild(h("button",{className:"circle-btn","aria-label":"盤點 "+it.n,title:"盤點",style:{background:"#f0f9ff",color:"var(--blue)",fontSize:"12px"},onClick:()=>{S.modal={t:"audit",it};render();}},"📋"));
     row.appendChild(h("button",{className:"circle-btn del","aria-label":"刪除 "+it.n,title:"刪除",style:{background:"#fef2f2",color:"var(--red)",fontSize:"12px"},onClick:()=>doDel(it)},"✕"));
   }
@@ -2184,16 +2185,16 @@ function renderActionModal(){
   box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px",gap:"8px"}},h("h3",{style:{fontSize:"18px",fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:it.n},lbl+" ─ "+it.n),h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px",padding:"4px",flexShrink:0},onClick:closeAction},"✕")));
   box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--sub)",marginBottom:"12px",padding:"8px 12px",background:"#f8fafc",borderRadius:"8px"}},(type==="audit"?"系統庫存":"目前庫存")+"：",h("b",{style:{color:col,fontSize:"16px"}},String(it.q))));
   if(type==="audit")box.appendChild(h("div",{style:{fontSize:"11px",color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:"8px",padding:"6px 10px",marginBottom:"12px",lineHeight:1.5}},"⚠ 盤點會用你數的數量「直接覆蓋」系統值。若盤點期間有人進/出貨，上方數字會即時更新，確認前再看一眼。"));
-  if(type==="out"&&it.q===0)box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--red)",fontWeight:700,marginBottom:"8px",padding:"8px 12px",background:"#fef2f2",borderRadius:"8px"}},"⚠ 庫存為 0，無法出貨"));
+  if(type==="out"&&it.q<=0)box.appendChild(h("div",{style:{fontSize:"13px",color:"var(--red)",fontWeight:700,marginBottom:"8px",padding:"8px 12px",background:"#fef2f2",borderRadius:"8px"}},it.q<0?"⚠ 目前已經欠 "+(-it.q)+" 個，出貨後會再往下扣（之後進貨補回）":"⚠ 庫存為 0，出貨後會變負數＝欠貨（之後進貨補回）"));
   // Qty
   const qDiv=h("div",{style:{marginBottom:"12px"}});qDiv.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:"var(--sub)",marginBottom:"6px",fontWeight:600}},"數量"));
   const prevEl=h("div",{style:{fontSize:"14px",color:"var(--sub)",marginBottom:"14px",padding:"8px 12px",background:"#f8fafc",borderRadius:"8px"}});
   // Re-read q from S.items each tick — another user's concurrent edit might have changed it after the modal opened, and the closure-cached it.q would otherwise lie to the user about the post-action result.
-  const updatePrev=()=>{const cur=S.items&&S.items.find(x=>x.id===it.id);const curQ=cur?(cur.q||0):it.q;const p=type==="in"?curQ+Math.max(1,selQ):type==="out"?Math.max(0,curQ-Math.min(curQ,Math.max(0,selQ))):Math.max(0,selQ);prevEl.innerHTML="";prevEl.appendChild(document.createTextNode((type==="audit"?"校正後":"操作後")+"："));prevEl.appendChild(h("b",{style:{color:col,fontSize:"18px"}},String(p)));if(type==="audit"&&p!==curQ){prevEl.appendChild(h("span",{style:{color:p>curQ?"var(--green)":"var(--red)",fontSize:"13px",marginLeft:"8px"}},"("+(p>curQ?"+":"")+(p-curQ)+")"));}if(confirmBtn){const oa=type==="out"?Math.min(curQ,Math.max(0,selQ)):selQ;confirmBtn.textContent=type==="in"?(qTouched?"確認進貨 +"+Math.max(1,selQ):"請先選數量"):type==="out"?"確認出貨 -"+oa:(p===curQ?"請選擇盤點數量":"確認盤點 "+curQ+"→"+p);if(type==="audit"){const same=(p===curQ);if(!tags.length){confirmBtn.disabled=same;confirmBtn.style.opacity=same?0.4:1;}}if(type==="in"){const block=!qTouched||!selN;confirmBtn.disabled=block;confirmBtn.style.opacity=block?0.4:1;}}};
+  const updatePrev=()=>{const cur=S.items&&S.items.find(x=>x.id===it.id);const curQ=cur?(cur.q||0):it.q;const p=type==="in"?curQ+Math.max(1,selQ):type==="out"?curQ-Math.max(0,selQ):Math.max(0,selQ);prevEl.innerHTML="";prevEl.appendChild(document.createTextNode((type==="audit"?"校正後":"操作後")+"："));prevEl.appendChild(h("b",{style:{color:col,fontSize:"18px"}},String(p)));if(type==="audit"&&p!==curQ){prevEl.appendChild(h("span",{style:{color:p>curQ?"var(--green)":"var(--red)",fontSize:"13px",marginLeft:"8px"}},"("+(p>curQ?"+":"")+(p-curQ)+")"));}if(confirmBtn){const oa=type==="out"?Math.max(0,selQ):selQ;confirmBtn.textContent=type==="in"?(qTouched?"確認進貨 +"+Math.max(1,selQ):"請先選數量"):type==="out"?"確認出貨 -"+oa:(p===curQ?"請選擇盤點數量":"確認盤點 "+curQ+"→"+p);if(type==="audit"){const same=(p===curQ);if(!tags.length){confirmBtn.disabled=same;confirmBtn.style.opacity=same?0.4:1;}}if(type==="in"){const block=!qTouched||!selN;confirmBtn.disabled=block;confirmBtn.style.opacity=block?0.4:1;}}};
   if(type!=="audit"){
     const grid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",marginBottom:"8px"}});
-    [1,2,3,4,5,6,7,8,9].forEach(n=>{const dis=type==="out"&&n>it.q;grid.appendChild(h("button",{className:"num-btn"+(type==="in"?"":(n===1?" active":"")),disabled:dis,onClick:function(){selQ=n;qTouched=true;grid.querySelectorAll("button").forEach((b,i)=>{if(i<9)b.className="num-btn"+((i+1)===n?" active":"");});updatePrev();}},String(n)));});
-    grid.appendChild(h("button",{className:"num-btn",onClick:function(){grid.style.display="none";const newInp=h("input",{type:"number",inputmode:"numeric",min:1,max:type==="out"?it.q:undefined,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||1;if(type==="out"&&selQ>it.q)selQ=it.q;qTouched=true;updatePrev();}});qDiv.appendChild(newInp);setTimeout(()=>{newInp.focus();newInp.select();},50);}},"其他"));
+    [1,2,3,4,5,6,7,8,9].forEach(n=>{const dis=false;grid.appendChild(h("button",{className:"num-btn"+(type==="in"?"":(n===1?" active":"")),disabled:dis,onClick:function(){selQ=n;qTouched=true;grid.querySelectorAll("button").forEach((b,i)=>{if(i<9)b.className="num-btn"+((i+1)===n?" active":"");});updatePrev();}},String(n)));});
+    grid.appendChild(h("button",{className:"num-btn",onClick:function(){grid.style.display="none";const newInp=h("input",{type:"number",inputmode:"numeric",min:1,value:String(selQ),className:"ipt",onInput:e=>{selQ=parseInt(e.target.value)||1;qTouched=true;updatePrev();}});qDiv.appendChild(newInp);setTimeout(()=>{newInp.focus();newInp.select();},50);}},"其他"));
     qDiv.appendChild(grid);
   }else{
     // Audit: center 14 number buttons around current qty (0..max), plus 其他
@@ -2220,7 +2221,7 @@ function renderActionModal(){
   updatePrev();box.appendChild(prevEl);
   // Audit must start disabled until user picks a number that differs from current qty. For in/out, also enabled if a pre-selected tag from localStorage is valid.
   const canInit=type==="in"?false:((!tags.length&&type!=="audit")||(tags.length>0&&!!selN));
-  const initLabel=type==="in"?"請先選數量":type==="out"?"確認出貨 -"+Math.min(it.q,1):"請選擇盤點數量";
+  const initLabel=type==="in"?"請先選數量":type==="out"?"確認出貨 -1":"請選擇盤點數量";
   var confirmBtn=h("button",{disabled:!canInit,style:{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:col,color:"#fff",fontSize:"15px",fontWeight:700,cursor:"pointer",opacity:canInit?1:.4,boxShadow:"0 2px 8px rgba(0,0,0,.1)"},onClick:function(){if(this.disabled)return;this.disabled=true;const ct=(customT||"").trim();const sn=(selN||"").trim();const fn=sn==="調貨"&&ct?"調貨："+ct:sn;doAction(type,it,selQ,fn);}},initLabel);
   box.appendChild(confirmBtn);
   // Skip TEXTAREA (newlines) and BUTTON (let focused button handle its own Enter — otherwise pressing Enter while focused on a num/tag button would submit confirm instead of selecting that option).
@@ -2523,7 +2524,7 @@ function renderDetailModal(){
     h("span",{style:{padding:"3px 10px",borderRadius:"12px",background:col+"18",color:col,fontSize:"12px",fontWeight:700}},it.b),
     h("span",{style:{padding:"3px 10px",borderRadius:"12px",background:"#f1f5f9",color:"var(--sub)",fontSize:"12px",fontWeight:600}},it.c),
     h("span",{style:{padding:"3px 10px",borderRadius:"12px",background:it.z==="倉庫"?"#fef3c7":"#dbeafe",color:it.z==="倉庫"?"#b45309":"var(--blue)",fontSize:"12px",fontWeight:600}},it.z||"店內"),
-    h("span",{style:{marginLeft:"auto",padding:"4px 12px",borderRadius:"10px",background:it.q===0?"#fef2f2":it.q<=2?"#fff7ed":"#f0f9ff",color:it.q===0?"var(--red)":it.q<=2?"var(--orange)":"var(--blue)",fontSize:"18px",fontWeight:800}},"× "+it.q)
+    h("span",{style:{marginLeft:"auto",padding:"4px 12px",borderRadius:"10px",background:it.q<=0?"#fef2f2":it.q<=2?"#fff7ed":"#f0f9ff",color:it.q<=0?"var(--red)":it.q<=2?"var(--orange)":"var(--blue)",fontSize:"18px",fontWeight:800}},it.q<0?"欠 "+(-it.q):"× "+it.q)
   ));
   const isEdit=S.modal.edit;
   if(!isEdit){
@@ -2645,7 +2646,7 @@ function renderDetailModal(){
       const detailBack={t:"detail",id:it.id,back};
       const actRow=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px",marginBottom:"10px"}});
       actRow.appendChild(h("button",{style:{padding:"11px 0",borderRadius:"10px",border:"none",background:"#dcfce7",color:"var(--green)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"in",it,back:detailBack};render();}},"📥 進貨"));
-      actRow.appendChild(h("button",{disabled:it.q===0,style:{padding:"11px 0",borderRadius:"10px",border:"none",background:it.q===0?"#f1f5f9":"#fef3c7",color:it.q===0?"#cbd5e1":"var(--orange)",fontSize:"13px",fontWeight:700,cursor:it.q===0?"default":"pointer"},onClick:()=>{if(it.q>0){S.modal={t:"out",it,back:detailBack};render();}}},"📤 出貨"));
+      actRow.appendChild(h("button",{style:{padding:"11px 0",borderRadius:"10px",border:"none",background:"#fef3c7",color:"var(--orange)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"out",it,back:detailBack};render();}},"📤 出貨"));
       actRow.appendChild(h("button",{style:{padding:"11px 0",borderRadius:"10px",border:"none",background:"#f0f9ff",color:"var(--blue)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"audit",it,back:detailBack};render();}},"📋 盤點"));
       actRow.appendChild(h("button",{style:{padding:"11px 0",borderRadius:"10px",border:"none",background:"#fef2f2",color:"var(--red)",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"del-confirm",id:it.id,back:detailBack};render();}},"🗑 刪除"));
       box.appendChild(actRow);
@@ -3735,7 +3736,7 @@ function dupRecommendKeep(items){
 function renderMain(){
   const items=S.items||[];const zone=S.tab==="warehouse"?"倉庫":"店內";
   let fil=items.filter(x=>(x.z||"店內")===zone);
-  if(!S.showZero)fil=fil.filter(x=>x.q>0);
+  if(!S.showZero)fil=fil.filter(x=>x.q!==0);
   if(S.search){const terms=S.search.toLowerCase().split(/\s+/).filter(Boolean);fil=fil.filter(x=>{const hay=(x.n+" "+x.b+" "+x.c+" "+(x.dsc||"")).toLowerCase();return terms.every(t=>hay.includes(t));});}
   // Object.create(null) so that user-controlled brand/cat strings like "__proto__" can't poison the prototype chain — defense in depth even though isReservedKey blocks at input.
   const m=Object.create(null);fil.forEach(it=>{const b=it.b||"其他";if(!m[b])m[b]=Object.create(null);const c=it.c||"?";if(!m[b][c])m[b][c]=[];m[b][c].push(it);});
@@ -3748,7 +3749,7 @@ function renderMain(){
     return{c,its};})};});
   // 零庫存/要叫貨都只算「非倉庫」，跟點開的清單一致（原本首頁算全部含倉庫→數字對不上）
   const _sz=x=>(x.z||'店內')!=='倉庫';
-  const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>_sz(x)&&x.q===0).length,l:items.filter(x=>_sz(x)&&x.q>0&&x.q<=reorderTh(x)).length,m:items.filter(x=>!itemHasImg(x)||!x.dsc).length};
+  const st={c:items.length,q:items.reduce((s,x)=>s+x.q,0),o:items.filter(x=>_sz(x)&&x.q<=0).length,l:items.filter(x=>_sz(x)&&x.q>0&&x.q<=reorderTh(x)).length,m:items.filter(x=>!itemHasImg(x)||!x.dsc).length};
   const root=h("div",{style:{minHeight:"100vh"}});
   // Header
   root.appendChild(h("header",{style:{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)",background:"rgba(255,255,255,.94)",backdropFilter:"saturate(160%) blur(10px)","-webkit-backdrop-filter":"saturate(160%) blur(10px)",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(15,23,42,.05)"}},
@@ -3862,7 +3863,7 @@ function renderMain(){
     const pvMode=isPreview();
     grouped.forEach(({b,cats},bi)=>{const bk=(S.tab==="store"?"S":"W")+b;const bo=S.search?true:S.bOpen[bk];const col=gc(b);const bT=cats.reduce((s,c)=>s+c.its.reduce((s2,x)=>s2+x.q,0),0);const bC=cats.reduce((s,c)=>s+c.its.length,0);
       // Surface attention items in the collapsed brand header so users don't have to expand every brand to find what needs restocking.
-      const bZero=cats.reduce((s,c)=>s+c.its.filter(x=>x.q===0).length,0);
+      const bZero=cats.reduce((s,c)=>s+c.its.filter(x=>x.q<=0).length,0);
       const bLow=cats.reduce((s,c)=>s+c.its.filter(x=>x.q>0&&x.q<=reorderTh(x)).length,0);
       // No drag in select mode — taps inside select mode should only toggle selection. Otherwise dragging a brand header would compete with the row click handlers.
       const bCard=h("div",{className:"card",style:{marginBottom:"10px"},draggable:!pvMode&&!S._selectMode});
@@ -4619,7 +4620,7 @@ function renderMain(){
   // Zero / Low stock modal
   if(S.modal&&(S.modal.t==="zero"||S.modal.t==="low")){
     const isZero=S.modal.t==="zero";const title=isZero?"🔴 零庫存清單（需補貨）":"🔴 要叫貨清單（已達叫貨門檻）";
-    const list=(S.items||[]).filter(x=>x.z!=="倉庫"&&(isZero?x.q===0:(x.q>0&&x.q<=reorderTh(x))));
+    const list=(S.items||[]).filter(x=>x.z!=="倉庫"&&(isZero?x.q<=0:(x.q>0&&x.q<=reorderTh(x))));
     const byBrand=Object.create(null);list.forEach(x=>{if(!byBrand[x.b])byBrand[x.b]=[];byBrand[x.b].push(x);});
     const box=h("div",{className:"modal-box",style:{maxWidth:"500px"}});
     box.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},
