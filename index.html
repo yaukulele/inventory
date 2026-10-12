@@ -326,7 +326,7 @@ function mergeWithPending(remote){
   if(_pendingDeletes.size)merged=merged.filter(x=>x&&!_pendingDeletes.has(x.id));
   return merged;
 }
-async function fbLoad(){try{await authReady;const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);const i=arrFromVal(a.val());const l=arrFromVal(b.val());const o=c.val();
+async function fbLoad(){try{await authReady;const tm=ms=>new Promise((_,r)=>setTimeout(()=>r("timeout"),ms));const[a,b,c]=await Promise.race([Promise.all([dbI.once("value"),dbL.limitToFirst(200).once("value"),dbO.once("value")]),tm(8000)]);_rememberKeys(a.val());const i=arrFromVal(a.val());const l=arrFromVal(b.val());const o=c.val();
   const ver=(o&&o.__ver)||"";
   const mergePending=mergeWithPending;
   if(i&&i.length>0){
@@ -386,7 +386,17 @@ async function fbLoad(){try{await authReady;const tm=ms=>new Promise((_,r)=>setT
 
 // Atomic per-item transactions — prevents concurrent writes from clobbering each other.
 // Updaters use arrFromVal so they keep working when Firebase returns the items path as an object (sparse array form).
-function fbTxItem(id,updater){return new Promise((resolve,reject)=>{let missing=false;dbI.transaction(cur=>{missing=false;const arr=arrFromVal(cur);if(!arr)return cur;const idx=arr.findIndex(x=>x&&x.id===id);if(idx<0){missing=true;return arr;}const r=updater(arr[idx]);if(r===undefined)return undefined;arr[idx]=r;return arr;},(err,committed,snap)=>{if(err)return reject(err);resolve({committed:committed&&!missing,missing,arr:arrFromVal(snap&&snap.val())});},false);});}
+/* 2026-10-13 過夜測試：庫存品項是「一整個陣列」，原本每扣一次就把整份陣列（~105KB）重新上傳一次，
+   開著庫存／POS 的每一台也要再收一次整份。改成先只對「那一個品項」做 transaction（inventory/items/{位置}，只傳幾百 bytes），
+   而且確認那個位置上的 id 還是同一個（別人刪了品項、陣列位置跑掉 → 改走原本的整份陣列 transaction，結果一樣）。資料格式沒變。 */
+let _remoteKey={};   // 品項 id → 在 Firebase 陣列裡的位置（"12"）
+function _rememberKeys(v){const m={};if(Array.isArray(v))v.forEach((x,i)=>{if(x&&x.id)m[x.id]=String(i);});else if(v&&typeof v==="object")Object.keys(v).forEach(k=>{const x=v[k];if(/^\d+$/.test(k)&&x&&x.id)m[x.id]=k;});_remoteKey=m;}
+function _fbTxItemOne(id,updater){const k=_remoteKey[id];if(k==null)return Promise.resolve(null);
+  return new Promise((resolve,reject)=>{let hit=false;dbI.child(k).transaction(cur=>{hit=false;if(cur==null)return cur;if(cur.id!==id)return;const r=updater(cur);if(r===undefined)return;hit=true;return r;},
+    (err,committed,snap)=>{if(err)return reject(err);const v=snap&&snap.val();resolve(committed&&hit&&v&&v.id===id?{committed:true,missing:false,arr:null}:null);},false);});}
+function fbTxItem(id,updater){return _fbTxItemOne(id,updater).catch(()=>null).then(r=>r||_fbTxItemAll(id,updater));}
+// 找不到品項時直接中止（原本會把整份陣列原封不動寫回去）
+function _fbTxItemAll(id,updater){return new Promise((resolve,reject)=>{let missing=false;dbI.transaction(cur=>{missing=false;const arr=arrFromVal(cur);if(!arr)return cur;const idx=arr.findIndex(x=>x&&x.id===id);if(idx<0){missing=true;return;}const r=updater(arr[idx]);if(r===undefined)return undefined;arr[idx]=r;return arr;},(err,committed,snap)=>{if(err)return reject(err);const v=snap&&snap.val();if(v)_rememberKeys(v);resolve({committed:committed&&!missing,missing,arr:arrFromVal(v)});},false);});}
 function fbAddItemTx(it){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=arrFromVal(cur)||[];if(arr.some(x=>x&&x.id===it.id))return arr;return[...arr,it];},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:arrFromVal(snap&&snap.val())});},false);});}
 function fbDelItemTx(id){return new Promise((resolve,reject)=>{dbI.transaction(cur=>{const arr=arrFromVal(cur);if(!arr)return cur;return arr.filter(x=>x&&x.id!==id);},(err,committed,snap)=>{if(err)return reject(err);resolve({committed,arr:arrFromVal(snap&&snap.val())});},false);});}
 // Track logs that we've added locally but not yet committed to remote — so the dbL listener doesn't briefly drop them when it fires before our write lands.
@@ -589,7 +599,7 @@ async function startRealtimeSync(){
     if(_isDragging)disarmDrag();
     listenerRender();
   });
-  dbI.on("value",snap=>{const remote=arrFromVal(snap.val());if(!remote||!S.items)return;
+  dbI.on("value",snap=>{const _rv=snap.val();_rememberKeys(_rv);const remote=arrFromVal(_rv);if(!remote||!S.items)return;
     // Reconcile remote with optimistic state — preserve pending items, drop pending deletes
     let merged=remote.filter(x=>x).map(sanitizeItem);
     if(_pendingItems.size){
