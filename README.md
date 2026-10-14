@@ -14,6 +14,7 @@
 - `inventory/items` — 品項陣列 `{id,b,c,n,q,z,img?,ph?,dsc?,price?,plc?}`（price=手填建議售價；plc=連到價目表 `/pricelist/products` 的 key，沒有就用品牌+型號完全相等自動對）
 - `inventory/photos/<photoId>` — 手機拍的照片 `{t,d,by,at,n}`（`t`=240px 縮圖、`d`=1280px 大圖，都是 JPEG dataURI）
 - `inventory/logs` — 異動紀錄陣列（最新在前，上限 500 筆）
+- `inventory/storeSales/<logId>` — 店銷永久存檔 `{t,iid,b,n,c,q,u,p?,x?,bf?}`（p=當下建議售價、x=已撤銷、bf=從 logs 補登）；統計頁「店內銷售 歷屆統計」用，不受 logs 筆數上限影響
 - `inventory/order` — 排序 / 版本標記
 
 ## 使用者

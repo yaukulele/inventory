@@ -119,7 +119,7 @@ const authReady=firebase.auth().signInAnonymously().then(()=>true).catch(err=>{
   document.body.appendChild(b);
   return false;
 });
-const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order"),dbU=db.ref("inventory/users"),dbA=db.ref("inventory/activityLog"),dbSet=db.ref("inventory/settings"),dbP=db.ref("inventory/presence");
+const db=firebase.database(),dbI=db.ref("inventory/items"),dbL=db.ref("inventory/logs"),dbO=db.ref("inventory/order"),dbU=db.ref("inventory/users"),dbA=db.ref("inventory/activityLog"),dbSet=db.ref("inventory/settings"),dbP=db.ref("inventory/presence"),dbSS=db.ref("inventory/storeSales");
 
 const D=[
 ["aNueNue","木吉他","M1",1],["aNueNue","木吉他","M1E",2],["aNueNue","木吉他","M2",1],["aNueNue","木吉他","M2E",1],["aNueNue","木吉他","M10",1],["aNueNue","木吉他","M20",1],["aNueNue","木吉他","M15",2],["aNueNue","木吉他","M25",2],["aNueNue","木吉他","MY10",5],["aNueNue","木吉他","M32",1],["aNueNue","木吉他","M52",0],["aNueNue","木吉他","M77",1],["aNueNue","木吉他","M60",1],["aNueNue","木吉他","M88",0],["aNueNue","木吉他","M100",0],["aNueNue","木吉他","Clint",0],["aNueNue","木吉他","BOB",0],["aNueNue","木吉他","MTK PS",1],["aNueNue","木吉他","L10",3],["aNueNue","木吉他","L20",1],["aNueNue","木吉他","L100",0],["aNueNue","木吉他","LF28",1],["aNueNue","木吉他","LF23",1],["aNueNue","木吉他","MBS18E",1],["aNueNue","木吉他","N520SP",1],["aNueNue","木吉他","N520AC",1],
@@ -227,7 +227,7 @@ function doInvLogout(reason){
   _mnInvClose();
   if(!isPreview())logActivity(reason?("登出（"+reason+"）"):"登出");
   goOffline();S.presence={};
-  S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S._olderLoaded=false;S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
+  S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S._olderLoaded=false;S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S._ss=null;S._ssLoading=false;S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
   _pendingItems.clear();_pendingDeletes.clear();_pendingLogs.clear();
   resetLoginPrefetch();
   clearTimeout(_searchTimer);clearTimeout(_logSearchTimer);_searchTimer=_logSearchTimer=null;
@@ -688,7 +688,7 @@ async function doAction(type,it,qty,note,opts){
       const cur=S.items.find(x=>x.id===it.id);
       if(!cur){showToast("⚠ 此品項已被刪除");return;}
       if(type==="audit")doAction("audit",cur,rq,"(撤銷盤點)");
-      else{const opp=type==="in"?"out":"in";doAction(opp,cur,oa,"(撤銷)");}
+      else{if(type==="out"&&note==="店銷")ssVoid(logEntry.id);const opp=type==="in"?"out":"in";doAction(opp,cur,oa,"(撤銷)");}
     }
   }:null;
   showToast((type==="in"?"📥":type==="out"?"📤":"📋")+" "+it.n+" "+rq+"→"+optNq+diffStr,undoOpts);
@@ -715,6 +715,8 @@ async function doAction(type,it,qty,note,opts){
     saveCache();showToast(failReason);render();
     return {ok:false};
   }
+  // 店銷另外存一份到 storeSales（不受紀錄 2000 筆上限影響，歷屆統計用）
+  if(type==="out"&&note==="店銷")ssRecord(logEntry,orig,oa);
   // Reconcile to server result (handles concurrent edits).
   // Skip if another doAction on the same item is still in flight — its later tx has the more up-to-date server view, and overwriting q here would visibly flicker the row.
   const stillPending=_pendingItems.has(it.id);
@@ -3557,6 +3559,187 @@ function renderHealthCheck(){
   return box;
 }
 
+// ── 店內銷售 歷屆統計（阿淵 2026-10-14：「需要一個按鈕可以看店內銷售的歷屆統計」）──
+// 店銷 = 出貨時備註選「店銷」的那些紀錄。
+// 問題：inventory/logs 只留最新 2000 筆（一個月約 360 筆），再一個月最舊的店銷就會被擠掉，歷屆統計會越看越少。
+// 所以每筆店銷另外存一份到 inventory/storeSales/{紀錄id}（沒有上限、一筆約 100 bytes）。
+//   - 出貨選店銷 → doAction 裡 ssRecord 寫一筆
+//   - 按撤銷 → ssVoid 標 x:1（不刪掉：刪掉的話下次補登會從 logs 又補回來）
+//   - 打開統計時 loadStoreSales 會把 logs 裡還沒存進來的店銷補進去（第一次 = 把 6 月以來的舊資料搬過來）
+// 金額：沒有實際成交價，用「建議售價 × 件數」估（手填售價優先，其次價目表）。存當下的建議售價 p，之後價目表調價不影響已賣出的。
+const _ssTime=t=>{const d=new Date(String(t||"").replace(/\//g,"-").replace(" ","T"));return isNaN(d)?0:d.getTime();};
+function ssRecord(logEntry,it,qty){
+  const sg=sugOf(it);
+  const rec={t:logEntry.t,iid:it.id,b:it.b||"",n:it.n||"",c:it.c||"",q:qty,u:logEntry.u||""};
+  if(sg&&sg.v>0)rec.p=sg.v;
+  // update 不用 set：萬一撤銷比這筆先寫到（x:1 先進去），set 會把 x 蓋掉
+  authReady.then(()=>dbSS.child(logEntry.id).update(rec)).catch(e=>console.warn("店銷存檔失敗",e));
+  if(Array.isArray(S._ss))S._ss=[{id:logEntry.id,...rec},...S._ss];
+}
+function ssVoid(id){
+  authReady.then(()=>dbSS.child(id).update({x:1})).catch(e=>console.warn("店銷撤銷標記失敗",e));
+  if(Array.isArray(S._ss))S._ss=S._ss.filter(r=>r.id!==id);
+}
+// 從異動紀錄找出店銷（排除被撤銷的）
+function _ssFromLogs(logs){
+  const undo=Object.create(null);
+  logs.forEach(l=>{if(l&&l.iid&&(l.a||"").includes("進貨")&&String(l.d||"").startsWith("(撤銷)"))(undo[l.iid]=undo[l.iid]||[]).push(l);});
+  const used=new Set(),out=[];
+  logs.forEach(l=>{
+    if(!l||!l.id||!(l.a||"").includes("出貨"))return;
+    const m=/^店銷-(\d+)$/.exec(String(l.d||""));if(!m)return;
+    const q=parseInt(m[1])||1,t0=_ssTime(l.t);
+    // 撤銷 = 同一人、同品項、15 分鐘內、同數量的「(撤銷)」進貨；一筆撤銷只抵一筆
+    const u=(undo[l.iid]||[]).find(x=>!used.has(x.id)&&x.u===l.u&&String(x.d)==="(撤銷)+"+q&&_ssTime(x.t)>=t0&&_ssTime(x.t)-t0<=15*60000);
+    if(u){used.add(u.id);return;}
+    out.push({id:l.id,t:l.t,iid:l.iid,b:l.b||"",n:l.n||"",q,u:l.u||""});
+  });
+  return out;
+}
+async function loadStoreSales(force){
+  if(S._ssLoading||(S._ss&&!force))return;
+  S._ssLoading=true;S._ssErr="";render();
+  loadPL();
+  try{
+    const tm=ms=>new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms));
+    await Promise.race([authReady,tm(10000)]);
+    const [ssSnap,lSnap]=await Promise.race([Promise.all([dbSS.once("value"),dbL.once("value")]),tm(15000)]);
+    const arc=ssSnap.val()||{};
+    const logs=(arrFromVal(lSnap.val())||[]).filter(x=>x);
+    const items=Object.create(null);(S.items||[]).forEach(x=>{items[x.id]=x;});
+    const add={};
+    _ssFromLogs(logs).forEach(r=>{
+      if(arc[r.id])return;                 // 已經存過（含已撤銷 x:1）
+      const it=items[r.iid];if(it&&it.c)r.c=it.c;
+      const sg=it?sugOf(it):null;if(sg&&sg.v>0)r.p=sg.v;
+      r.bf=1;                              // 補登：價格是補登當下的建議售價
+      const {id,...rec}=r;add[id]=rec;arc[id]=rec;
+    });
+    if(Object.keys(add).length&&!isPreview()){
+      dbSS.update(add).catch(e=>console.warn("店銷補登失敗",e));
+    }
+    S._ss=Object.keys(arc).map(id=>({id,...arc[id]})).filter(r=>r&&!r.x&&r.t&&r.q>0).sort((a,b)=>_ssTime(b.t)-_ssTime(a.t));
+  }catch(e){console.error(e);S._ssErr="讀取失敗，請檢查網路後再按一次";}
+  S._ssLoading=false;render();
+}
+function renderStoreSalesModal(){
+  if(!S.modal||S.modal.t!=="storeSales")return null;
+  const M=S.modal;const view=M.view||"month",sel=M.sel||"",rankBy=M.rankBy||"q";
+  const setM=o=>{S.modal={...M,...o};render();};
+  const close=()=>{S.modal=null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"560px",padding:"18px 16px"}});
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"12px"}},
+    h("h3",{style:{fontSize:"18px",fontWeight:800,flex:1}},"🏪 店內銷售 歷屆統計"),
+    h("button",{title:"重新整理",disabled:S._ssLoading,style:{background:"none",border:"1px solid var(--border)",borderRadius:"8px",color:"var(--sub)",cursor:"pointer",fontSize:"12px",padding:"4px 8px"},onClick:()=>loadStoreSales(true)},S._ssLoading?"…":"↻"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
+  const wrap=c=>h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),c);
+  if(S._ssErr&&!S._ss){box.appendChild(h("div",{style:{padding:"24px 8px",textAlign:"center",color:"var(--red)",fontSize:"13px"}},S._ssErr));return wrap(box);}
+  if(!S._ss){box.appendChild(h("div",{style:{padding:"36px 8px",textAlign:"center",color:"var(--sub)",fontSize:"13px"}},"載入中…（第一次會把以前的店銷紀錄整理進來）"));return wrap(box);}
+
+  const items=Object.create(null);(S.items||[]).forEach(x=>{items[x.id]=x;});
+  const unitP=r=>{if(Number(r.p)>0)return Number(r.p);const it=items[r.iid];const sg=it?sugOf(it):null;return sg&&sg.v>0?sg.v:0;};
+  const all=S._ss.map(r=>({...r,ym:String(r.t).slice(0,7),y:String(r.t).slice(0,4),amt:unitP(r)*r.q}));
+  const money=v=>"$"+Math.round(v).toLocaleString();
+  if(!all.length){box.appendChild(h("div",{style:{padding:"30px 8px",textAlign:"center",color:"var(--sub)",fontSize:"13px"}},"還沒有店銷紀錄。出貨時備註選「店銷」就會算進來。"));return wrap(box);}
+
+  // 依月 / 依年分組
+  const keyOf=r=>view==="year"?r.y:r.ym;
+  const groups=Object.create(null);
+  all.forEach(r=>{const k=keyOf(r);const g=groups[k]||(groups[k]={k,q:0,amt:0,n:0});g.q+=r.q;g.amt+=r.amt;g.n++;});
+  const gList=Object.values(groups).sort((a,b)=>a.k<b.k?1:-1);
+  const tQ=all.reduce((s,r)=>s+r.q,0),tA=all.reduce((s,r)=>s+r.amt,0);
+  const first=all[all.length-1].t.slice(0,10),nMonths=new Set(all.map(r=>r.ym)).size;
+  const noPrice=all.filter(r=>!r.amt).reduce((s,r)=>s+r.q,0);
+
+  const cell=(lbl,val,col,sub)=>h("div",{style:{textAlign:"center",padding:"10px 4px",background:"#fff7ed",borderRadius:"10px"}},
+    h("div",{style:{fontSize:"10px",color:"var(--sub)"}},lbl),
+    h("div",{style:{fontSize:"19px",fontWeight:800,color:col||"#9a3412"}},val),
+    sub?h("div",{style:{fontSize:"9px",color:"var(--sub)",marginTop:"2px"}},sub):null);
+  box.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"6px",marginBottom:"6px"}},
+    cell("累計件數",tQ.toLocaleString(),null,all.length+" 筆"),
+    cell("估算營業額",money(tA),"var(--green)",noPrice?("只算有售價的 "+(tQ-noPrice)+" 件"):"建議售價估"),
+    cell("平均每月",Math.round(tQ/Math.max(1,nMonths))+" 件",null,money(tA/Math.max(1,nMonths)))));
+  box.appendChild(h("div",{style:{fontSize:"10.5px",color:"var(--sub)",marginBottom:"12px"}},"從 "+first+" 開始有紀錄，共 "+nMonths+" 個月"));
+
+  // 月 / 年 切換
+  const chip=(on,lbl,fn)=>h("button",{style:{padding:"6px 14px",borderRadius:"999px",border:on?"2px solid #ea580c":"1px solid var(--border)",background:on?"#fff7ed":"#fff",color:on?"#c2410c":"var(--sub)",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:fn},lbl);
+  box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"8px",alignItems:"center"}},
+    chip(view==="month","每月",()=>setM({view:"month",sel:""})),
+    chip(view==="year","每年",()=>setM({view:"year",sel:""})),
+    h("span",{style:{marginLeft:"auto",fontSize:"10.5px",color:"var(--sub)"}},"點一列看那段期間的排行")));
+  // 期間列表（新→舊），長條 = 件數
+  const maxQ=Math.max(1,...gList.map(g=>g.q));
+  const list=h("div",{className:"card",style:{marginBottom:"14px"}});
+  gList.forEach((g,i)=>{
+    // 進行中的這個月/這一年還沒過完，跟上一期比會一直是「掉很多」→ 不顯示漲跌，改標「進行中」
+    const nowD=new Date(),curK=view==="year"?String(nowD.getFullYear()):nowD.getFullYear()+"/"+String(nowD.getMonth()+1).padStart(2,"0");
+    const prev=gList[i+1];const d=(prev&&g.k!==curK)?g.q-prev.q:null;const on=sel===g.k;
+    const lbl=view==="year"?g.k+" 年":g.k.slice(0,4)+"/"+String(parseInt(g.k.slice(5)))+" 月";
+    list.appendChild(h("div",{style:{padding:"9px 12px",borderBottom:"1px solid #f1f5f9",cursor:"pointer",background:on?"#fff7ed":"#fff"},onClick:()=>setM({sel:on?"":g.k})},
+      h("div",{style:{display:"flex",alignItems:"baseline",gap:"8px"}},
+        h("span",{style:{fontSize:"13px",fontWeight:700,minWidth:"74px",color:on?"#c2410c":"var(--text)"}},lbl),
+        h("span",{style:{fontSize:"13px",fontWeight:800}},g.q+" 件"),
+        d!=null&&d!==0?h("span",{style:{fontSize:"10px",fontWeight:700,color:d>0?"var(--green)":"var(--red)"}},(d>0?"▲":"▼")+Math.abs(d)):null,
+        g.k===curK?h("span",{style:{fontSize:"10px",fontWeight:700,color:"var(--blue)",background:"var(--blue-light)",padding:"1px 6px",borderRadius:"6px"}},"進行中"):null,
+        h("span",{style:{marginLeft:"auto",fontSize:"12.5px",fontWeight:700,color:"var(--green)"}},money(g.amt))),
+      h("div",{style:{height:"5px",borderRadius:"3px",background:"#f1f5f9",marginTop:"5px"}},h("div",{style:{height:"5px",borderRadius:"3px",background:on?"#ea580c":"#fdba74",width:Math.round(g.q/maxQ*100)+"%"}}))));
+  });
+  box.appendChild(list);
+
+  // 選到的期間（沒選 = 全部）
+  const rows=sel?all.filter(r=>keyOf(r)===sel):all;
+  const selLbl=sel?(view==="year"?sel+" 年":sel.slice(0,4)+"/"+String(parseInt(sel.slice(5)))+" 月"):"全部期間";
+  // 熱賣排行
+  const byIt=Object.create(null);
+  rows.forEach(r=>{const k=r.iid||(r.b+"|"+r.n);const x=byIt[k]||(byIt[k]={b:r.b,n:r.n,q:0,amt:0});x.q+=r.q;x.amt+=r.amt;});
+  const rank=Object.values(byIt).sort((a,b)=>rankBy==="amt"?(b.amt-a.amt||b.q-a.q):(b.q-a.q||b.amt-a.amt));
+  const rc=h("div",{className:"card",style:{marginBottom:"14px"}});
+  rc.appendChild(h("div",{style:{padding:"10px 12px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"}},
+    h("span",{style:{fontWeight:800,fontSize:"14px",flex:1,minWidth:"140px"}},"🔥 熱賣排行・"+selLbl),
+    chip(rankBy==="q","依件數",()=>setM({rankBy:"q"})),chip(rankBy==="amt","依金額",()=>setM({rankBy:"amt"}))));
+  const showN=M.rankAll?rank.length:Math.min(15,rank.length);
+  rank.slice(0,showN).forEach((x,i)=>{
+    rc.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"7px 12px",borderBottom:"1px solid #f8fafc",fontSize:"12.5px"}},
+      h("span",{style:{minWidth:"22px",fontWeight:800,color:i<3?"#ea580c":"var(--sub)"}},String(i+1)),
+      h("span",{style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},title:x.b+" "+x.n},h("span",{style:{color:"var(--sub)",fontSize:"11px"}},x.b+" "),x.n),
+      h("b",{style:{minWidth:"38px",textAlign:"right"}},x.q+" 件"),
+      h("span",{style:{minWidth:"70px",textAlign:"right",color:x.amt?"var(--green)":"var(--sub)",fontWeight:600}},x.amt?money(x.amt):"無售價")));
+  });
+  if(rank.length>15)rc.appendChild(h("button",{style:{width:"100%",padding:"8px",border:"none",background:"#f8fafc",color:"var(--blue)",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:()=>setM({rankAll:!M.rankAll})},M.rankAll?"收起":"看全部 "+rank.length+" 項"));
+  box.appendChild(rc);
+
+  // 品牌 + 經手人
+  const byB=Object.create(null),byU=Object.create(null);
+  rows.forEach(r=>{const b=r.b||"其他";(byB[b]=byB[b]||{q:0,amt:0});byB[b].q+=r.q;byB[b].amt+=r.amt;const u=r.u||"未知";byU[u]=(byU[u]||0)+r.q;});
+  const bList=Object.entries(byB).sort((a,b)=>b[1].q-a[1].q);const bMax=Math.max(1,...bList.map(x=>x[1].q));
+  const bc=h("div",{className:"card",style:{marginBottom:"14px",padding:"10px 12px"}});
+  bc.appendChild(h("div",{style:{fontWeight:800,fontSize:"14px",marginBottom:"8px"}},"🏷 品牌・"+selLbl));
+  bList.slice(0,12).forEach(([b,v])=>{
+    bc.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",fontSize:"12px",marginBottom:"5px"}},
+      h("span",{style:{width:"84px",flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:600}},b),
+      h("div",{style:{flex:1,height:"8px",borderRadius:"4px",background:"#f1f5f9"}},h("div",{style:{height:"8px",borderRadius:"4px",background:"#fb923c",width:Math.round(v.q/bMax*100)+"%"}})),
+      h("span",{style:{minWidth:"40px",textAlign:"right",fontWeight:700}},v.q+" 件")));
+  });
+  if(bList.length>12)bc.appendChild(h("div",{style:{fontSize:"10.5px",color:"var(--sub)"}},"…還有 "+(bList.length-12)+" 個品牌"));
+  const uList=Object.entries(byU).sort((a,b)=>b[1]-a[1]);
+  bc.appendChild(h("div",{style:{fontSize:"11.5px",color:"var(--sub)",marginTop:"8px",paddingTop:"8px",borderTop:"1px dashed #f1f5f9",lineHeight:1.7}},"經手人：",uList.map(([u,q])=>u+" "+q+" 件").join("・")));
+  box.appendChild(bc);
+
+  // CSV
+  box.appendChild(h("button",{style:{width:"100%",padding:"11px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer",marginBottom:"10px"},onClick:()=>{
+    const esc=v=>{let s=String(v==null?"":v);if(/^[=+\-@\t\r]/.test(s))s="'"+s;return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+    const out=[["時間","品牌","分類","商品","件數","建議售價","估算金額","經手人"]];
+    rows.forEach(r=>out.push([r.t,r.b,r.c||"",r.n,r.q,unitP(r)||"",r.amt||"",r.u]));
+    const blob=new Blob(["﻿"+out.map(r=>r.map(esc).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="店內銷售_"+(sel||"全部").replace(/\//g,"-")+".csv";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    showToast("📊 CSV 已下載（"+rows.length+" 筆）");
+  }},"⬇ 下載明細 CSV（"+selLbl+"）"));
+  box.appendChild(h("div",{style:{fontSize:"10.5px",color:"var(--sub)",lineHeight:1.6}},
+    "※ 只算出貨備註選「店銷」的；按過撤銷的不算。",h("br"),
+    "※ 金額 = 件數 × 建議售價（手填售價優先，其次價目表），不是實際收款，打折議價不會反映。"+(noPrice?"有 "+noPrice+" 件查不到建議售價，沒算進金額。":"")));
+  return wrap(box);
+}
+
 function renderExportModal(){
   if(!S.modal||S.modal.t!=="export")return null;
   const expZone=S.modal.zone||"店內";
@@ -4183,6 +4366,8 @@ function renderMain(){
     if(!S.olderLogs.length&&!S._olderLoaded&&S.logs.length>=200){
       content.appendChild(h("div",{style:{padding:"10px 12px",margin:"0 0 12px 0",background:"#fef3c7",borderRadius:"8px",fontSize:"11px",color:"#b45309",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px"}},h("span",{},"📊 統計基於最新 200 筆紀錄"),h("button",{disabled:S.loadingOlder,style:{padding:"4px 10px",borderRadius:"6px",border:"none",background:S.loadingOlder?"#e2e8f0":"#7c3aed",color:"#fff",fontSize:"11px",fontWeight:600,cursor:S.loadingOlder?"default":"pointer",flexShrink:0},onClick:loadOlderLogs},S.loadingOlder?"載入中…":"載入全部")));
     }
+    // 店內銷售歷屆統計（阿淵 2026-10-14）
+    content.appendChild(h("button",{style:{width:"100%",marginBottom:"14px",padding:"14px 16px",borderRadius:"14px",border:"2px solid #fed7aa",background:"linear-gradient(135deg,#fff7ed,#ffedd5)",color:"#9a3412",fontSize:"15px",fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:"8px",boxShadow:"var(--shadow)"},onClick:()=>{S.modal={t:"storeSales"};render();loadStoreSales();}},"🏪 店內銷售 歷屆統計"));
     // 庫存價值（用有填進價/售價的商品計算）
     {
       const vit=S.items||[];
@@ -4538,6 +4723,7 @@ function renderMain(){
   const am=renderActionModal();if(am)root.appendChild(am);
   const adm=renderAddModal();if(adm)root.appendChild(adm);
   const em=renderExportModal();if(em)root.appendChild(em);
+  const ssm=renderStoreSalesModal();if(ssm)root.appendChild(ssm);
   const tfm=renderTransferModal();if(tfm)root.appendChild(tfm);
   const pim=renderPartnerItemModal();if(pim)root.appendChild(pim);
   const pam=renderPartnerAdjustModal();if(pam)root.appendChild(pam);
