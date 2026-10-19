@@ -227,7 +227,7 @@ function doInvLogout(reason){
   _mnInvClose();
   if(!isPreview())logActivity(reason?("登出（"+reason+"）"):"登出");
   goOffline();S.presence={};
-  S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S._olderLoaded=false;S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S._ss=null;S._ssLoading=false;S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
+  S.phase="login";S.items=null;S.modal=null;S.olderLogs=[];S._olderLoaded=false;S.search="";S.logSearch="";S.logDateFrom="";S.logDateTo="";S.logBrand="";S.logAction="";S.users=null;S.activityLog=[];S._ss=null;S._ssLoading=false;S._srLast=null;S._srLoading=false;S.role="preview";S._batchFixing=false;S._selectMode=false;S._sel=null;
   _pendingItems.clear();_pendingDeletes.clear();_pendingLogs.clear();
   resetLoginPrefetch();
   clearTimeout(_searchTimer);clearTimeout(_logSearchTimer);_searchTimer=_logSearchTimer=null;
@@ -3622,6 +3622,129 @@ async function loadStoreSales(force){
   }catch(e){console.error(e);S._ssErr="讀取失敗，請檢查網路後再按一次";}
   S._ssLoading=false;render();
 }
+// ── 庫存排名（阿淵 2026-10-19：「可以看庫存排名 多到少，整理哪些東西需要在這次雙十一優惠出售」）──
+// 依數量（或庫存金額＝數量×建議售價）由多到少；店內＋倉庫同品牌同品名合併看。
+// 「最後出貨」從 inventory/logs 算（只留最新 2000 筆，大約 5 個月）——超過那段時間沒出過的標「很久沒出」，正是出清候選。
+async function loadStockRankLogs(force){
+  if(S._srLoading||(S._srLast&&!force))return;
+  S._srLoading=true;render();
+  loadPL();
+  try{
+    const tm=ms=>new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms));
+    await Promise.race([authReady,tm(10000)]);
+    const snap=await Promise.race([dbL.once("value"),tm(15000)]);
+    const logs=(arrFromVal(snap.val())||[]).filter(x=>x);
+    const last=Object.create(null);let oldest=0;
+    logs.forEach(l=>{
+      const t=_ssTime(l.t);if(!t)return;
+      if(!oldest||t<oldest)oldest=t;
+      if(!l.iid||!(l.a||"").includes("出貨"))return;
+      if(String(l.d||"").startsWith("(撤銷)"))return;
+      if(!last[l.iid]||t>last[l.iid])last[l.iid]=t;
+    });
+    S._srLast=last;S._srOldest=oldest;
+  }catch(e){console.error(e);S._srLast=S._srLast||{};S._srErr="出貨紀錄讀取失敗，「最後出貨」先不顯示";}
+  S._srLoading=false;render();
+}
+function renderStockRankModal(){
+  if(!S.modal||S.modal.t!=="stockRank")return null;
+  const M=S.modal;const zone=M.zone||"all",by=M.by||"q",brand=M.brand||"",q=(M.q||"").trim().toLowerCase(),stale=!!M.stale;
+  const setM=o=>{S.modal={...M,...o};render();};
+  const close=()=>{S.modal=null;render();};
+  const wrap=c=>h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),c);
+  const box=h("div",{className:"modal-box",style:{maxWidth:"620px",padding:"18px 16px"}});
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"12px"}},
+    h("h3",{style:{fontSize:"18px",fontWeight:800,flex:1}},"📦 庫存排名"),
+    h("button",{title:"重新整理",disabled:S._srLoading,style:{background:"none",border:"1px solid var(--border)",borderRadius:"8px",color:"var(--sub)",cursor:"pointer",fontSize:"12px",padding:"4px 8px"},onClick:()=>loadStockRankLogs(true)},S._srLoading?"…":"↻"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
+
+  const DAY=86400000,now=Date.now(),last=S._srLast||{};
+  // 合併：全部 → 同品牌＋同品名的店內／倉庫加在一起
+  const src=(S.items||[]).filter(it=>it&&it.n&&(zone==="all"||(it.z||"店內")===zone));
+  const map=Object.create(null);
+  src.forEach(it=>{
+    const k=zone==="all"?((it.b||"")+"|"+it.n).toLowerCase():it.id;
+    const g=map[k]||(map[k]={b:it.b||"",n:it.n,c:it.c||"",q:0,st:0,wh:0,ids:[],p:0,lastOut:0});
+    const qq=Number(it.q)||0;g.q+=qq;if((it.z||"店內")==="倉庫")g.wh+=qq;else g.st+=qq;g.ids.push(it.id);
+    const sg=sugOf(it);if(sg&&sg.v>0&&!g.p)g.p=sg.v;
+    if(last[it.id]&&last[it.id]>g.lastOut)g.lastOut=last[it.id];
+  });
+  let rows=Object.values(map).filter(g=>g.q>0);
+  const brands=[...new Set(rows.map(g=>g.b).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  if(brand)rows=rows.filter(g=>g.b===brand);
+  if(q)rows=rows.filter(g=>(g.b+" "+g.n+" "+g.c).toLowerCase().includes(q));
+  const staleDays=g=>g.lastOut?Math.floor((now-g.lastOut)/DAY):null;
+  if(stale&&S._srLast)rows=rows.filter(g=>{const d=staleDays(g);return d==null||d>=60;});
+  rows.forEach(g=>{g.val=g.p*g.q;});
+  rows.sort((a,b)=>by==="val"?(b.val-a.val||b.q-a.q):(b.q-a.q||b.val-a.val));
+
+  const money=v=>"$"+Math.round(v).toLocaleString();
+  const tQ=rows.reduce((s,g)=>s+g.q,0),tV=rows.reduce((s,g)=>s+g.val,0),noP=rows.filter(g=>!g.p).length;
+  const cell=(lbl,val,col,sub)=>h("div",{style:{textAlign:"center",padding:"10px 4px",background:"#eff6ff",borderRadius:"10px"}},
+    h("div",{style:{fontSize:"10px",color:"var(--sub)"}},lbl),
+    h("div",{style:{fontSize:"18px",fontWeight:800,color:col||"var(--blue)"}},val),
+    sub?h("div",{style:{fontSize:"9px",color:"var(--sub)",marginTop:"2px"}},sub):null);
+  box.appendChild(h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"6px",marginBottom:"10px"}},
+    cell("品項",rows.length.toLocaleString()),
+    cell("總件數",tQ.toLocaleString()),
+    cell("庫存金額",money(tV),"var(--green)",noP?(noP+" 項沒建議售價沒算進來"):"建議售價估")));
+
+  const chip=(on,lbl,fn)=>h("button",{style:{padding:"6px 12px",borderRadius:"999px",border:on?"2px solid var(--blue)":"1px solid var(--border)",background:on?"#eff6ff":"#fff",color:on?"var(--blue)":"var(--sub)",fontSize:"12px",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"},onClick:fn},lbl);
+  box.appendChild(h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"8px"}},
+    chip(zone==="all","全部（店＋倉合併）",()=>setM({zone:"all"})),chip(zone==="店內","🏪 店內",()=>setM({zone:"店內"})),chip(zone==="倉庫","🏭 倉庫",()=>setM({zone:"倉庫"}))));
+  box.appendChild(h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"8px",alignItems:"center"}},
+    chip(by==="q","依數量",()=>setM({by:"q"})),chip(by==="val","依庫存金額",()=>setM({by:"val"})),
+    chip(stale,"只看 60 天沒出貨",()=>setM({stale:!stale}))));
+  const sel=h("select",{style:{padding:"7px 8px",borderRadius:"8px",border:"1px solid var(--border)",fontSize:"13px",flex:"0 0 auto",maxWidth:"45%"},onChange:e=>setM({brand:e.target.value})},
+    h("option",{value:""},"全部品牌"),...brands.map(b=>h("option",b===brand?{value:b,selected:"selected"}:{value:b},b)));
+  const inp=h("input",{type:"search",placeholder:"搜尋品名…",value:M.q||"",style:{flex:1,minWidth:0,padding:"7px 10px",borderRadius:"8px",border:"1px solid var(--border)",fontSize:"13px"},
+    onInput:e=>{clearTimeout(S._srT);const v=e.target.value;S._srT=setTimeout(()=>{S.modal={...S.modal,q:v};render();const el=document.getElementById("sr-q");if(el){el.focus();el.setSelectionRange(v.length,v.length);}},250);}});
+  inp.id="sr-q";
+  box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"10px"}},sel,inp));
+  if(S._srLoading&&!S._srLast)box.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginBottom:"6px"}},"讀取出貨紀錄中…（最後出貨等一下就會出來）"));
+  if(S._srErr)box.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",marginBottom:"6px"}},S._srErr));
+
+  const oldestTxt=S._srOldest?new Date(S._srOldest).toLocaleDateString("zh-TW"):"";
+  const outTxt=g=>{
+    if(!S._srLast)return h("span",{style:{color:"var(--sub)"}},"…");
+    const d=staleDays(g);
+    if(d==null)return h("span",{style:{color:"var(--red)",fontWeight:700}},oldestTxt?(oldestTxt+" 後沒出過"):"很久沒出");
+    const col=d>=90?"var(--red)":d>=60?"#c2410c":"var(--sub)";
+    return h("span",{style:{color:col,fontWeight:d>=60?700:400}},d===0?"今天出過":d+" 天前");
+  };
+  const maxQ=Math.max(1,...rows.map(g=>by==="val"?g.val:g.q));
+  const list=h("div",{className:"card",style:{marginBottom:"12px"}});
+  const showN=M.all?rows.length:Math.min(60,rows.length);
+  if(!rows.length)list.appendChild(h("div",{style:{padding:"24px",textAlign:"center",color:"var(--sub)",fontSize:"13px"}},"沒有符合的商品"));
+  rows.slice(0,showN).forEach((g,i)=>{
+    const bar=Math.round((by==="val"?g.val:g.q)/maxQ*100);
+    list.appendChild(h("div",{style:{padding:"9px 12px",borderBottom:"1px solid #f1f5f9"}},
+      h("div",{style:{display:"flex",alignItems:"baseline",gap:"8px"}},
+        h("span",{style:{fontSize:"12px",fontWeight:800,color:i<3?"#c2410c":"var(--sub)",minWidth:"26px"}},"#"+(i+1)),
+        h("span",{style:{flex:1,minWidth:0,fontSize:"13px",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
+          g.b?h("span",{style:{color:"var(--sub)",fontWeight:600}},g.b+" "):null,g.n),
+        h("span",{style:{fontSize:"15px",fontWeight:800,color:"var(--blue)"}},g.q+" 件")),
+      h("div",{style:{display:"flex",gap:"10px",fontSize:"11px",color:"var(--sub)",marginTop:"3px",paddingLeft:"34px",flexWrap:"wrap"}},
+        zone==="all"&&g.st&&g.wh?h("span",{},"店 "+g.st+"＋倉 "+g.wh):(zone==="all"?h("span",{},g.wh?"倉庫":"店內"):null),
+        h("span",{},g.p?("建議 "+money(g.p)+"・共 "+money(g.val)):"沒建議售價"),
+        h("span",{},"最後出貨 ",outTxt(g))),
+      h("div",{style:{height:"4px",borderRadius:"2px",background:"#f1f5f9",marginTop:"5px",marginLeft:"34px"}},h("div",{style:{height:"4px",borderRadius:"2px",background:"#93c5fd",width:bar+"%"}}))));
+  });
+  if(rows.length>showN)list.appendChild(h("button",{style:{width:"100%",padding:"10px",border:"none",background:"#f8fafc",color:"var(--blue)",fontSize:"12.5px",fontWeight:700,cursor:"pointer"},onClick:()=>setM({all:true})},"顯示全部 "+rows.length+" 項"));
+  box.appendChild(list);
+
+  box.appendChild(h("button",{style:{width:"100%",padding:"11px",borderRadius:"10px",border:"none",background:"#7c3aed",color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{
+    const out=[["排名","品牌","分類","商品名","數量","店內","倉庫","建議售價","庫存金額","最後出貨"]];
+    rows.forEach((g,i)=>{const d=staleDays(g);out.push([i+1,g.b,g.c,g.n,g.q,g.st,g.wh,g.p||"",g.p?g.val:"",g.lastOut?new Date(g.lastOut).toLocaleDateString("zh-TW")+"（"+d+"天前）":(S._srLast?(oldestTxt+" 後沒出過"):"")]);});
+    const esc=v=>{let s=String(v);if(/^[=+\-@\t\r]/.test(s))s="'"+s;return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+    const blob=new Blob(["﻿"+out.map(r=>r.map(esc).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="庫存排名_"+(zone==="all"?"全部":zone)+(brand?"_"+brand:"")+".csv";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    showToast("📊 CSV 已下載（"+rows.length+" 項）");
+  }},"⬇ 下載這份排名 CSV（雙十一挑貨用）"));
+  box.appendChild(h("div",{style:{fontSize:"10.5px",color:"var(--sub)",marginTop:"8px",lineHeight:1.6}},
+    "「最後出貨」看的是庫存系統的出貨紀錄"+(oldestTxt?"（目前留到 "+oldestTxt+"）":"")+"，比這更早出的看不到；60 天以上橘字、90 天以上紅字。"));
+  return wrap(box);
+}
 function renderStoreSalesModal(){
   if(!S.modal||S.modal.t!=="storeSales")return null;
   const M=S.modal;const view=M.view||"month",sel=M.sel||"",rankBy=M.rankBy||"q";
@@ -4368,6 +4491,8 @@ function renderMain(){
     }
     // 店內銷售歷屆統計（阿淵 2026-10-14）
     content.appendChild(h("button",{style:{width:"100%",marginBottom:"14px",padding:"14px 16px",borderRadius:"14px",border:"2px solid #fed7aa",background:"linear-gradient(135deg,#fff7ed,#ffedd5)",color:"#9a3412",fontSize:"15px",fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:"8px",boxShadow:"var(--shadow)"},onClick:()=>{S.modal={t:"storeSales"};render();loadStoreSales();}},"🏪 店內銷售 歷屆統計"));
+    // 庫存排名（阿淵 2026-10-19 雙十一挑出清）
+    content.appendChild(h("button",{style:{width:"100%",marginBottom:"14px",padding:"14px 16px",borderRadius:"14px",border:"2px solid #bfdbfe",background:"linear-gradient(135deg,#eff6ff,#dbeafe)",color:"#1e40af",fontSize:"15px",fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:"8px",boxShadow:"var(--shadow)"},onClick:()=>{S.modal={t:"stockRank"};S._srErr="";render();loadStockRankLogs();}},"📦 庫存排名（多→少）"));
     // 庫存價值（用有填進價/售價的商品計算）
     {
       const vit=S.items||[];
@@ -4724,6 +4849,7 @@ function renderMain(){
   const adm=renderAddModal();if(adm)root.appendChild(adm);
   const em=renderExportModal();if(em)root.appendChild(em);
   const ssm=renderStoreSalesModal();if(ssm)root.appendChild(ssm);
+  const srm=renderStockRankModal();if(srm)root.appendChild(srm);
   const tfm=renderTransferModal();if(tfm)root.appendChild(tfm);
   const pim=renderPartnerItemModal();if(pim)root.appendChild(pim);
   const pam=renderPartnerAdjustModal();if(pam)root.appendChild(pam);
