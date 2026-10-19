@@ -5065,8 +5065,31 @@ function renderPendingLogBar(){
       onClick:() => flushPendingLogs(false) }, "立即重送")
   ));
 }
+/* 杰哥 2026-10-19「跳出畫面看其他畫面對資料，他就一直跑到最上面」：
+   切回這個視窗會自動重畫抓最新資料，而 _render 是整個 #app 清掉重建 → 視窗（庫存排名、統計…）裡面捲到哪就不見了。
+   重建前記下 #app 裡每個「有捲動」的元素位置（用在 DOM 裡的位置當鑰匙），建好後同一個位置的元素捲回去。 */
+function _scrollSnap(root){
+  const out=[];if(!root)return out;
+  root.querySelectorAll("*").forEach(el=>{
+    if(el.scrollTop>0||el.scrollLeft>0){
+      const path=[];let n=el;
+      while(n&&n!==root){path.unshift(Array.prototype.indexOf.call(n.parentNode.children,n));n=n.parentNode;}
+      if(n===root)out.push({path,top:el.scrollTop,left:el.scrollLeft,tag:el.tagName});
+    }
+  });
+  return out;
+}
+function _scrollRestore(root,snap){
+  if(!root||!snap.length)return;
+  snap.forEach(s=>{
+    let n=root;for(const i of s.path){n=n&&n.children[i];if(!n)return;}
+    if(n.tagName!==s.tag)return;   // 版面已經不一樣了（換了別的視窗）就不要亂捲
+    n.scrollTop=s.top;n.scrollLeft=s.left;
+  });
+}
 function _render(){
   const a=document.getElementById("app");
+  const _snap=S._skipScrollRestore?[]:_scrollSnap(a);
   const wasLocked=document.body.dataset.locked==="1";
   const sy=wasLocked?_bodyLockY:(window.scrollY||document.documentElement.scrollTop||0);
   const skipRestore=S._skipScrollRestore;S._skipScrollRestore=false;
@@ -5086,6 +5109,7 @@ function _render(){
     }
   }
   renderPendingLogBar();
+  if(_snap.length){_scrollRestore(a,_snap);requestAnimationFrame(()=>_scrollRestore(a,_snap));}
   if(S.modal){if(!wasLocked){_bodyLockY=sy;lockBody();}}
   else{if(wasLocked)unlockBody();if(skipRestore)requestAnimationFrame(()=>window.scrollTo(0,0));else if(sy>0)requestAnimationFrame(()=>window.scrollTo(0,sy));}
 }
