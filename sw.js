@@ -5,11 +5,13 @@
 //  - 商品圖（catbox 等）：cache-first，捲動/重畫時免重抓
 //  - Firebase 即時資料庫 / 匿名登入流量：完全略過，交給 SDK，確保即時同步不受影響
 // 改版時把 VER 加一號，舊快取會自動清掉。
-const VER = "inv-v44";
+const VER = "inv-v45";
 const IMG_MAX = 500; // 商品圖快取上限（LRU），避免長期在裝置上無限長大（稽核 2026-10-10 C3）
 const SHELL = VER + "-shell";
-const CDN = VER + "-cdn";
-const IMG = VER + "-img";
+// 2026-10-23：CDN 跟商品圖快取名稱不跟版本走 —— 原本每次改版（VER+1）就把這兩個整個清掉，
+// 店員每次更新後第一次開都要把幾百張商品圖、Firebase SDK 重新下載一遍。CDN 網址本身帶版本號、圖片有 IMG_MAX 上限，不需要跟著清。
+const CDN = "inv-cdn-keep";
+const IMG = "inv-img-keep";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -18,7 +20,7 @@ self.addEventListener("install", () => {
 self.addEventListener("activate", (e) => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(k => !k.startsWith(VER)).map(k => caches.delete(k)));
+    await Promise.all(keys.filter(k => !k.startsWith(VER) && k !== CDN && k !== IMG).map(k => caches.delete(k)));
     await self.clients.claim();
   })());
 });

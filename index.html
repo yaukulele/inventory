@@ -3151,7 +3151,8 @@ function renderAccountModal(){
         if(/[.$#\[\]\/]/.test(name)){addMsg.textContent="⚠ 名稱不可含 . $ # [ ] / 等字元";return;}
         if(name.length>40){addMsg.textContent="⚠ 名稱過長（最多 40 字）";return;}
         this.disabled=true;this.textContent="建立中…";
-        const ok=await fbSetUserField(name,{pass:pw,role,createdAt:Date.now()});
+        // 2026-10-23：新增帳號也存 salt+hash（v34 改加密時漏了這條，新帳號的密碼還是明文進公開資料庫）
+        const ok=await fbSetUserField(name,{...(await pwFields(pw)),role,createdAt:Date.now()});
         if(!ok){addMsg.textContent="⚠ 建立失敗";this.disabled=false;this.textContent="建立帳號";return;}
         logActivity("新增帳號","新增 "+name+"("+role+")");
         addNI.value="";addPI.value="";
@@ -3646,6 +3647,7 @@ async function loadStockRankLogs(force){
   }catch(e){console.error(e);S._srLast=S._srLast||{};S._srErr="出貨紀錄讀取失敗，「最後出貨」先不顯示";}
   S._srLoading=false;render();
 }
+function _srSearch(v){clearTimeout(S._srT);S._srT=setTimeout(()=>{if(!S.modal||S.modal.t!=="stockRank")return;S.modal={...S.modal,q:v};render();const el=document.getElementById("sr-q");if(el){el.focus();el.setSelectionRange(v.length,v.length);}},250);}
 function renderStockRankModal(){
   if(!S.modal||S.modal.t!=="stockRank")return null;
   const M=S.modal;const zone=M.zone||"all",by=M.by||"q",brand=M.brand||"",q=(M.q||"").trim().toLowerCase(),stale=!!M.stale;
@@ -3698,8 +3700,11 @@ function renderStockRankModal(){
   const sel=h("select",{style:{padding:"7px 8px",borderRadius:"8px",border:"1px solid var(--border)",fontSize:"13px",flex:"0 0 auto",maxWidth:"45%"},onChange:e=>setM({brand:e.target.value})},
     h("option",{value:""},"全部品牌"),...brands.map(b=>h("option",b===brand?{value:b,selected:"selected"}:{value:b},b)));
   const inp=h("input",{type:"search",placeholder:"搜尋品名…",value:M.q||"",style:{flex:1,minWidth:0,padding:"7px 10px",borderRadius:"8px",border:"1px solid var(--border)",fontSize:"13px"},
-    onInput:e=>{clearTimeout(S._srT);const v=e.target.value;S._srT=setTimeout(()=>{S.modal={...S.modal,q:v};render();const el=document.getElementById("sr-q");if(el){el.focus();el.setSelectionRange(v.length,v.length);}},250);}});
+    onInput:e=>{if(e.isComposing||e.target.dataset.composing==="true")return;_srSearch(e.target.value);}});
   inp.id="sr-q";
+  // 2026-10-23：注音／倉頡打字時（選字還沒確定）不要重畫，否則字會被吃掉、選字框消失 —— 跟主搜尋框同一套做法
+  inp.addEventListener("compositionstart",function(){this.dataset.composing="true";});
+  inp.addEventListener("compositionend",function(){this.dataset.composing="false";_srSearch(this.value);});
   box.appendChild(h("div",{style:{display:"flex",gap:"6px",marginBottom:"10px"}},sel,inp));
   if(S._srLoading&&!S._srLast)box.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",marginBottom:"6px"}},"讀取出貨紀錄中…（最後出貨等一下就會出來）"));
   if(S._srErr)box.appendChild(h("div",{style:{fontSize:"11px",color:"var(--red)",marginBottom:"6px"}},S._srErr));
