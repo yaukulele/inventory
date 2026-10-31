@@ -3647,6 +3647,9 @@ async function loadStockRankLogs(force){
   }catch(e){console.error(e);S._srLast=S._srLast||{};S._srErr="出貨紀錄讀取失敗，「最後出貨」先不顯示";}
   S._srLoading=false;render();
 }
+// 2026-10-31 阿淵：打「Np1」找不到「NP-15」→ 比對時同時用「去掉 - 空白 . / _ ( )」的版本
+const _sNorm=s=>String(s||"").toLowerCase().replace(/[\s\-_.\/()（）]/g,"");
+function _searchHit(x,terms){const hay=(x.n+" "+x.b+" "+x.c+" "+(x.dsc||"")).toLowerCase();const hayN=_sNorm(hay);return terms.every(t=>hay.includes(t)||(_sNorm(t)&&hayN.includes(_sNorm(t))));}
 function _srSearch(v){clearTimeout(S._srT);S._srT=setTimeout(()=>{if(!S.modal||S.modal.t!=="stockRank")return;S.modal={...S.modal,q:v};render();const el=document.getElementById("sr-q");if(el){el.focus();el.setSelectionRange(v.length,v.length);}},250);}
 function renderStockRankModal(){
   if(!S.modal||S.modal.t!=="stockRank")return null;
@@ -4096,7 +4099,7 @@ function renderMain(){
   const items=S.items||[];const zone=S.tab==="warehouse"?"倉庫":"店內";
   let fil=items.filter(x=>(x.z||"店內")===zone);
   if(!S.showZero)fil=fil.filter(x=>x.q!==0);
-  if(S.search){const terms=S.search.toLowerCase().split(/\s+/).filter(Boolean);fil=fil.filter(x=>{const hay=(x.n+" "+x.b+" "+x.c+" "+(x.dsc||"")).toLowerCase();return terms.every(t=>hay.includes(t));});}
+  if(S.search){const terms=S.search.toLowerCase().split(/\s+/).filter(Boolean);fil=fil.filter(x=>_searchHit(x,terms));}
   // Object.create(null) so that user-controlled brand/cat strings like "__proto__" can't poison the prototype chain — defense in depth even though isReservedKey blocks at input.
   const m=Object.create(null);fil.forEach(it=>{const b=it.b||"其他";if(!m[b])m[b]=Object.create(null);const c=it.c||"?";if(!m[b][c])m[b][c]=[];m[b][c].push(it);});
   // catOrd values stored in Firebase as arrays may come back as numeric-keyed objects after enough mutations — normalize before using
@@ -4155,10 +4158,10 @@ function renderMain(){
     const searchInp=h("input",{className:"ipt",placeholder:"搜尋品名、品牌、分類、敘述…",style:{paddingLeft:"32px",paddingRight:"32px"},id:"searchBox"});
     searchInp.value=S.search||"";
     const clearBtn=h("button",{style:{position:"absolute",right:"8px",top:"8px",background:"none",border:"none",fontSize:"16px",color:"var(--sub)",cursor:"pointer",display:S.search?"block":"none",padding:"2px"},onClick:()=>{if(_searchTimer){clearTimeout(_searchTimer);_searchTimer=null;}S.search="";render();const el=document.getElementById("searchBox");if(el){el.value="";el.focus();}}},"✕");
-    searchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;clearTimeout(_searchTimer);const v=this.value;clearBtn.style.display=v?"block":"none";_searchTimer=setTimeout(()=>{S.search=v;render();/* focus 由 _render 自動還原 */},120);});
+    searchInp.addEventListener("input",function(){if(this.dataset.composing==="true")return;clearTimeout(_searchTimer);const v=this.value;clearBtn.style.display=v?"block":"none";_searchTimer=setTimeout(()=>{S.search=v;render();/* focus 由 _render 自動還原 */},450);});
     searchInp.addEventListener("compositionstart",function(){this.dataset.composing="true";});
     // compositionend used to fire an immediate-ish (50ms) render, but if the user finished an IME composition and then typed more Latin chars within those 50ms the render would clobber the new chars. Treat compositionend like input — debounce via _searchTimer so subsequent typing within 120ms gets folded in.
-    searchInp.addEventListener("compositionend",function(){this.dataset.composing="false";clearTimeout(_searchTimer);const v=this.value;clearBtn.style.display=v?"block":"none";_searchTimer=setTimeout(()=>{S.search=v;render();},120);});
+    searchInp.addEventListener("compositionend",function(){this.dataset.composing="false";clearTimeout(_searchTimer);const v=this.value;clearBtn.style.display=v?"block":"none";_searchTimer=setTimeout(()=>{S.search=v;render();},450);});
     sw.appendChild(searchInp);sw.appendChild(clearBtn);sr.appendChild(sw);
     const zl=h("label",{className:"zl-box"});const zc=h("input",{type:"checkbox",onChange:e=>{S.showZero=e.target.checked;render();}});zc.checked=S.showZero;zl.appendChild(zc);zl.appendChild(document.createTextNode("零庫存"));sr.appendChild(zl);
     // Expand-all/collapse-all toggle for the brand cards. Useful when user has 10+ brands and wants to see everything.
@@ -4319,7 +4322,7 @@ function renderMain(){
       if(S.search){
         const otherZone=zone==="店內"?"倉庫":"店內";
         const terms=S.search.toLowerCase().split(/\s+/).filter(Boolean);
-        otherZoneMatches=items.filter(x=>(x.z||"店內")===otherZone).filter(x=>{const hay=(x.n+" "+x.b+" "+x.c+" "+(x.dsc||"")).toLowerCase();return terms.every(t=>hay.includes(t));}).length;
+        otherZoneMatches=items.filter(x=>(x.z||"店內")===otherZone).filter(x=>_searchHit(x,terms)).length;
       }
       const empty=h("div",{style:{textAlign:"center",padding:"60px 20px",color:"var(--sub)"}});
       empty.appendChild(h("div",{style:{fontSize:"48px",marginBottom:"12px",opacity:.4}},S.search?"🔍":"📦"));
