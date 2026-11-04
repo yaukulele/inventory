@@ -991,12 +991,16 @@ async function partnerResolveSync(e,ourItem){
     // 先在伺服器把這筆標成已處理（搶到才動庫存）—— 兩台手機同時按、或連點兩下，只有一個會成功，
     // 我們的庫存就不會被加／扣兩次。動庫存失敗再退回待處理。
     const claim=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/sync/"+e.id,{method:"POST",body:{status:"done",yid:ourItem.id}});
-    if(!claim||!claim.ok){showToast("⚠ "+((claim&&claim.error)||"這筆可能已經有人處理了")+"，我們的庫存沒有動");loadPartner(true);return;}
+    if(!claim||!claim.ok){
+      // 連線斷掉時伺服器可能其實已經標成處理了 → 提醒人工看一下，不要默默吞掉
+      const net=claim&&/連不上/.test(claim.error||"");
+      showToast(net?"⚠ 連線失敗，我們的庫存沒有動。重新整理後如果這筆不見了，請手動確認 "+(e.n||"")+" 的庫存":"⚠ "+((claim&&claim.error)||"這筆可能已經有人處理了")+"，我們的庫存沒有動");
+      loadPartner(true);return;}
     const cur=(S.items||[]).find(x=>x.id===ourItem.id)||ourItem;
     const res=await doAction(isRet?"in":"out",cur,e.q,isRet?"立米特退回":"→立米特（對方登進貨）",{noUndo:true});
     if(!res||!res.ok){
-      await partnerApi("/api/ya/partner/"+PARTNER_ID+"/sync/"+e.id,{method:"POST",body:{undo:true}});
-      showToast("⚠ 我們的庫存沒有動成功，這筆已退回待辦");
+      const u=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/sync/"+e.id,{method:"POST",body:{undo:true}});
+      showToast(u&&u.ok?"⚠ 我們的庫存沒有動成功，這筆已退回待辦":"⚠ 我們的庫存沒有動成功，而且這筆沒退回待辦（連線問題）——請記下："+(e.n||"")+" "+(isRet?"+":"-")+e.q+" 要手動處理");
     } else showToast("✅ "+cur.n+" "+(isRet?"+":"-")+e.q+"（"+(isRet?"立米特退回":"立米特進貨")+"）");
     loadPartner(true);
   });
