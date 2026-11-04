@@ -1,10 +1,16 @@
-﻿// 摨怠?蝟餌絞 Service Worker ???翰??伐?雿輻?漲
-// 蝑嚗?//  - App shell嚗ndex.html嚗?stale-while-revalidate ????蝘敹怠??????堆?銝活?停?舀??//  - 銝霈?CDN嚗irebase SDK gstatic?oogle Fonts嚗?cache-first嚗洵鈭活韏瑕??典?銝?
-//  - ????catbox 蝑?嚗ache-first嚗???????
-//  - Firebase ?單?鞈?摨?/ ?踹??餃瘚?嚗??函??鈭斤策 SDK嚗Ⅱ靽??甇乩??蔣??// ?寧??? VER ?????翰???芸?皜???const VER = "inv-v48";
-const IMG_MAX = 500; // ???翰????LRU嚗??踹??瑟??刻?蝵桐??⊿??瑕之嚗里??2026-10-10 C3嚗?const SHELL = VER + "-shell";
-// 2026-10-23嚗DN 頝???敹怠??迂銝??韏????瘥活?寧?嚗ER+1嚗停??????
-// 摨瘥活?湔敺洵銝甈⊿??質??嗾?曉撐???irebase SDK ?銝?銝?DN 蝬脣??祈澈撣嗥??祈????? IMG_MAX 銝?嚗??閬?????const CDN = "inv-cdn-keep";
+// 庫存系統 Service Worker — 加快「登入＋使用」速度
+// 策略：
+//  - App shell（index.html）：stale-while-revalidate → 開頁秒出快取版，背景再更新，下次開就是新版
+//  - 不可變 CDN（Firebase SDK gstatic、Google Fonts）：cache-first，第二次起完全免下載
+//  - 商品圖（catbox 等）：cache-first，捲動/重畫時免重抓
+//  - Firebase 即時資料庫 / 匿名登入流量：完全略過，交給 SDK，確保即時同步不受影響
+// 改版時把 VER 加一號，舊快取會自動清掉。
+const VER = "inv-v48";
+const IMG_MAX = 500; // 商品圖快取上限（LRU），避免長期在裝置上無限長大（稽核 2026-10-10 C3）
+const SHELL = VER + "-shell";
+// 2026-10-23：CDN 跟商品圖快取名稱不跟版本走 —— 原本每次改版（VER+1）就把這兩個整個清掉，
+// 店員每次更新後第一次開都要把幾百張商品圖、Firebase SDK 重新下載一遍。CDN 網址本身帶版本號、圖片有 IMG_MAX 上限，不需要跟著清。
+const CDN = "inv-cdn-keep";
 const IMG = "inv-img-keep";
 
 self.addEventListener("install", () => {
@@ -42,7 +48,7 @@ async function cacheFirst(req, cacheName) {
   return r || fetch(req);
 }
 
-// ???剁?cache-first 嚗?銝? LRU嚗ache API ??keys() 靘??仿?摨??芸??ｇ??芣???
+// 圖片用：cache-first ＋ 上限 LRU（Cache API 的 keys() 依插入順序，刪前面＝刪最舊）
 async function cacheFirstImg(req) {
   const cache = await caches.open(IMG);
   const cached = await cache.match(req);
@@ -70,7 +76,7 @@ self.addEventListener("fetch", (e) => {
   try { url = new URL(req.url); } catch (_) { return; }
   if (BYPASS.test(url.href)) return; // let Firebase SDK handle its own traffic
 
-  // App shell ??the HTML document
+  // App shell — the HTML document
   if (req.mode === "navigate" ||
       (url.origin === location.origin && (url.pathname.endsWith("/") || url.pathname.endsWith("index.html")))) {
     e.respondWith(staleWhileRevalidate(req, SHELL));
@@ -81,7 +87,7 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(cacheFirst(req, CDN));
     return;
   }
-  // Product images (catbox / yamusic / imgur / lh3 ?? ?????? LRU 敹怠?
+  // Product images (catbox / yamusic / imgur / lh3 …) — 有上限的 LRU 快取
   if (req.destination === "image") {
     e.respondWith(cacheFirstImg(req));
     return;
