@@ -884,6 +884,95 @@ function pEntryInfo(e){
   const amt=e.status==="unpriced"?"待定價":(k==="adjust"&&e.amount<0?"−"+ntw(Math.abs(e.amount)):ntw(e.amount));
   return {dir,title,detail,amt};
 }
+/* ── 庫存系統 ↔ 立米特 連動（阿淵 2026-11-05）──
+   立米特每件寄庫貨可以對到我們庫存的一筆（yid＝我們的商品 id）。對上之後：
+   ・我們的店內／倉庫清單會顯示「立米特寄庫 N」，一眼看到這支總共有幾支在外面
+   ・調貨過去會自動帶對應
+   ・立米特按「退回 YA!」或自己登「進貨」→ 這邊出現「連動待辦」，貨到了按確認才動我們的庫存
+     （不讓伺服器直接改 Firebase：我們的庫存要走 doAction，才有紀錄、撤銷、負庫存規則） */
+function partnerQtyByYid(){
+  const st=S.partner&&S.partner.state;if(!st)return null;
+  if(S._pqCache&&S._pqCache.st===st)return S._pqCache.m;
+  const m={};(st.items||[]).forEach(x=>{if(x&&x.yid&&x.q>0)m[x.yid]=(m[x.yid]||0)+x.q;});
+  S._pqCache={st,m};return m;
+}
+const _pNorm=s=>String(s||"").toUpperCase().replace(/[^0-9A-Z]/g,"");
+/* 自動配對：把立米特品名切成一段一段（空白分開、中文去掉），
+   我們的型號要「剛好等於」其中連續 1～3 段接起來 —— 不做子字串（OM-10 不會去配 OM10C）。
+   品牌：我們那筆有品牌、而且立米特品名裡也寫了某個品牌時，兩個要一樣。
+   同型號命中兩支以上（又不是同一型號分店內/倉庫）就不配，留給人選。 */
+const _PB=["YAMAHA","ROLAND","ANUENUE","CHANGE","NEOWOOD","NUX","PROMARK","LOXX","ELIXIR","IBANEZ","KORG","CASIO","BOSS","FENDER","TAKAMINE","DADDARIO"];
+function partnerAutoMatch(pitems){
+  const idx={};
+  (S.items||[]).forEach(o=>{const k=_pNorm(o.n);if(k.length>=3)(idx[k]=idx[k]||[]).push(o);});
+  const out=[];
+  pitems.forEach(pi=>{
+    if(pi.yid)return;
+    // 中文顏色換成我們庫存慣用的代碼（P225 黑色整組 → P-225 BK）
+    const pn=String(pi.n||"").replace(/黑色|黑/g," BK ").replace(/白色|白/g," WH ");
+    const toks=pn.split(/[\s　]+/).map(_pNorm).filter(Boolean);
+    const stand=/架子|琴架/.test(pi.n||"");
+    const pbrand=_PB.find(b=>toks.indexOf(b)>=0)||"";
+    const cands=new Map();
+    for(let i=0;i<toks.length;i++)for(let L=1;L<=3&&i+L<=toks.length;L++){
+      const k=toks.slice(i,i+L).join("");
+      if(_PB.indexOf(k)>=0)continue;
+      (idx[k]||[]).forEach(o=>{ if(stand!==/架/.test(o.n||""))return; if(pbrand&&o.b&&_pNorm(o.b)!==pbrand)return; cands.set(o.id,{o,len:k.length}); });
+    }
+    if(!cands.size)return;
+    const arr=[...cands.values()];const best=Math.max(...arr.map(x=>x.len));
+    const top=arr.filter(x=>x.len===best).map(x=>x.o);
+    const sameModel=new Set(top.map(o=>_pNorm(o.n))).size===1;
+    const pick=top.length===1?top[0]:(sameModel?(top.find(o=>(o.z||"店內")==="店內")||top[0]):null);
+    if(pick)out.push({id:pi.id,yid:pick.id,pn:pi.n,on:pick.n,ob:pick.b,oz:pick.z||"店內"});
+  });
+  return out;
+}
+/* 挑我們的商品（對應／連動待辦沒對應時用） */
+function renderPartnerLinkModal(){
+  if(!S.modal||S.modal.t!=="plink")return null;
+  const md=S.modal,close=()=>{S.modal=null;render();};
+  const box=h("div",{className:"modal-box",style:{maxWidth:"480px"}});
+  box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"8px"}},
+    h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1}},"對到我們的哪一支？"),
+    h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
+  box.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"8px"}},"立米特的品項：「"+(md.pn||"")+"」"));
+  const si=h("input",{className:"ipt",placeholder:"搜尋我們的商品（型號／品牌）",style:{marginBottom:"8px"}});
+  si.value=md.kw||"";
+  si.addEventListener("input",function(){clearTimeout(window._plTimer);const v=this.value;window._plTimer=setTimeout(()=>{S.modal={...S.modal,kw:v};render();setTimeout(()=>{const x=document.querySelector(".modal-box input.ipt");if(x){x.focus();x.setSelectionRange(v.length,v.length);}},0);},200);});
+  box.appendChild(si);
+  const _kn=v=>String(v||"").toUpperCase().replace(/[\s\-_/．.()（）]/g,"");const kw=_kn(md.kw||"");
+  const list=h("div",{style:{maxHeight:"300px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"10px"}});
+  const hits=kw?(S.items||[]).filter(x=>_kn((x.b||"")+(x.n||"")+(x.c||"")).indexOf(kw)>=0).slice(0,40):[];
+  if(!kw)list.appendChild(h("div",{style:{padding:"16px",textAlign:"center",fontSize:"12px",color:"var(--sub)"}},"打型號搜尋"));
+  else if(!hits.length)list.appendChild(h("div",{style:{padding:"16px",textAlign:"center",fontSize:"12px",color:"var(--sub)"}},"找不到"));
+  hits.forEach(x=>{
+    const r=h("div",{style:{padding:"9px 12px",borderBottom:"1px solid #f1f5f9",cursor:"pointer",display:"flex",gap:"8px",alignItems:"center"}});
+    r.appendChild(h("div",{style:{flex:1,minWidth:0}},h("div",{style:{fontSize:"13px",fontWeight:600}},x.n),h("div",{style:{fontSize:"11px",color:"var(--sub)"}},(x.b||"")+" / "+(x.c||"")+" · "+(x.z||"店內")+" · 庫存 "+(x.q||0))));
+    r.onclick=async()=>{ if(md.onPick) await md.onPick(x); };
+    list.appendChild(r);
+  });
+  box.appendChild(list);
+  if(md.allowUnlink)box.appendChild(h("button",{style:{width:"100%",marginTop:"10px",padding:"10px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",color:"var(--red)",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:async()=>{ if(md.onPick) await md.onPick(null); }},"取消對應"));
+  return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
+}
+async function partnerSetLink(pitemId,yid){
+  const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/links",{method:"POST",body:{links:[{id:pitemId,yid:yid||""}]}});
+  if(!r||!r.ok){showToast("⚠ "+((r&&r.error)||"對應失敗"));return false;}
+  return true;
+}
+/* 處理一筆連動待辦：先動我們的庫存（doAction），成功了才標已處理 */
+async function partnerResolveSync(e,ourItem){
+  const isRet=e.type==="return";
+  const cur=(S.items||[]).find(x=>x.id===ourItem.id)||ourItem;
+  const res=await doAction(isRet?"in":"out",cur,e.q,isRet?"立米特退回":"→立米特（對方登進貨）",{noUndo:true});
+  if(!res||!res.ok){showToast("⚠ 我們的庫存沒有動成功，這筆還留著");return;}
+  const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/sync/"+e.id,{method:"POST",body:{status:"done",yid:ourItem.id}});
+  if(!r||!r.ok)showToast("⚠ 我們庫存已"+(isRet?"加回":"扣掉")+"，但標記完成失敗："+((r&&r.error)||"")+"（請按重新整理，不要再按一次確認）");
+  else showToast("✅ "+cur.n+" "+(isRet?"+":"-")+e.q+"（"+(isRet?"立米特退回":"立米特進貨")+"）");
+  loadPartner(true);
+}
+
 function renderPartnerTab(content){
   // 還沒設定連線碼 —— 每台裝置輸入一次就好
   if(!partnerToken()){
@@ -969,6 +1058,49 @@ function renderPartnerTab(content){
       pc.appendChild(row);
     });
     content.appendChild(pc);
+  }
+
+  // 連動待辦：立米特退回／自己登進貨 → 要動我們的庫存
+  const syncs=(st.sync||[]).filter(x=>x&&x.status==="pending");
+  if(syncs.length){
+    const sc=h("div",{className:"card",style:{marginBottom:"12px",border:"1px solid #93c5fd",background:"#f5f9ff"}});
+    sc.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid #bfdbfe",fontWeight:800,fontSize:"14px",color:"#1d4ed8"}},"連動待辦 "+syncs.length+" 筆（要動我們的庫存，貨確定到了／出了再按）"));
+    syncs.forEach(e=>{
+      const isRet=e.type==="return";
+      const pit=(st.items||[]).find(x=>x.id===e.itemId);
+      const yid=e.yid||(pit&&pit.yid)||"";
+      const ours=yid?(S.items||[]).find(x=>x.id===yid):null;
+      const row=h("div",{style:{padding:"10px 14px",borderBottom:"1px solid #dbeafe"}});
+      row.appendChild(h("div",{style:{fontSize:"13px",fontWeight:700}},(isRet?"立米特退回 → 加回我們庫存　":"立米特自己登進貨 → 從我們庫存扣　")+(e.n||"")+" ×"+e.q));
+      row.appendChild(h("div",{style:{fontSize:"11px",color:"var(--sub)",margin:"2px 0 6px"}},pDate(e.t)+" · "+(e.who||"")+(e.note?" · "+e.note:"")+"　對應："+(ours?ours.n+"（"+(ours.z||"店內")+" 庫存 "+(ours.q||0)+"）":"還沒對應")));
+      if(!isPreview()){
+        const bw=h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap"}});
+        const go=h("button",{style:{padding:"7px 12px",borderRadius:"8px",border:"none",background:"var(--blue)",color:"#fff",fontSize:"12px",fontWeight:700,cursor:"pointer"}},ours?(isRet?"✓ 貨到了，加回 +"+e.q:"✓ 確認，從我們扣 -"+e.q):"選我們的商品");
+        go.onclick=async function(){
+          if(ours){
+            if(!confirm((isRet?"加回 ":"扣掉 ")+ours.n+"（"+(ours.z||"店內")+"）"+(isRet?" +":" -")+e.q+"？"))return;
+            this.disabled=true;await partnerResolveSync(e,ours);return;
+          }
+          S.modal={t:"plink",pn:e.n,kw:"",onPick:async(x)=>{
+            if(!x){S.modal=null;render();return;}
+            if(!confirm((isRet?"加回 ":"扣掉 ")+x.n+"（"+(x.z||"店內")+"）"+(isRet?" +":" -")+e.q+"？\n之後這件就固定對到這支。"))return;
+            S.modal=null;render();await partnerResolveSync(e,x);
+          }};render();
+        };
+        bw.appendChild(go);
+        if(ours)bw.appendChild(h("button",{style:{padding:"7px 12px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"plink",pn:e.n,kw:"",onPick:async(x)=>{if(!x){S.modal=null;render();return;}if(!confirm((isRet?"加回 ":"扣掉 ")+x.n+(isRet?" +":" -")+e.q+"？"))return;S.modal=null;render();await partnerResolveSync(e,x);}};render();}},"換一支"));
+        bw.appendChild(h("button",{title:"不用動我們的庫存（例如那批不是從我們這邊出的）",style:{padding:"7px 12px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",color:"var(--sub)",fontSize:"12px",fontWeight:600,cursor:"pointer"},onClick:async function(){
+          if(!confirm("略過這筆？我們的庫存不會動。"))return;
+          this.disabled=true;
+          const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/sync/"+e.id,{method:"POST",body:{status:"dismissed"}});
+          if(!r||!r.ok){this.disabled=false;showToast("⚠ "+((r&&r.error)||"失敗"));return;}
+          showToast("已略過");loadPartner(true);
+        }},"略過"));
+        row.appendChild(bw);
+      }
+      sc.appendChild(row);
+    });
+    content.appendChild(sc);
   }
 
   // 待處理（2026-11-05）：立米特登的收入要我們確認才算；賣掉的貨還沒定價要補
@@ -1084,7 +1216,21 @@ function renderPartnerTab(content){
   // 他們的庫存
   const items=(st.items||[]).slice().sort((a,b)=>(a.b||"").localeCompare(b.b||"")||(a.n||"").localeCompare(b.n||""));
   const ic=h("div",{className:"card"});
-  ic.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px"}},"📦 "+PARTNER_NAME+"的庫存"));
+  const unlinked=items.filter(x=>x.src!=="own"&&!x.yid).length;
+  const ih=h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}},
+    h("span",{style:{flex:1}},"📦 "+PARTNER_NAME+"的庫存"),
+    h("span",{style:{fontSize:"11px",fontWeight:600,color:unlinked?"var(--orange)":"var(--green)"}},unlinked?unlinked+" 項還沒對到我們的商品":"全部已對應"));
+  if(!isPreview()&&unlinked)ih.appendChild(h("button",{style:{padding:"6px 11px",borderRadius:"8px",border:"1px solid #93c5fd",background:"#eff6ff",color:"#1d4ed8",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:async function(){
+    const m=partnerAutoMatch(items);
+    if(!m.length){showToast("沒有能自動確定的，請在下面一筆一筆按「對應」");return;}
+    const preview=m.slice(0,25).map(x=>"・"+x.pn+" → "+x.on+"（"+x.oz+"）").join("\n")+(m.length>25?"\n…共 "+m.length+" 筆":"");
+    if(!confirm("自動配對 "+m.length+" 筆（只配型號完全對得上的，其他留給你選）：\n\n"+preview+"\n\n確定套用？之後還可以一筆一筆改。"))return;
+    this.disabled=true;
+    const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/links",{method:"POST",body:{links:m.map(x=>({id:x.id,yid:x.yid}))}});
+    if(!r||!r.ok){this.disabled=false;showToast("⚠ "+((r&&r.error)||"失敗"));return;}
+    showToast("✅ 已對應 "+r.changed+" 筆");loadPartner(true);
+  }},"自動配對"));
+  ic.appendChild(ih);
   if(!items.length)ic.appendChild(h("div",{style:{padding:"14px",fontSize:"12px",color:"var(--sub)"}},"還沒有庫存。用上面的「調貨過去」把貨撥給他們。"));
   items.forEach(it=>{
     const row=h("div",{style:{padding:"9px 14px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px"}});
@@ -1095,9 +1241,13 @@ function renderPartnerTab(content){
         (it.b||"")+(it.c?" / "+it.c:"")+" · "
         +(it.src==="own" ? "他們自己進的"
           : it.cost===null ? "我們調過去的・⚠ 還沒定價"
-          : "我們調過去的 進價 "+ntw(it.cost)))));
+          : "我們調過去的 進價 "+ntw(it.cost))
+        +(it.src!=="own"?(function(){const o=it.yid&&(S.items||[]).find(x=>x.id===it.yid);return it.yid?(o?"　↔ "+o.n+"（"+(o.z||"店內")+"）":"　↔ 對應的商品已刪除"):"　↔ 未對應";})():""))));
     row.appendChild(h("span",{style:{fontSize:"15px",fontWeight:800,color:it.q<=0?"var(--red)":"var(--blue)",flexShrink:0}},it.q<0?"欠 "+(-it.q):"× "+it.q));
     // 進價只有我們改得動 —— 店家那頁按了會被伺服器擋（updateItem isAdmin:false）
+    if(!isPreview()&&it.src!=="own")row.appendChild(h("button",{title:"對到我們庫存的哪一支",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid "+(it.yid?"var(--border)":"#93c5fd"),background:it.yid?"#fff":"#eff6ff",color:it.yid?"var(--sub)":"#1d4ed8",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:()=>{
+      S.modal={t:"plink",pn:it.n,kw:"",allowUnlink:!!it.yid,onPick:async(x)=>{const ok=await partnerSetLink(it.id,x?x.id:"");S.modal=null;if(ok){showToast(x?"✅ 已對應 "+x.n:"已取消對應");loadPartner(true);}else render();}};render();
+    }},it.yid?"改對應":"對應"));
     // 立米特打電話說賣掉了 → 我們幫他們登（扣他們庫存＋記一筆他們欠我們）
     if(!isPreview()&&it.q>0)row.appendChild(h("button",{title:"立米特賣掉了（扣庫存＋記帳）",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid #fecaca",background:"#fef2f2",color:"var(--red)",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:async function(){
       const qs=prompt(it.n+"\n賣掉幾件？（庫存 "+it.q+"）","1");if(qs===null)return;
@@ -1525,7 +1675,7 @@ function renderTransferModal(){
       const it=(S.items||[]).find(x=>x.id===id);if(!it)return;
       const p=picks[id];const q=Math.min(p.q||1,it.q||0);
       if(q<1)return;
-      lines.push({n:it.n,b:it.b,c:it.c,q:q,cost:p.cost||0,price:parseInt(it.price,10)||0});
+      lines.push({n:it.n,b:it.b,c:it.c,q:q,cost:p.cost||0,price:parseInt(it.price,10)||0,yid:it.id});
       ours.push({it:it,q:q});
     });
     if(!lines.length){showToast("⚠ 沒有可調的數量");return;}
@@ -2297,8 +2447,11 @@ function renderRow(it){
     // 品名下面一行小字帶建議售價（有才顯示）
     const sg=sugOf(it);
     const nm=h("span",{style:{fontSize:"14px",fontWeight:500,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"},title:it.n},...highlightText(it.n,S.search));
+    const pq=(partnerQtyByYid()||{})[it.id];
     nameWrap.appendChild(h("div",{style:{flex:1,minWidth:0}},nm,
-      sg&&sg.v?h("div",{style:{fontSize:"11px",fontWeight:700,color:"#15803d",lineHeight:1.2,marginTop:"1px"}},ntw(sg.v)):null));
+      (sg&&sg.v)||pq?h("div",{style:{fontSize:"11px",fontWeight:700,lineHeight:1.2,marginTop:"1px",display:"flex",gap:"8px"}},
+        sg&&sg.v?h("span",{style:{color:"#15803d"}},ntw(sg.v)):null,
+        pq?h("span",{style:{color:"#1d4ed8"},title:"放在立米特的寄庫數量"},PARTNER_NAME+"寄庫 "+pq):null):null));
   }
   if(!itemHasImg(it)||!it.dsc){
     // Clicking the orange dot is a shortcut to "fill missing info" — opens straight into edit mode instead of detail-view-then-edit. Stop propagation so the parent nameWrap's plain-detail click doesn't fire.
@@ -4267,6 +4420,8 @@ function renderMain(){
   root.appendChild(tabBar);
   const content=h("div",{style:{padding:"12px 16px",paddingBottom:"32px"}});
   if(S.tab==="store"||S.tab==="warehouse"){
+    // 有貼過連線碼的裝置：背景抓一次立米特的庫存，清單上才顯示「立米特寄庫 N」
+    if(partnerToken()&&!isPreview()&&!S.partner)setTimeout(()=>loadPartner(),0);
     // Search — flex-wrap so on narrow screens the toolbar buttons drop below the input instead of squishing the search box into 80px wide.
     const sr=h("div",{style:{display:"flex",gap:"8px",marginBottom:"10px",alignItems:"center",flexWrap:"wrap"}});
     const sw=h("div",{style:{flex:1,position:"relative"}});sw.appendChild(h("span",{style:{position:"absolute",left:"10px",top:"10px",fontSize:"14px"}},"🔍"));
@@ -4979,6 +5134,7 @@ function renderMain(){
   const ppm=renderPartnerPayModal();if(ppm)root.appendChild(ppm);
   const pmm=renderPartnerImportModal();if(pmm)root.appendChild(pmm);
   const ppr=renderPartnerPriceModal();if(ppr)root.appendChild(ppr);
+  const pln=renderPartnerLinkModal();if(pln)root.appendChild(pln);
   const dm=renderDetailModal();if(dm)root.appendChild(dm);
   const plm=renderPLPickModal();if(plm)root.appendChild(plm);
   const dcm=renderDelConfirmModal();if(dcm)root.appendChild(dcm);
