@@ -896,6 +896,23 @@ function pEntryInfo(e){
 function pBusy(k){return !!(S._pBusy&&S._pBusy[k]);}
 function pSetBusy(k,v){S._pBusy=S._pBusy||{};if(v)S._pBusy[k]=1;else delete S._pBusy[k];}
 async function pRun(k,fn){if(pBusy(k))return;pSetBusy(k,true);render();try{await fn();}finally{pSetBusy(k,false);render();}}
+/* 立米特庫存的類別／品牌（跟立米特那頁同一套規則：先挑配件、「含袋」不算袋子） */
+function pCatOf(x){
+  const n=String(x.n||"").replace(/含\S*?袋/g,""),t=(x.c||"")+" "+n;
+  if(/袋|弦|背扣|背帶|導線|調音器|PICK|保養|椅|琴罩|鼓棒|鼓毯|耳機|書籍|譜架|吸水紙|效果器|音箱|SAX架|X架/i.test(n))return "配件";
+  if(/電子鼓|爵士鼓|TD-?\d|DTX|DM-?\d{3}|PM-?\d{3}/i.test(n))return "鼓";
+  if(/電鋼琴|FP-?\d|RP-?\d|CLP|P-?225|P-?145|YDP|GP-?\d|F-?701/i.test(t))return "鋼琴";
+  if(/^(木吉他|電吉他|電貝斯|貝斯|烏克麗麗|吉他)$/.test(x.c||"")||/木吉他|電吉他|電貝斯|烏克麗麗|\bFS-?\d|FGX|PAC\d|TRBX/i.test(n))return "吉他";
+  return "配件";
+}
+function pBrandOf(x){
+  const t=((x.b||"")+" "+(x.n||"")).toLowerCase(),n=x.n||"";
+  if(/yamaha/.test(t)||/\b(fs-?\d|fgx|pac\d|pacs|trbx|ydp|clp|p-?225|p-?145|hph|thr|stagepas)/i.test(n))return "Yamaha";
+  if(/roland/.test(t)||/\b(fp-?\d|rp-?\d|td-?\d|pm-?\d{3}|gp-?\d|f-?701|rh-?5)/i.test(n))return "Roland";
+  if(/anuenue/.test(t))return "aNueNue";
+  if(/change/.test(t)||/\b(v1gac|vgacsm)\b/i.test(n))return "Change";
+  return "其他";
+}
 function partnerQtyByYid(){
   const st=S.partner&&S.partner.state;if(!st)return null;
   if(S._pqCache&&S._pqCache.st===st)return S._pqCache.m;
@@ -1064,10 +1081,10 @@ function renderPartnerTab(content){
       showToast("✅ 已相抵 "+ntw(r.amount));loadPartner(true);
     });
   }},"相抵結清"));
-  if(!isPreview())btnRow.appendChild(h("button",{title:"貼上 Excel 一次匯入期初庫存（一輩子大概只按一次）",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer",color:"var(--sub)"},onClick:()=>{S.modal={t:"pimport"};render();}},"📥 匯期初"));
-  if(!isPreview())btnRow.appendChild(h("button",{title:"帳算錯了、要折讓，補一筆修正（可以是負數）",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"padjust"};render();}},"✏️ 調整帳款"));
-  if(!isPreview())btnRow.appendChild(h("button",{title:"把庫存＋帳務下載成一個檔案存起來（伺服器每天也會自己備一份）",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:function(){downloadPartnerBackup(this);}},"⬇️ 下載備份"));
-  btnRow.appendChild(h("button",{style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>loadPartner(true)},P.loading?"⏳":"🔄 重新整理"));
+  if(!isPreview())btnRow.appendChild(h("button",{title:"貼上 Excel 一次匯入期初庫存（一輩子大概只按一次）",style:{padding:"6px 10px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",fontWeight:600,cursor:"pointer",color:"var(--sub)"},onClick:()=>{S.modal={t:"pimport"};render();}},"📥 匯期初"));
+  if(!isPreview())btnRow.appendChild(h("button",{title:"帳算錯了、要折讓，補一筆修正（可以是負數）",style:{padding:"6px 10px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"padjust"};render();}},"✏️ 調整帳款"));
+  if(!isPreview())btnRow.appendChild(h("button",{title:"把庫存＋帳務下載成一個檔案存起來（伺服器每天也會自己備一份）",style:{padding:"6px 10px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",fontWeight:600,cursor:"pointer"},onClick:function(){downloadPartnerBackup(this);}},"⬇️ 下載備份"));
+  btnRow.appendChild(h("button",{style:{padding:"6px 10px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",fontWeight:600,cursor:"pointer"},onClick:()=>loadPartner(true)},P.loading?"⏳":"🔄 重新整理"));
   sum.appendChild(btnRow);
   content.appendChild(sum);
 
@@ -1208,7 +1225,8 @@ function renderPartnerTab(content){
   lc.appendChild(h("div",{style:{padding:"12px 14px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:"14px",display:"flex",alignItems:"center",gap:"8px"}},h("span",{style:{flex:1}},"💰 帳務紀錄"),
     h("a",{href:PARTNER_API+"/limit",target:"_blank",rel:"noopener",style:{fontSize:"12px",fontWeight:600,color:"var(--blue)"}},"開立米特那頁（對帳單）")));
   if(!led.length)lc.appendChild(h("div",{style:{padding:"14px",fontSize:"12px",color:"var(--sub)"}},"還沒有任何帳務紀錄。"));
-  led.slice(0,40).forEach(e=>{
+  const LED_N=S._pLedAll?60:10;
+  led.slice(0,LED_N).forEach(e=>{
     const isPay=e.kind==="payment";
     const isAdj=e.kind==="adjust";
     const done=e.status==="confirmed"||e.confirmedAt;
@@ -1254,6 +1272,7 @@ function renderPartnerTab(content){
     }
     lc.appendChild(row);
   });
+  if(led.length>10)lc.appendChild(h("button",{style:{width:"100%",padding:"10px",border:"none",borderTop:"1px solid var(--border)",background:"#fafbfc",color:"var(--blue)",fontSize:"12.5px",fontWeight:700,cursor:"pointer"},onClick:()=>{S._pLedAll=!S._pLedAll;render();}},S._pLedAll?"收起":"看更多（共 "+led.length+" 筆）"));
   content.appendChild(lc);
 
   // 修改紀錄（阿淵 2026-11-05：要看得到誰改的）—— 兩邊的進貨、賣出、盤點、記帳都會留名字
@@ -1302,11 +1321,40 @@ function renderPartnerTab(content){
   }
   ic.appendChild(ih);
   if(!items.length)ic.appendChild(h("div",{style:{padding:"14px",fontSize:"12px",color:"var(--sub)"}},"還沒有庫存。用上面的「調貨過去」把貨撥給他們。"));
-  items.forEach(it=>{
-    const row=h("div",{style:{padding:"9px 14px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px"}});
+  const PV=S._pView||"cat", ORD=PV==="brand"?["Yamaha","Roland","aNueNue","Change","其他"]:["吉他","鋼琴","鼓","配件"];
+  const gOf=x=>PV==="brand"?pBrandOf(x):pCatOf(x);
+  const kwn=String(S._pKw||"").toUpperCase().replace(/\s/g,"");
+  const base=items.filter(x=>!kwn||String((x.n||"")+(x.b||"")+(x.c||"")).toUpperCase().replace(/\s/g,"").indexOf(kwn)>=0);
+  const gc2={};base.forEach(x=>{const g=gOf(x);gc2[g]=(gc2[g]||0)+1;});
+  if(S._pFil&&!ORD.includes(S._pFil))S._pFil="";
+  if(items.length){
+    const bar=h("div",{style:{padding:"8px 12px",borderBottom:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:"6px"}});
+    const top=h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}});
+    const sw=h("div",{style:{display:"inline-flex",background:"#f1f5f9",borderRadius:"8px",padding:"2px",flexShrink:0}});
+    [["cat","類別"],["brand","品牌"]].forEach(([k,l])=>sw.appendChild(h("button",{style:{border:"none",background:PV===k?"#fff":"transparent",boxShadow:PV===k?"0 1px 2px rgba(0,0,0,.08)":"none",borderRadius:"6px",padding:"4px 10px",fontSize:"12px",fontWeight:700,color:PV===k?"var(--text)":"var(--sub)",cursor:"pointer"},onClick:()=>{S._pView=k;S._pFil="";render();}},l)));
+    top.appendChild(sw);
+    const si=h("input",{className:"ipt",placeholder:"搜尋立米特的貨",style:{flex:1,padding:"6px 10px",fontSize:"13px",minWidth:0}});
+    si.value=S._pKw||"";
+    si.addEventListener("input",function(){clearTimeout(window._pkTimer);const v=this.value;window._pkTimer=setTimeout(()=>{if(S.tab!=="partner")return;S._pKw=v;render();setTimeout(()=>{const x=document.getElementById("pKwInput");if(x){x.focus();x.setSelectionRange(v.length,v.length);}},0);},250);});
+    si.id="pKwInput";
+    top.appendChild(si);
+    bar.appendChild(top);
+    const chips=h("div",{style:{display:"flex",gap:"5px",overflowX:"auto",whiteSpace:"nowrap"}});
+    const chip=(g,label,n)=>h("button",{style:{flexShrink:0,border:"1.5px solid "+((S._pFil||"")===g?"var(--text)":"var(--border)"),background:(S._pFil||"")===g?"var(--text)":"#fff",color:(S._pFil||"")===g?"#fff":"var(--sub)",borderRadius:"14px",padding:"3px 10px",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:()=>{S._pFil=g;render();}},label+" "+n);
+    chips.appendChild(chip("","全部",base.length));
+    ORD.filter(g=>gc2[g]).forEach(g=>chips.appendChild(chip(g,g,gc2[g])));
+    bar.appendChild(chips);
+    ic.appendChild(bar);
+  }
+  const shown=base.filter(x=>!S._pFil||gOf(x)===S._pFil);
+  if(items.length&&!shown.length)ic.appendChild(h("div",{style:{padding:"14px",fontSize:"12px",color:"var(--sub)"}},"沒有符合的。"));
+  shown.forEach(it=>{
+    // 手機上一列塞三顆按鈕會把品名擠成「電鋼琴 Roland FP6…」→ 品名＋數量一行、按鈕放下面一行
+    const row=h("div",{style:{padding:"9px 14px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}});
+    const acts=h("div",{style:{width:"100%",display:"flex",justifyContent:"flex-end",gap:"6px",paddingLeft:"12px"}});
     row.appendChild(h("span",{style:{width:"4px",height:"22px",borderRadius:"2px",background:gc(it.b),flexShrink:0}}));
     row.appendChild(h("div",{style:{flex:1,minWidth:0}},
-      h("div",{style:{fontSize:"13px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.n),
+      h("div",{style:{fontSize:"13px",fontWeight:600,lineHeight:1.35,wordBreak:"break-all"}},it.n),
       h("div",{style:{fontSize:"10.5px",color:it.cost===null&&it.src!=="own"?"var(--red)":"var(--sub)"}},
         (it.b||"")+(it.c?" / "+it.c:"")+" · "
         +(it.src==="own" ? "他們自己進的"
@@ -1315,11 +1363,11 @@ function renderPartnerTab(content){
         +(it.src!=="own"?(function(){const o=it.yid&&(S.items||[]).find(x=>x.id===it.yid);return it.yid?(o?"　↔ "+o.n+"（"+(o.z||"店內")+"）":"　↔ 對應的商品已刪除"):"　↔ 未對應";})():""))));
     row.appendChild(h("span",{style:{fontSize:"15px",fontWeight:800,color:it.q<=0?"var(--red)":"var(--blue)",flexShrink:0}},it.q<0?"欠 "+(-it.q):"× "+it.q));
     // 進價只有我們改得動 —— 店家那頁按了會被伺服器擋（updateItem isAdmin:false）
-    if(!isPreview()&&it.src!=="own")row.appendChild(h("button",{title:"對到我們庫存的哪一支",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid "+(it.yid?"var(--border)":"#93c5fd"),background:it.yid?"#fff":"#eff6ff",color:it.yid?"var(--sub)":"#1d4ed8",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:()=>{
+    if(!isPreview()&&it.src!=="own")acts.appendChild(h("button",{title:"對到我們庫存的哪一支",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid "+(it.yid?"var(--border)":"#93c5fd"),background:it.yid?"#fff":"#eff6ff",color:it.yid?"var(--sub)":"#1d4ed8",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:()=>{
       S.modal={t:"plink",pn:it.n,kw:"",allowUnlink:!!it.yid,onPick:async(x)=>{const ok=await partnerSetLink(it.id,x?x.id:"");S.modal=null;if(ok){showToast(x?"✅ 已對應 "+x.n:"已取消對應");loadPartner(true);}else render();}};render();
     }},it.yid?"改對應":"對應"));
     // 立米特打電話說賣掉了 → 我們幫他們登（扣他們庫存＋記一筆他們欠我們）
-    if(!isPreview()&&it.q>0&&it.src!=="own")row.appendChild(h("button",{disabled:pBusy("sale:"+it.id),title:"立米特賣掉了（扣庫存＋記帳）",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid #fecaca",background:"#fef2f2",color:"var(--red)",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:async function(){
+    if(!isPreview()&&it.q>0&&it.src!=="own")acts.appendChild(h("button",{disabled:pBusy("sale:"+it.id),title:"立米特賣掉了（扣庫存＋記帳）",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid #fecaca",background:"#fef2f2",color:"var(--red)",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:async function(){
       if(pBusy("sale:"+it.id))return;
       const qs=prompt(it.n+"\n賣掉幾件？（庫存 "+it.q+"）","1");if(qs===null)return;
       const q=parseInt(qs,10);if(!(q>0)||q>it.q){showToast("⚠ 數量要在 1～"+it.q);return;}
@@ -1331,7 +1379,8 @@ function renderPartnerTab(content){
         showToast("✅ 已記賣出");loadPartner(true);
       });
     }},"賣出"));
-    if(!isPreview())row.appendChild(h("button",{title:"改進價／建議售價",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",cursor:"pointer"},onClick:()=>{S.modal={t:"pitem",id:it.id};render();}},"✏️"));
+    if(!isPreview())acts.appendChild(h("button",{title:"改進價／建議售價",style:{flexShrink:0,padding:"5px 9px",borderRadius:"8px",border:"1px solid var(--border)",background:"#fff",fontSize:"12px",cursor:"pointer"},onClick:()=>{S.modal={t:"pitem",id:it.id};render();}},"✏️"));
+    if(acts.childNodes.length)row.appendChild(acts);
     ic.appendChild(row);
   });
   content.appendChild(ic);
