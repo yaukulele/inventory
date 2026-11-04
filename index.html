@@ -874,10 +874,10 @@ function pDate(iso){const d=new Date(iso);if(isNaN(d))return String(iso||"").sli
 const P_CAT={sale:"賣出我們的貨",take:"跟我們調貨",service:"我們去安裝／配送",opening:"期初",other:"其他",install:"安裝費",delivery:"配送費",advance:"代墊／幫我們調貨"};
 function pEntryInfo(e){
   const k=e.kind;let dir,title;
-  if(k==="charge"){dir="他們欠";title=P_CAT[e.cat]||"應收";}
+  if(k==="charge"){dir="他們待付";title=P_CAT[e.cat]||"應收";}
   else if(k==="adjust"){dir="調整";title="帳款調整";}
   else if(k==="payment"){dir="收款";title="立米特付給我們";}
-  else if(k==="credit"){dir="我們欠";title=P_CAT[e.cat]||"應付";}
+  else if(k==="credit"){dir="我們待付";title=P_CAT[e.cat]||"應付";}
   else if(k==="payout"){dir="付款";title="我們付給立米特";}
   else{dir="";title=k;}
   const detail=[e.n?e.n+(e.q?" ×"+e.q:"")+(e.unit!=null&&e.q?"（@"+ntw(e.unit)+"）":""):"",e.place||"",e.note||""].filter(Boolean).join(" · ");
@@ -916,10 +916,10 @@ function renderPartnerTab(content){
   const sum=h("div",{className:"card",style:{padding:"14px",marginBottom:"12px"}});
   const grid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px",textAlign:"center"}});
   /* 2026-11-05 阿淵：帳分兩個方向（立米特那份 Excel 就是這樣記）——
-     立米特欠我們（賣掉我們寄庫的貨、跟我們調貨、我們去幫他們安裝）／我們欠立米特（他們幫我們安裝配送、代墊）。
+     立米特待付我們（賣掉我們寄庫的貨、跟我們調貨、我們去幫他們安裝）／我們待付立米特（他們幫我們安裝配送、代墊）。
      貨放在他們那邊不算錢，賣掉才記帳。 */
   const net=bal.net||0;
-  [["立米特欠我們",ntw(bal.due),"var(--red)"],["我們欠立米特",ntw(bal.owed||0),"var(--green)"],
+  [["立米特待付我們",ntw(bal.due),"var(--red)"],["我們待付立米特",ntw(bal.owed||0),"var(--green)"],
    ["相抵後",net>0?"他們付 "+ntw(net):net<0?"我們付 "+ntw(-net):"兩清",net>0?"var(--red)":net<0?"var(--green)":"var(--text)"]].forEach(function(row){
     grid.appendChild(h("div",{style:{background:"#f8fafc",borderRadius:"10px",padding:"10px 6px"}},
       h("div",{style:{fontSize:"11px",color:"var(--sub)"}},row[0]),
@@ -930,9 +930,9 @@ function renderPartnerTab(content){
   const btnRow=h("div",{style:{display:"flex",gap:"8px",marginTop:"12px",flexWrap:"wrap"}});
   if(!isPreview())btnRow.appendChild(h("button",{style:{flex:1,minWidth:"140px",padding:"11px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer"},onClick:()=>{S.modal={t:"transfer",picks:{}};render();}},"📦 調貨過去"));
   if(!isPreview())btnRow.appendChild(h("button",{title:"對方直接匯款／給現金（沒在他們那頁按已付款）時，我們自己登記",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={t:"ppay",kind:"payment"};render();}},"💵 記一筆帳"));
-  if(!isPreview()&&(bal.due||0)>0&&(bal.owed||0)>0)btnRow.appendChild(h("button",{title:"兩邊互欠時，用小的那個數字互相沖掉，剩下差額才要匯",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid #93c5fd",background:"#eff6ff",color:"#1d4ed8",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:async function(){
+  if(!isPreview()&&(bal.due||0)>0&&(bal.owed||0)>0)btnRow.appendChild(h("button",{title:"兩邊互相待付時，用小的那個數字互相沖掉，剩下差額才要匯",style:{padding:"11px 14px",borderRadius:"10px",border:"1px solid #93c5fd",background:"#eff6ff",color:"#1d4ed8",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:async function(){
     const amt=Math.min(bal.due,bal.owed);
-    if(!confirm("相抵結清：兩邊各沖 "+ntw(amt)+"。\n沖完後 "+(bal.due>bal.owed?"立米特還欠我們 "+ntw(bal.due-amt):bal.owed>bal.due?"我們還欠立米特 "+ntw(bal.owed-amt):"兩清")+"。\n會記兩筆紀錄（都標「相抵」），可以作廢。"))return;
+    if(!confirm("相抵結清：兩邊各沖 "+ntw(amt)+"。\n沖完後 "+(bal.due>bal.owed?"立米特還待付我們 "+ntw(bal.due-amt):bal.owed>bal.due?"我們還待付立米特 "+ntw(bal.owed-amt):"兩清")+"。\n會記兩筆紀錄（都標「相抵」），可以作廢。"))return;
     this.disabled=true;
     const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/settle",{method:"POST",body:{}});
     if(!r||!r.ok){this.disabled=false;showToast("⚠ "+((r&&r.error)||"相抵失敗"));return;}
@@ -996,7 +996,7 @@ function renderPartnerTab(content){
             this.disabled=true;
             const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/ledger/"+e.id+"/price",{method:"POST",body:{unit:u}});
             if(!r||!r.ok){this.disabled=false;showToast("⚠ "+((r&&r.error)||"補價失敗"));return;}
-            showToast("✅ 已補價，立米特欠我們 "+ntw(r.balance&&r.balance.due));loadPartner(true);
+            showToast("✅ 已補價，立米特待付我們 "+ntw(r.balance&&r.balance.due));loadPartner(true);
           };
           row.appendChild(ui);row.appendChild(bb);
         } else {
@@ -1067,6 +1067,19 @@ function renderPartnerTab(content){
     lc.appendChild(row);
   });
   content.appendChild(lc);
+
+  // 修改紀錄（阿淵 2026-11-05：要看得到誰改的）—— 兩邊的進貨、賣出、盤點、記帳都會留名字
+  const lgs=st.logs||[];
+  const lgc=h("details",{className:"card",style:{marginBottom:"12px"}});
+  lgc.appendChild(h("summary",{style:{padding:"12px 14px",fontWeight:700,fontSize:"14px",cursor:"pointer"}},"修改紀錄（誰、什麼時候、改了什麼）　"+lgs.length+" 筆"));
+  lgs.slice(0,60).forEach(l=>{
+    const d=new Date(l.t);const when=isNaN(d)?"":(pDate(l.t).slice(5)+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"));
+    lgc.appendChild(h("div",{style:{padding:"7px 14px",borderTop:"1px solid #f1f5f9",fontSize:"12px",display:"flex",gap:"8px"}},
+      h("span",{style:{color:"var(--sub)",whiteSpace:"nowrap",minWidth:"72px"}},when),
+      h("div",{style:{flex:1,minWidth:0}},h("b",{},l.who||""),"　"+(l.act||"")+(l.n?"　"+l.n:"")+(l.pq!==l.nq?"　"+l.pq+"→"+l.nq:""),
+        l.d?h("div",{style:{color:"var(--sub)",fontSize:"11px"}},l.d):"")));
+  });
+  content.appendChild(lgc);
 
   // 他們的庫存
   const items=(st.items||[]).slice().sort((a,b)=>(a.b||"").localeCompare(b.b||"")||(a.n||"").localeCompare(b.n||""));
@@ -1171,7 +1184,7 @@ function renderPartnerPayModal(){
   TYPES.forEach(([k,l])=>seg.appendChild(h("button",{style:{padding:"7px 12px",borderRadius:"16px",border:"1.5px solid "+(k===kind?"var(--blue)":"var(--border)"),background:k===kind?"var(--blue)":"#fff",color:k===kind?"#fff":"var(--sub)",fontSize:"12.5px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={...S.modal,kind:k};render();}},l)));
   box.appendChild(seg);
   box.appendChild(h("div",{style:{background:"#f8fafc",borderRadius:"10px",padding:"9px 11px",fontSize:"11.5px",color:"var(--sub)",lineHeight:1.7,marginBottom:"12px"}},
-    "目前 立米特欠我們 "+ntw(bal.due)+"、我們欠立米特 "+ntw(bal.owed||0)+"。這裡登的直接算數。立米特賣掉我們的貨請在下面庫存那一列按「賣出」（會自動扣庫存）。"));
+    "目前 立米特待付我們 "+ntw(bal.due)+"、我們待付立米特 "+ntw(bal.owed||0)+"。這裡登的直接算數。立米特賣掉我們的貨請在下面庫存那一列按「賣出」（會自動扣庫存）。"));
   box.appendChild(h("div",{style:{fontSize:"12px",fontWeight:600,color:"var(--sub)",marginBottom:"4px"}},"金額"));
   const amtI=h("input",{className:"ipt",type:"number",inputmode:"numeric",min:"1",placeholder:"多少錢"});
   if(PRESET[kind]){
