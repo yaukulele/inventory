@@ -1286,6 +1286,20 @@ function renderPartnerTab(content){
     if(!r||!r.ok){this.disabled=false;showToast("⚠ "+((r&&r.error)||"失敗"));return;}
     showToast("✅ 已對應 "+r.changed+" 筆");loadPartner(true);
   }},"自動配對"));
+  /* 還沒定調貨價、但已經對到我們商品的 → 一鍵用我們那支的「調貨價」（沒填就用成本價）帶進去。
+     只帶我們這邊真的有填價的，送出前列出來給人看過才寫。 */
+  if(!isPreview()&&canSeeCost()){
+    const cand=items.filter(x=>x.src!=="own"&&x.cost===null&&x.yid).map(x=>{const o=(S.items||[]).find(y=>y.id===x.yid);const v=o?parseInt(tpriceOf(o),10):NaN;return o&&v>0?{x,o,v}:null;}).filter(Boolean);
+    if(cand.length)ih.appendChild(h("button",{disabled:pBusy("fillcost"),style:{padding:"6px 11px",borderRadius:"8px",border:"1px solid #fdba74",background:"#fff7ed",color:"#9a3412",fontSize:"12px",fontWeight:700,cursor:"pointer"},onClick:()=>{
+      const list=cand.slice(0,30).map(c=>"・"+c.x.n+" → "+ntw(c.v)+"（我們 "+c.o.n+"）").join("\n")+(cand.length>30?"\n…共 "+cand.length+" 筆":"");
+      if(!confirm("用我們的調貨價／成本價帶入 "+cand.length+" 筆還沒定價的寄庫貨：\n\n"+list+"\n\n之後立米特賣掉就照這個價記帳。確定？"))return;
+      pRun("fillcost",async()=>{
+        let ok=0,fail=0;
+        for(const c of cand){const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/item/"+c.x.id,{method:"PUT",body:{cost:c.v}});if(r&&r.ok)ok++;else fail++;}
+        showToast("✅ 已帶入 "+ok+" 筆"+(fail?"，"+fail+" 筆失敗":""));loadPartner(true);
+      });
+    }},"帶入調貨價（"+cand.length+"）"));
+  }
   ic.appendChild(ih);
   if(!items.length)ic.appendChild(h("div",{style:{padding:"14px",fontSize:"12px",color:"var(--sub)"}},"還沒有庫存。用上面的「調貨過去」把貨撥給他們。"));
   items.forEach(it=>{
@@ -1629,7 +1643,7 @@ function renderPartnerItemModal(){
     const body={price:price};if(!costBlank&&!costSame)body.cost=cost;
     const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/item/"+it.id,{method:"PUT",body:body});
     if(!r||!r.ok){this.disabled=false;this.style.opacity="";this.textContent="儲存";showToast("⚠ "+((r&&r.error)||"存不進去"));return;}
-    S.modal=null;showToast("✅ 已更新（帳務金額沒有變動）");loadPartner(true);
+    S.modal=null;showToast(r.priced?("✅ 已更新，之前賣掉還沒定價的 "+r.priced+" 筆也照這個價記帳了"):"✅ 已更新（已記過的帳不會變）");loadPartner(true);
   };
   box.appendChild(go);
   return h("div",{className:"modal-bg"},h("div",{className:"modal-overlay",onClick:close}),box);
