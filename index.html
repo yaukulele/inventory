@@ -1454,7 +1454,7 @@ function renderPartnerPayModal(){
   // 2026-11-07 阿淵：送貨／安裝／調貨 是同一格標籤「送貨安裝調貨」，裡面每筆再分三種（資料值 delivery/install/advance 不變）
   const SIT=[["delivery","送貨"],["install","安裝"],["advance","調貨"]];
   const isSit=["delivery","install","advance"].includes(kind);
-  const PRESET={service:[500,1200,1500],install:[1200,1500],delivery:[500]};
+  const PRESET={service:[500,1000,1200,1500,2000],install:[500,1000,1200,1500,2000],delivery:[500,1000,2000],advance:[500,1000,2000]}; // 2026-11-07 阿淵加 500／1000／2000
   const box=h("div",{className:"modal-box",style:{maxWidth:"440px"}});
   box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"10px"}},
     h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1}},"記一筆帳"),
@@ -1473,7 +1473,7 @@ function renderPartnerPayModal(){
   box.appendChild(h("div",{style:{fontSize:"12px",fontWeight:600,color:"var(--sub)",marginBottom:"4px"}},"金額"));
   const amtI=h("input",{className:"ipt",type:"number",inputmode:"numeric",min:"1",placeholder:"多少錢"});
   if(PRESET[kind]){
-    const pr=h("div",{style:{display:"flex",gap:"6px",marginBottom:"6px"}});
+    const pr=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"6px",marginBottom:"6px"}});
     PRESET[kind].forEach(v=>pr.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"14px",border:"1px solid var(--border)",background:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer"},onClick:()=>{amtI.value=String(v);}},ntw(v))));
     box.appendChild(pr);
   }
