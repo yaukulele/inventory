@@ -873,7 +873,7 @@ function ntw(n){return "$"+(Number(n)||0).toLocaleString();}
 function pDate(iso){const d=new Date(iso);if(isNaN(d))return String(iso||"").slice(0,10);
   return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 
-const P_CAT={sale:"賣出我們的貨",take:"跟我們調貨",service:"我們去安裝／配送",opening:"期初",other:"其他",install:"安裝費",delivery:"配送費",advance:"代墊／幫我們調貨"};
+const P_CAT={sale:"賣出我們的貨",take:"跟我們調貨",service:"我們去安裝／配送",opening:"期初",other:"其他",install:"送貨安裝調貨・安裝",delivery:"送貨安裝調貨・送貨",advance:"送貨安裝調貨・調貨"};
 function pEntryInfo(e){
   const k=e.kind;let dir,title;
   if(k==="charge"){dir="他們待付";title=P_CAT[e.cat]||"應收";}
@@ -1062,7 +1062,7 @@ function renderPartnerTab(content){
   const sum=h("div",{className:"card",style:{padding:"14px",marginBottom:"12px"}});
   const grid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px",textAlign:"center"}});
   /* 2026-11-05 阿淵：帳分兩個方向（立米特那份 Excel 就是這樣記）——
-     立米特待付我們（賣掉我們寄庫的貨、跟我們調貨、我們去幫他們安裝）／我們待付立米特（他們幫我們安裝配送、代墊）。
+     立米特待付我們（賣掉我們寄庫的貨、跟我們調貨、我們去幫他們安裝）／我們待付立米特（他們幫我們送貨安裝調貨）。
      貨放在他們那邊不算錢，賣掉才記帳。 */
   const net=bal.net||0;
   [["立米特待付我們",ntw(bal.due),"var(--red)"],["我們待付立米特",ntw(bal.owed||0),"var(--green)"],
@@ -1450,15 +1450,24 @@ function renderPartnerPayModal(){
   const close=()=>{S.modal=null;render();};
   /* 我們這邊登的帳都直接算數（不用再確認一次）。
      立米特自己在他們那頁登的，會出現在「待處理」等我們按確認。 */
-  const TYPES=[["payment","收到立米特付款"],["payout","我們付給立米特"],["service","我們去幫他們安裝／配送"],["install","立米特幫我們安裝"],["delivery","立米特幫我們配送"],["advance","立米特代墊／幫我們調貨"]];
+  const TYPES=[["payment","收到立米特付款"],["payout","我們付給立米特"],["service","我們去幫他們安裝／配送"],["sit","付立米特：送貨安裝調貨"]];
+  // 2026-11-07 阿淵：送貨／安裝／調貨 是同一格標籤「送貨安裝調貨」，裡面每筆再分三種（資料值 delivery/install/advance 不變）
+  const SIT=[["delivery","送貨"],["install","安裝"],["advance","調貨"]];
+  const isSit=["delivery","install","advance"].includes(kind);
   const PRESET={service:[500,1200,1500],install:[1200,1500],delivery:[500]};
   const box=h("div",{className:"modal-box",style:{maxWidth:"440px"}});
   box.appendChild(h("div",{style:{display:"flex",alignItems:"center",marginBottom:"10px"}},
     h("h3",{style:{fontSize:"17px",fontWeight:700,flex:1}},"記一筆帳"),
     h("button",{style:{background:"none",border:"none",color:"var(--sub)",cursor:"pointer",fontSize:"18px"},onClick:close},"✕")));
   const seg=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"6px",marginBottom:"10px"}});
-  TYPES.forEach(([k,l])=>seg.appendChild(h("button",{style:{padding:"7px 12px",borderRadius:"16px",border:"1.5px solid "+(k===kind?"var(--blue)":"var(--border)"),background:k===kind?"var(--blue)":"#fff",color:k===kind?"#fff":"var(--sub)",fontSize:"12.5px",fontWeight:600,cursor:"pointer"},onClick:()=>{S.modal={...S.modal,kind:k};render();}},l)));
+  const pill=(k,l,on,fn)=>h("button",{style:{padding:"7px 12px",borderRadius:"16px",border:"1.5px solid "+(on?"var(--blue)":"var(--border)"),background:on?"var(--blue)":"#fff",color:on?"#fff":"var(--sub)",fontSize:"12.5px",fontWeight:600,cursor:"pointer"},onClick:fn},l);
+  TYPES.forEach(([k,l])=>{const on=k==="sit"?isSit:k===kind;seg.appendChild(pill(k,l,on,()=>{S.modal={...S.modal,kind:k==="sit"?(isSit?kind:"delivery"):k};render();}));});
   box.appendChild(seg);
+  if(isSit){
+    const sub=h("div",{style:{display:"flex",gap:"6px",margin:"-2px 0 10px",alignItems:"center"}},h("span",{style:{fontSize:"12px",color:"var(--sub)",fontWeight:600}},"這筆是"));
+    SIT.forEach(([k,l])=>sub.appendChild(pill(k,l,k===kind,()=>{S.modal={...S.modal,kind:k};render();})));
+    box.appendChild(sub);
+  }
   box.appendChild(h("div",{style:{background:"#f8fafc",borderRadius:"10px",padding:"9px 11px",fontSize:"11.5px",color:"var(--sub)",lineHeight:1.7,marginBottom:"12px"}},
     "目前 立米特待付我們 "+ntw(bal.due)+"、我們待付立米特 "+ntw(bal.owed||0)+"。這裡登的直接算數。立米特賣掉我們的貨請在下面庫存那一列按「賣出」（會自動扣庫存）。"));
   box.appendChild(h("div",{style:{fontSize:"12px",fontWeight:600,color:"var(--sub)",marginBottom:"4px"}},"金額"));
@@ -1471,18 +1480,18 @@ function renderPartnerPayModal(){
   box.appendChild(amtI);
   const g=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginTop:"10px"}});
   const placeI=h("input",{className:"ipt",placeholder:"客人／地點"});
-  const noteI=h("input",{className:"ipt",placeholder:kind==="payment"?"例：11/5 匯款 尾號1234":"備註"});
+  const noteI=h("input",{className:"ipt",placeholder:kind==="payment"?"例：11/5 匯款 尾號1234":isSit?(kind==="advance"?"調了什麼貨（必填）":"訂單編號／備註"):"備註"});
   g.appendChild(placeI);g.appendChild(noteI);box.appendChild(g);
   const go=h("button",{style:{width:"100%",padding:"12px",borderRadius:"10px",border:"none",background:"var(--green)",color:"#fff",fontSize:"14px",fontWeight:700,cursor:"pointer",marginTop:"14px"}},"登記");
   go.onclick=async function(){
     const amount=parseInt(amtI.value,10)||0;
     if(!(amount>0)){showToast("⚠ 金額要大於 0");return;}
     const note=(noteI.value||"").trim(),place=(placeI.value||"").trim();
-    if(kind==="advance"&&!note){showToast("⚠ 代墊要寫備註（是什麼貨）");return;}
+    if(kind==="advance"&&!note){showToast("⚠ 調貨要寫備註（調了什麼貨）");return;}
     const body= kind==="payment"||kind==="payout" ? {kind,amount,note,place}
       : kind==="service" ? {kind:"charge",cat:"service",amount,note,place}
       : {kind:"credit",cat:kind,amount,note,place};
-    const lbl=(TYPES.find(t=>t[0]===kind)||[])[1];
+    const lbl=isSit?"付立米特 送貨安裝調貨・"+(SIT.find(t=>t[0]===kind)||[])[1]:(TYPES.find(t=>t[0]===kind)||[])[1];
     if(!confirm(lbl+" "+ntw(amount)+"，確定登記？"))return;
     this.disabled=true;this.style.opacity=".5";this.textContent="⏳ 登記中…";
     const r=await partnerApi("/api/ya/partner/"+PARTNER_ID+"/ledger",{method:"POST",body:body});
