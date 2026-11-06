@@ -920,6 +920,13 @@ function partnerQtyByYid(){
   S._pqCache={st,m};return m;
 }
 const _pNorm=s=>String(s||"").toUpperCase().replace(/[^0-9A-Z]/g,"");
+/* 搜尋框共用：注音／倉頡選字中（composition）不要觸發搜尋重畫 —— 重畫會把還沒選定的注音直接打進框裡
+   （實測 立米特搜尋、對應視窗：打「鋼琴」變成「ㄍㄍㄤ鋼琴」）。選完字（compositionend）才算一次輸入。 */
+function imeInput(el,fn){
+  el.addEventListener("compositionstart",function(){this.dataset.composing="true";});
+  el.addEventListener("compositionend",function(){this.dataset.composing="false";fn.call(this);});
+  el.addEventListener("input",function(e){if(e.isComposing||this.dataset.composing==="true")return;fn.call(this);});
+}
 /* 自動配對：把立米特品名切成一段一段（空白分開、中文去掉），
    我們的型號要「剛好等於」其中連續 1～3 段接起來 —— 不做子字串（OM-10 不會去配 OM10C）。
    品牌：我們那筆有品牌、而且立米特品名裡也寫了某個品牌時，兩個要一樣。
@@ -962,7 +969,7 @@ function renderPartnerLinkModal(){
   box.appendChild(h("div",{style:{fontSize:"12px",color:"var(--sub)",marginBottom:"8px"}},"立米特的品項：「"+(md.pn||"")+"」"));
   const si=h("input",{className:"ipt",placeholder:"搜尋我們的商品（型號／品牌）",style:{marginBottom:"8px"}});
   si.value=md.kw||"";
-  si.addEventListener("input",function(){clearTimeout(window._plTimer);const v=this.value;window._plTimer=setTimeout(()=>{if(!S.modal||S.modal.t!=="plink")return;S.modal={...S.modal,kw:v};render();setTimeout(()=>{const x=document.querySelector(".modal-box input.ipt");if(x){x.focus();x.setSelectionRange(v.length,v.length);}},0);},200);});
+  imeInput(si,function(){clearTimeout(window._plTimer);const v=this.value;window._plTimer=setTimeout(()=>{if(!S.modal||S.modal.t!=="plink")return;S.modal={...S.modal,kw:v};render();setTimeout(()=>{const x=document.querySelector(".modal-box input.ipt");if(x){x.focus();x.setSelectionRange(v.length,v.length);}},0);},200);});
   box.appendChild(si);
   const _kn=v=>String(v||"").toUpperCase().replace(/[\s\-_/．.()（）]/g,"");const kw=_kn(md.kw||"");
   const list=h("div",{style:{maxHeight:"300px",overflowY:"auto",border:"1px solid var(--border)",borderRadius:"10px"}});
@@ -1339,7 +1346,7 @@ function renderPartnerTab(content){
     top.appendChild(sw);
     const si=h("input",{className:"ipt",placeholder:"搜尋立米特的貨",style:{flex:1,padding:"6px 10px",fontSize:"13px",minWidth:0}});
     si.value=S._pKw||"";
-    si.addEventListener("input",function(){clearTimeout(window._pkTimer);const v=this.value;window._pkTimer=setTimeout(()=>{if(S.tab!=="partner")return;S._pKw=v;render();setTimeout(()=>{const x=document.getElementById("pKwInput");if(x){x.focus();x.setSelectionRange(v.length,v.length);}},0);},250);});
+    imeInput(si,function(){clearTimeout(window._pkTimer);const v=this.value;window._pkTimer=setTimeout(()=>{if(S.tab!=="partner")return;S._pKw=v;render();setTimeout(()=>{const x=document.getElementById("pKwInput");if(x){x.focus();x.setSelectionRange(v.length,v.length);}},0);},250);});
     si.id="pKwInput";
     top.appendChild(si);
     bar.appendChild(top);
@@ -1771,7 +1778,9 @@ function renderTransferModal(){
 
   const si=h("input",{className:"ipt",placeholder:"搜尋要調的商品（品名／品牌／分類）",style:{marginBottom:"8px"}});
   si.value=S.modal.kw||"";
-  si.addEventListener("input",function(){clearTimeout(window._tfTimer);const v=this.value;window._tfTimer=setTimeout(()=>{if(!S.modal||S.modal.t!=="transfer")return;S.modal={...S.modal,kw:v};render();},150);});
+  // 2026-11-07：原本重畫後游標就不見（打一個字就跳出搜尋框）→ 給 id 讓 render 還原焦點，並手動補 focus；注音選字中不重畫
+  si.id="tfKwInput";
+  imeInput(si,function(){clearTimeout(window._tfTimer);const v=this.value;window._tfTimer=setTimeout(()=>{if(!S.modal||S.modal.t!=="transfer")return;S.modal={...S.modal,kw:v};render();setTimeout(()=>{const x=document.getElementById("tfKwInput");if(x){x.focus();try{x.setSelectionRange(v.length,v.length);}catch(_){}}},0);},150);});
   box.appendChild(si);
 
   const pool=(S.items||[]).filter(x=>(x.q||0)>0&&!picks[x.id]);
